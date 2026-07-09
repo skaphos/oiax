@@ -1,0 +1,9 @@
+version = 1
+SPDX-PackageName = "oiax"
+SPDX-PackageDownloadLocation = "https://github.com/skaphos/oiax"
+
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Skaphos"
+SPDX-License-Identifier = "MIT"

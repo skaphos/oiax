@@ -1,0 +1,92 @@
+name: Oiax
+description: >-
+  Declarative Git branch promotion reconciler. Ensures the pull requests
+  required to move changes through a declared promotion graph exist —
+  exactly one active managed request per diverged edge.
+author: Skaphos
+
+branding:
+  icon: git-pull-request
+  color: blue
+
+# The Action is a thin wrapper around the oiax release binary. No
+# promotion logic lives in JavaScript, shell, or Action YAML.
+#
+# Token guidance (load-bearing): pull requests created with the default
+# GITHUB_TOKEN do not trigger `on: pull_request` workflows, so managed
+# requests get no CI and can never merge under branch protection. Use a
+# GitHub App installation token in production; see docs/architecture.md.
+
+inputs:
+  mode:
+    description: "What to run: validate, plan, or reconcile."
+    required: false
+    default: reconcile
+  config:
+    description: Path to the PromotionGraph configuration file.
+    required: false
+    default: .oiax.yaml
+  config-ref:
+    description: >-
+      Ref to read configuration from. Defaults to the repository default
+      branch; configuration on the triggering ref is deliberately ignored.
+    required: false
+    default: ""
+  token:
+    description: >-
+      Token used for forge API calls. Prefer a GitHub App installation
+      token; GITHUB_TOKEN works but created requests trigger no CI.
+    required: false
+    default: ${{ github.token }}
+  version:
+    description: >-
+      Oiax release version to download (for example v0.1.0). Required
+      until the first release pins a default here.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Download oiax
+      shell: bash
+      env:
+        OIAX_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        case "${RUNNER_OS}-${RUNNER_ARCH}" in
+          Linux-X64)    asset="oiax_${OIAX_VERSION#v}_linux_amd64.tar.gz" ;;
+          Linux-ARM64)  asset="oiax_${OIAX_VERSION#v}_linux_arm64.tar.gz" ;;
+          macOS-X64)    asset="oiax_${OIAX_VERSION#v}_darwin_amd64.tar.gz" ;;
+          macOS-ARM64)  asset="oiax_${OIAX_VERSION#v}_darwin_arm64.tar.gz" ;;
+          *) echo "unsupported runner: ${RUNNER_OS}-${RUNNER_ARCH}" >&2; exit 1 ;;
+        esac
+        base="https://github.com/skaphos/oiax/releases/download/${OIAX_VERSION}"
+        dir="$(mktemp -d)"
+        curl -fsSL -o "${dir}/${asset}" "${base}/${asset}"
+        curl -fsSL -o "${dir}/checksums.txt" "${base}/checksums.txt"
+        (cd "${dir}" && grep " ${asset}\$" checksums.txt | sha256sum -c -)
+        tar -xzf "${dir}/${asset}" -C "${dir}" oiax
+        install -m 0755 "${dir}/oiax" /usr/local/bin/oiax 2>/dev/null || {
+          mkdir -p "${HOME}/.local/bin"
+          install -m 0755 "${dir}/oiax" "${HOME}/.local/bin/oiax"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+        }
+
+    - name: Run oiax
+      shell: bash
+      env:
+        OIAX_MODE: ${{ inputs.mode }}
+        OIAX_CONFIG: ${{ inputs.config }}
+        OIAX_CONFIG_REF: ${{ inputs.config-ref }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        case "${OIAX_MODE}" in
+          validate|plan|reconcile) ;;
+          *) echo "invalid mode '${OIAX_MODE}' (want validate, plan, or reconcile)" >&2; exit 1 ;;
+        esac
+        args=("${OIAX_MODE}" --config "${OIAX_CONFIG}")
+        if [ -n "${OIAX_CONFIG_REF}" ]; then
+          args+=(--config-ref "${OIAX_CONFIG_REF}")
+        fi
+        oiax "${args[@]}"

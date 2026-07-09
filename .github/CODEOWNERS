@@ -1,0 +1,14 @@
+# Default owner for repository changes.
+* @mfacenet
+
+# Keep release automation explicitly code-owner gated.
+/.github/workflows/release.yml @mfacenet
+/.github/workflows/release-please.yml @mfacenet
+/release-please-config.json @mfacenet
+/.release-please-manifest.json @mfacenet
+/RELEASE.md @mfacenet
+
+# The composite Action and the public configuration API are compatibility
+# surfaces.
+/action.yml @mfacenet
+/pkg/api/ @mfacenet
