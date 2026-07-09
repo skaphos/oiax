@@ -1,0 +1,44 @@
+version: "2"
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - unused
+    - misspell
+    - depguard
+  settings:
+    errcheck:
+      # Human-facing terminal writes; machine-readable output (JSON
+      # plans) must still check its writes explicitly.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    depguard:
+      rules:
+        # The engine's purity rules are structural: observation happens
+        # before planning, application after. The planner must never be
+        # able to reach the git layer or a forge provider.
+        engine-purity:
+          list-mode: lax
+          files:
+            - "**/internal/engine/**"
+          deny:
+            - pkg: "github.com/skaphos/oiax/internal/git"
+              desc: "engine must not call git; branch state is injected as observed EdgeState"
+            - pkg: "github.com/skaphos/oiax/internal/forge"
+              desc: "engine must not call forge providers; requests are injected as observed state"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+run:
+  timeout: 5m
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

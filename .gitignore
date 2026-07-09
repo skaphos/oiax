@@ -1,0 +1,33 @@
+# Binaries
+/oiax
+/oiax.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test output
+coverage.out
+cover*.out
+*.coverprofile
+*.test
+
+# Build artifacts
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.claude
+.codex
+.cursor/
+CLAUDE.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local junk
+.cache/

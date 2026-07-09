@@ -1,0 +1,137 @@
+package cli
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// run executes the command tree with args and returns stdout+stderr and
+// the returned error.
+func run(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	root := NewRootCommand()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(args)
+	err := root.Execute()
+	return out.String(), err
+}
+
+func writeConfig(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), ".oiax.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+const exampleConfig = `apiVersion: oiax.skaphos.dev/v1alpha1
+kind: PromotionGraph
+metadata:
+  name: environments
+spec:
+  branches:
+    development:
+      role: source
+    test: {}
+    main:
+      role: terminal
+  promotions:
+    - from: development
+      to: test
+    - from: test
+      to: main
+  backflow:
+    sources: [main]
+    target: development
+`
+
+func TestValidateCommand(t *testing.T) {
+	out, err := run(t, "validate", "--config", writeConfig(t, exampleConfig))
+	if err != nil {
+		t.Fatalf("validate: %v\n%s", err, out)
+	}
+	for _, want := range []string{"Configuration valid", `"environments"`, "3 branches", "2 promotion edges", "backflow enabled"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestValidateCommandReportsEveryViolation(t *testing.T) {
+	broken := strings.Replace(exampleConfig, "name: environments", "name: \"\"", 1)
+	broken = strings.Replace(broken, "sources: [main]", "sources: [main, development]", 1)
+
+	out, err := run(t, "validate", "--config", writeConfig(t, broken))
+	if err == nil {
+		t.Fatalf("validate succeeded, want error:\n%s", out)
+	}
+	for _, want := range []string{"metadata.name is required", "backflow source and the backflow target"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestGraphCommand(t *testing.T) {
+	out, err := run(t, "graph", "--config", writeConfig(t, exampleConfig))
+	if err != nil {
+		t.Fatalf("graph: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"Promotion graph: environments",
+		"development  (source)",
+		"development -> test",
+		"Backflow (cherry-pick):",
+		"main -> development",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPlanAndReconcileAreHonestAboutScope(t *testing.T) {
+	for _, command := range []string{"plan", "reconcile"} {
+		t.Run(command, func(t *testing.T) {
+			out, err := run(t, command, "--config", writeConfig(t, exampleConfig))
+			if err == nil {
+				t.Fatalf("%s succeeded, want not-implemented error:\n%s", command, out)
+			}
+			if !strings.Contains(err.Error(), "not implemented") {
+				t.Errorf("error = %v, want mention of not implemented", err)
+			}
+		})
+	}
+}
+
+func TestVersionCommand(t *testing.T) {
+	out, err := run(t, "version")
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if !strings.Contains(out, "oiax dev") {
+		t.Errorf("output = %q, want dev version", out)
+	}
+}
+
+func TestGenDocs(t *testing.T) {
+	outPath := filepath.Join(t.TempDir(), "cli.md")
+	if _, err := run(t, "gen", "docs", "--out", outPath); err != nil {
+		t.Fatalf("gen docs: %v", err)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"# CLI reference", "## oiax validate", "## oiax reconcile", "--detailed-exitcode"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("generated reference missing %q", want)
+		}
+	}
+}

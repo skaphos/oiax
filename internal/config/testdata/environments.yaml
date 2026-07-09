@@ -1,0 +1,32 @@
+apiVersion: oiax.skaphos.dev/v1alpha1
+kind: PromotionGraph
+
+metadata:
+  name: environments
+
+spec:
+  branches:
+    development:
+      role: source
+    test: {}
+    qa: {}
+    production-stage-1: {}
+    main:
+      role: terminal
+
+  promotions:
+    - from: development
+      to: test
+    - from: test
+      to: qa
+    - from: qa
+      to: production-stage-1
+    - from: production-stage-1
+      to: main
+
+  backflow:
+    sources:
+      - production-stage-1
+      - main
+    target: development
+    strategy: cherry-pick
