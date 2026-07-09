@@ -31,3 +31,7 @@ Thumbs.db
 
 # Local junk
 .cache/
+
+# Graphify
+graphify-out/
+.graphify_*
