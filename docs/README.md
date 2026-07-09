@@ -31,4 +31,4 @@ Architecture Decision Records live in [adr/](adr/):
 
 - [Contributing](../CONTRIBUTING.md)
 - [Release process](../RELEASE.md)
-- [Changelog](../CHANGELOG.md)
+- [Releases / changelog](https://github.com/skaphos/oiax/releases)

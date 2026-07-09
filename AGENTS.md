@@ -60,5 +60,6 @@ drift, and a GoReleaser snapshot build.
 
 ## Release constraints
 
-Releases are cut by automation (see `RELEASE.md`). Do not hand-edit
-`CHANGELOG.md`, `.release-please-manifest.json`, or push tags.
+Releases are cut by automation (see `RELEASE.md`; svu-based release PR
+flow, not Google's release-please despite the manifest filename). Do not
+hand-edit `.release-please-manifest.json` or push tags.

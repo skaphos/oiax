@@ -35,7 +35,14 @@ checksum:
   name_template: checksums.txt
 
 changelog:
-  disable: true # CHANGELOG.md is release-please managed
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
 
 release:
   draft: false
