@@ -32,6 +32,5 @@ Thumbs.db
 # Local junk
 .cache/
 
-# Graphify
-graphify-out/
+# Graphify: outputs are committed; internal caches and temp files are not.
 .graphify_*
