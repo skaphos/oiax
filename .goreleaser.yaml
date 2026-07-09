@@ -35,15 +35,10 @@ checksum:
   name_template: checksums.txt
 
 changelog:
-  sort: asc
-  use: github
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
-      - "^ci:"
-      - "^chore:"
+  disable: true # CHANGELOG.md is release-please managed
 
 release:
   draft: false
-  prerelease: auto
+  make_latest: true
+  footer: |
+    See [CHANGELOG.md](https://github.com/skaphos/oiax/blob/{{ .Tag }}/CHANGELOG.md) for the full release notes.
