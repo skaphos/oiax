@@ -24,12 +24,29 @@ var ErrNotImplemented = errors.New("not implemented")
 // RequestID identifies a change request within a provider.
 type RequestID string
 
+// RequestState narrows managed-request discovery to open or merged
+// requests. The equivalence ladder's baseline rung needs merged managed
+// requests (their recorded sourceHead is the promotion baseline), so
+// discovery must be able to ask for them in addition to open ones.
+type RequestState string
+
+const (
+	// RequestStateOpen is the zero value and the common case: only open
+	// managed requests.
+	RequestStateOpen RequestState = ""
+	// RequestStateMerged selects closed requests that were merged, for the
+	// baseline rung of the equivalence ladder.
+	RequestStateMerged RequestState = "merged"
+)
+
 // RequestFilter narrows managed-request discovery.
 type RequestFilter struct {
 	// Graph restricts results to requests managed for a named graph.
 	Graph string
 	// Type restricts results to promotion or backflow requests.
 	Type engine.RequestType
+	// State selects open (zero value) or merged managed requests.
+	State RequestState
 }
 
 // CreateRequest describes a change request to create. Providers attach

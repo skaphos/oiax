@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -23,10 +21,30 @@ Exit codes (the compatibility contract, following terraform plan):
   2  valid plan with pending actions (only with --detailed-exitcode)`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := loadGraph(cmd, opts); err != nil {
+			g, err := loadGraph(cmd, opts)
+			if err != nil {
 				return err
 			}
-			return fmt.Errorf("plan: edge evaluation is %w", errNotImplemented)
+			coord, err := buildCoordinator(cmd, g)
+			if err != nil {
+				return err
+			}
+			plan, err := coord.Plan(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if err := renderPlan(cmd, opts, plan); err != nil {
+				return err
+			}
+			writeStepSummary(cmd, plan)
+
+			// Every emitted action is non-NoOp, so any action means the graph
+			// is not fully in sync. With --detailed-exitcode that is exit 2
+			// (silent); otherwise a successful plan is exit 0.
+			if len(plan.Actions) > 0 && detailedExitCode {
+				return exitCodeError{code: 2}
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&detailedExitCode, "detailed-exitcode", false, "exit 2 when the plan contains pending actions")

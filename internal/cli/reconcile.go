@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -21,10 +19,33 @@ Exit codes (the compatibility contract):
   3  converged with reported divergence requiring human attention`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := loadGraph(cmd, opts); err != nil {
+			g, err := loadGraph(cmd, opts)
+			if err != nil {
 				return err
 			}
-			return fmt.Errorf("reconcile: edge evaluation and application are %w", errNotImplemented)
+			coord, err := buildCoordinator(cmd, g)
+			if err != nil {
+				return err
+			}
+			plan, err := coord.Plan(cmd.Context())
+			if err != nil {
+				return err
+			}
+			// Render the plan before applying so a failed apply is still
+			// explainable from the command's output.
+			if err := renderPlan(cmd, opts, plan); err != nil {
+				return err
+			}
+			writeStepSummary(cmd, plan)
+
+			res, err := coord.Apply(cmd.Context(), plan)
+			if err != nil {
+				return err
+			}
+			if res.Divergence {
+				return exitCodeError{code: 3, msg: "converged with reported divergence"}
+			}
+			return nil
 		},
 	}
 }
