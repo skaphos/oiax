@@ -157,7 +157,7 @@ func (r *Runner) MergeBase(ctx context.Context, a, b string) (string, error) {
 }
 
 // UniqueCommits returns commits reachable from branch but not from base
-// (git range base..branch), newest first, with subjects. An empty slice
+// (git range base..branch), newest first, with subjects. A nil slice
 // means the range is empty — the reachability rung's "in sync" signal.
 func (r *Runner) UniqueCommits(ctx context.Context, base, branch string) ([]Commit, error) {
 	if err := r.CheckRefFormat(ctx, base); err != nil {

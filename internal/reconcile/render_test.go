@@ -3,6 +3,8 @@ package reconcile
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -73,6 +75,28 @@ func TestRenderTextListsActions(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("text missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// failingWriter fails every write, standing in for a broken pipe or full
+// disk so the renderers' error propagation can be exercised.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
+
+func TestRenderersPropagateWriteError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		fn   func(io.Writer, engine.Plan) error
+	}{
+		{"text", RenderText},
+		{"markdown", RenderMarkdown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.fn(failingWriter{}, samplePlan()); err == nil {
+				t.Fatal("expected write error to propagate, got nil")
+			}
+		})
 	}
 }
 

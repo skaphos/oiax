@@ -29,6 +29,28 @@ func TestNewLoggerAnnotatesWarningsOnlyWhenSinkSet(t *testing.T) {
 	}
 }
 
+func TestAnnotationEscapesWorkflowCommandChars(t *testing.T) {
+	var logOut, annOut bytes.Buffer
+	logger := NewLogger("text", &annOut, &logOut)
+
+	// A message with a newline, a percent, and an embedded workflow command.
+	logger.Warn("line1\nline2 is 100% ::error:: sneaky")
+
+	ann := strings.TrimRight(annOut.String(), "\n")
+	if strings.Contains(ann, "\n") {
+		t.Fatalf("annotation must stay one line; unescaped newline leaked:\n%q", ann)
+	}
+	if !strings.HasPrefix(ann, "::warning::") {
+		t.Fatalf("expected ::warning:: prefix:\n%q", ann)
+	}
+	if !strings.Contains(ann, "line1%0Aline2") {
+		t.Errorf("newline not escaped to %%0A:\n%q", ann)
+	}
+	if !strings.Contains(ann, "100%25") {
+		t.Errorf("percent not escaped to %%25:\n%q", ann)
+	}
+}
+
 func TestNewLoggerNoAnnotationSink(t *testing.T) {
 	var logOut bytes.Buffer
 	logger := NewLogger("json", nil, &logOut)

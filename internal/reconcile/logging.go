@@ -42,11 +42,23 @@ type annotationHandler struct {
 func (h *annotationHandler) Handle(ctx context.Context, r slog.Record) error {
 	switch {
 	case r.Level >= slog.LevelError:
-		fmt.Fprintf(h.out, "::error::%s\n", r.Message)
+		fmt.Fprintf(h.out, "::error::%s\n", escapeAnnotation(r.Message))
 	case r.Level >= slog.LevelWarn:
-		fmt.Fprintf(h.out, "::warning::%s\n", r.Message)
+		fmt.Fprintf(h.out, "::warning::%s\n", escapeAnnotation(r.Message))
 	}
 	return h.Handler.Handle(ctx, r)
+}
+
+// escapeAnnotation percent-encodes the characters GitHub Actions treats
+// specially in a workflow-command message: '%', CR, and LF. Without this a
+// message containing a newline would truncate the annotation or let a
+// crafted message inject a further ::workflow:: command. '%' is escaped
+// first so the encodings it introduces are not re-escaped.
+func escapeAnnotation(s string) string {
+	s = strings.ReplaceAll(s, "%", "%25")
+	s = strings.ReplaceAll(s, "\r", "%0D")
+	s = strings.ReplaceAll(s, "\n", "%0A")
+	return s
 }
 
 // WithAttrs and WithGroup re-wrap so the annotation behavior survives
