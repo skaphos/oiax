@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -93,6 +94,53 @@ func TestGraphCommand(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestValidateWithConfigRefReadsPinnedRef(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	gitCmd := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitCmd("init", "-q", "-b", "main")
+	gitCmd("config", "user.name", "test")
+	gitCmd("config", "user.email", "test@example.invalid")
+
+	if err := os.WriteFile(filepath.Join(dir, ".oiax.yaml"), []byte(exampleConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd("add", ".oiax.yaml")
+	gitCmd("commit", "-q", "-m", "add config")
+
+	// Break the working-tree copy: --config-ref must read the committed
+	// version and still validate, proving the pinned-ref boundary.
+	if err := os.WriteFile(filepath.Join(dir, ".oiax.yaml"), []byte("not: valid oiax config"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, "validate", "--config-ref", "main")
+	if err != nil {
+		t.Fatalf("validate --config-ref main: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Configuration valid") {
+		t.Errorf("output missing validation success:\n%s", out)
+	}
+
+	// Without --config-ref the broken working-tree file is read.
+	if _, err := run(t, "validate"); err == nil {
+		t.Error("validate without --config-ref read the pinned version, want working-tree read to fail")
+	}
+
+	// Option-shaped refs are rejected before reaching git.
+	if _, err := run(t, "validate", "--config-ref", "--output=/tmp/x"); err == nil {
+		t.Error("validate accepted an option-shaped ref")
 	}
 }
 

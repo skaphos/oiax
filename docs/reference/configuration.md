@@ -52,7 +52,7 @@ generated [CLI reference](cli.md) for per-command flags):
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--config` | `.oiax.yaml` | Path to the configuration file. |
-| `--config-ref` | repository default branch | Ref configuration is read from. |
+| `--config-ref` | unset (working-tree file) | Ref the configuration is read from, via `git show <ref>:<path>`. In CI, pin this to the repository default branch; resolving it automatically is roadmap scope. |
 | `--output`, `-o` | `text` | Output format for plan-producing commands: `text` or `json`. |
 
 ## Environment variables

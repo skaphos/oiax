@@ -11,6 +11,8 @@ import (
 
 	"github.com/skaphos/oiax/internal/config"
 	"github.com/skaphos/oiax/internal/engine"
+	"github.com/skaphos/oiax/internal/git"
+	"github.com/skaphos/oiax/pkg/api/v1alpha1"
 )
 
 // errNotImplemented distinguishes roadmap gaps from real failures in
@@ -21,9 +23,11 @@ var errNotImplemented = errors.New("not implemented in this development snapshot
 type options struct {
 	// configPath is the repository-local configuration file.
 	configPath string
-	// configRef pins the ref configuration is read from. Empty means the
-	// repository default branch. Reading configuration from the
-	// triggering ref would make behavior depend on which branch moved
+	// configRef pins the ref configuration is read from via
+	// `git show <ref>:<path>`. Empty means the working-tree file at
+	// configPath (resolving the repository default branch automatically
+	// is roadmap scope). Reading configuration from whatever ref
+	// triggered a run would make behavior depend on which branch moved
 	// last, and would execute untrusted pull-request configuration with
 	// privileged credentials.
 	configRef string
@@ -52,7 +56,7 @@ no duplicates, no stale leftovers. It never merges, approves, or deploys.`,
 
 	pf := root.PersistentFlags()
 	pf.StringVar(&opts.configPath, "config", config.DefaultPath, "path to the PromotionGraph configuration file")
-	pf.StringVar(&opts.configRef, "config-ref", "", "ref to read configuration from (default: the repository default branch)")
+	pf.StringVar(&opts.configRef, "config-ref", "", "ref to read configuration from via git (default: the working-tree file)")
 	pf.StringVarP(&opts.output, "output", "o", "text", "output format: text or json")
 
 	root.AddCommand(
@@ -67,9 +71,26 @@ no duplicates, no stale leftovers. It never merges, approves, or deploys.`,
 }
 
 // loadGraph loads, converts, and semantically validates the configured
-// promotion graph, reporting every violation at once.
+// promotion graph, reporting every violation at once. With --config-ref
+// the file is read as committed at that ref (the pinned-ref rule);
+// otherwise the working-tree file is read.
 func loadGraph(cmd *cobra.Command, opts *options) (*engine.Graph, error) {
-	cfg, err := config.Load(opts.configPath)
+	var cfg *v1alpha1.PromotionGraph
+	var err error
+	if opts.configRef != "" {
+		runner := &git.Runner{}
+		var data []byte
+		data, err = runner.ShowFile(cmd.Context(), opts.configRef, opts.configPath)
+		if err != nil {
+			return nil, err
+		}
+		cfg, err = config.Parse(data)
+		if err != nil {
+			err = fmt.Errorf("%s at ref %s: %w", opts.configPath, opts.configRef, err)
+		}
+	} else {
+		cfg, err = config.Load(opts.configPath)
+	}
 	if err != nil {
 		return nil, err
 	}

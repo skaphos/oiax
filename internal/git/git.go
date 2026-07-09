@@ -76,3 +76,21 @@ func (r *Runner) Head(ctx context.Context, name string) (string, error) {
 	}
 	return r.run(ctx, "rev-parse", "--verify", "refs/heads/"+name)
 }
+
+// ShowFile returns the contents of path as committed at ref
+// (`git show <ref>:<path>`). This is how the pinned-configuration-ref
+// rule is implemented: configuration is read from one ref per
+// invocation, never from the working tree of whatever triggered the
+// run.
+func (r *Runner) ShowFile(ctx context.Context, ref, path string) ([]byte, error) {
+	// ref reaches git after --end-of-options, but reject option-shaped
+	// and empty refs outright rather than trusting downstream parsing.
+	if ref == "" || strings.HasPrefix(ref, "-") {
+		return nil, fmt.Errorf("invalid ref %q", ref)
+	}
+	out, err := r.run(ctx, "show", "--end-of-options", ref+":"+path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s at ref %s: %w", path, ref, err)
+	}
+	return []byte(out), nil
+}

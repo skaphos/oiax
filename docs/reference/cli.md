@@ -20,19 +20,19 @@ no duplicates, no stale leftovers. It never merges, approves, or deploys.
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from (default: the repository default branch)
+      --config-ref string   ref to read configuration from via git (default: the working-tree file)
   -h, --help                help for oiax
   -o, --output string       output format: text or json (default "text")
 ```
 
 ### SEE ALSO
 
-* [oiax completion](oiax_completion.md)	 - Generate the autocompletion script for the specified shell
-* [oiax graph](oiax_graph.md)	 - Display the configured promotion topology
-* [oiax plan](oiax_plan.md)	 - Compute the actions required to converge the promotion graph
-* [oiax reconcile](oiax_reconcile.md)	 - Plan, then apply the promotion graph
-* [oiax validate](oiax_validate.md)	 - Validate the promotion graph configuration
-* [oiax version](oiax_version.md)	 - Print version information
+* [oiax completion](#oiax-completion)	 - Generate the autocompletion script for the specified shell
+* [oiax graph](#oiax-graph)	 - Display the configured promotion topology
+* [oiax plan](#oiax-plan)	 - Compute the actions required to converge the promotion graph
+* [oiax reconcile](#oiax-reconcile)	 - Plan, then apply the promotion graph
+* [oiax validate](#oiax-validate)	 - Validate the promotion graph configuration
+* [oiax version](#oiax-version)	 - Print version information
 
 ## oiax completion
 
@@ -54,17 +54,17 @@ See each sub-command's help for details on how to use the generated script.
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from (default: the repository default branch)
+      --config-ref string   ref to read configuration from via git (default: the working-tree file)
   -o, --output string       output format: text or json (default "text")
 ```
 
 ### SEE ALSO
 
-* [oiax](oiax.md)	 - Declarative Git branch promotion reconciler
-* [oiax completion bash](oiax_completion_bash.md)	 - Generate the autocompletion script for bash
-* [oiax completion fish](oiax_completion_fish.md)	 - Generate the autocompletion script for fish
-* [oiax completion powershell](oiax_completion_powershell.md)	 - Generate the autocompletion script for powershell
-* [oiax completion zsh](oiax_completion_zsh.md)	 - Generate the autocompletion script for zsh
+* [oiax](#oiax)	 - Declarative Git branch promotion reconciler
+* [oiax completion bash](#oiax-completion-bash)	 - Generate the autocompletion script for bash
+* [oiax completion fish](#oiax-completion-fish)	 - Generate the autocompletion script for fish
+* [oiax completion powershell](#oiax-completion-powershell)	 - Generate the autocompletion script for powershell
+* [oiax completion zsh](#oiax-completion-zsh)	 - Generate the autocompletion script for zsh
 
 ## oiax completion bash
 
@@ -109,13 +109,13 @@ oiax completion bash
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from (default: the repository default branch)
+      --config-ref string   ref to read configuration from via git (default: the working-tree file)
   -o, --output string       output format: text or json (default "text")
 ```
 
 ### SEE ALSO
 
-* [oiax completion](oiax_completion.md)	 - Generate the autocompletion script for the specified shell
+* [oiax completion](#oiax-completion)	 - Generate the autocompletion script for the specified shell
 
 ## oiax completion fish
 
@@ -151,13 +151,13 @@ oiax completion fish [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from (default: the repository default branch)
+      --config-ref string   ref to read configuration from via git (default: the working-tree file)
   -o, --output string       output format: text or json (default "text")
 ```
 
 ### SEE ALSO
 
-* [oiax completion](oiax_completion.md)	 - Generate the autocompletion script for the specified shell
+* [oiax completion](#oiax-completion)	 - Generate the autocompletion script for the specified shell
 
 ## oiax completion powershell
 
@@ -190,13 +190,13 @@ oiax completion powershell [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from (default: the repository default branch)
+      --config-ref string   ref to read configuration from via git (default: the working-tree file)
   -o, --output string       output format: text or json (default "text")
 ```
 
 ### SEE ALSO
 
-* [oiax completion](oiax_completion.md)	 - Generate the autocompletion script for the specified shell
+* [oiax completion](#oiax-completion)	 - Generate the autocompletion script for the specified shell
 
 ## oiax completion zsh
 
@@ -243,13 +243,13 @@ oiax completion zsh [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from (default: the repository default branch)
+      --config-ref string   ref to read configuration from via git (default: the working-tree file)
   -o, --output string       output format: text or json (default "text")
 ```
 
 ### SEE ALSO
 
-* [oiax completion](oiax_completion.md)	 - Generate the autocompletion script for the specified shell
+* [oiax completion](#oiax-completion)	 - Generate the autocompletion script for the specified shell
 
 ## oiax graph
 
@@ -276,13 +276,13 @@ oiax graph [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from (default: the repository default branch)
+      --config-ref string   ref to read configuration from via git (default: the working-tree file)
   -o, --output string       output format: text or json (default "text")
 ```
 
 ### SEE ALSO
 
-* [oiax](oiax.md)	 - Declarative Git branch promotion reconciler
+* [oiax](#oiax)	 - Declarative Git branch promotion reconciler
 
 ## oiax plan
 
@@ -315,13 +315,13 @@ oiax plan [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from (default: the repository default branch)
+      --config-ref string   ref to read configuration from via git (default: the working-tree file)
   -o, --output string       output format: text or json (default "text")
 ```
 
 ### SEE ALSO
 
-* [oiax](oiax.md)	 - Declarative Git branch promotion reconciler
+* [oiax](#oiax)	 - Declarative Git branch promotion reconciler
 
 ## oiax reconcile
 
@@ -353,13 +353,13 @@ oiax reconcile [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from (default: the repository default branch)
+      --config-ref string   ref to read configuration from via git (default: the working-tree file)
   -o, --output string       output format: text or json (default "text")
 ```
 
 ### SEE ALSO
 
-* [oiax](oiax.md)	 - Declarative Git branch promotion reconciler
+* [oiax](#oiax)	 - Declarative Git branch promotion reconciler
 
 ## oiax validate
 
@@ -388,13 +388,13 @@ oiax validate [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from (default: the repository default branch)
+      --config-ref string   ref to read configuration from via git (default: the working-tree file)
   -o, --output string       output format: text or json (default "text")
 ```
 
 ### SEE ALSO
 
-* [oiax](oiax.md)	 - Declarative Git branch promotion reconciler
+* [oiax](#oiax)	 - Declarative Git branch promotion reconciler
 
 ## oiax version
 
@@ -414,11 +414,11 @@ oiax version [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from (default: the repository default branch)
+      --config-ref string   ref to read configuration from via git (default: the working-tree file)
   -o, --output string       output format: text or json (default "text")
 ```
 
 ### SEE ALSO
 
-* [oiax](oiax.md)	 - Declarative Git branch promotion reconciler
+* [oiax](#oiax)	 - Declarative Git branch promotion reconciler
 
