@@ -144,20 +144,6 @@ func TestValidateWithConfigRefReadsPinnedRef(t *testing.T) {
 	}
 }
 
-func TestPlanAndReconcileAreHonestAboutScope(t *testing.T) {
-	for _, command := range []string{"plan", "reconcile"} {
-		t.Run(command, func(t *testing.T) {
-			out, err := run(t, command, "--config", writeConfig(t, exampleConfig))
-			if err == nil {
-				t.Fatalf("%s succeeded, want not-implemented error:\n%s", command, out)
-			}
-			if !strings.Contains(err.Error(), "not implemented") {
-				t.Errorf("error = %v, want mention of not implemented", err)
-			}
-		})
-	}
-}
-
 func TestVersionCommand(t *testing.T) {
 	out, err := run(t, "version")
 	if err != nil {

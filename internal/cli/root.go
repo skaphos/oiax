@@ -15,9 +15,25 @@ import (
 	"github.com/skaphos/oiax/pkg/api/v1alpha1"
 )
 
-// errNotImplemented distinguishes roadmap gaps from real failures in
-// command output.
-var errNotImplemented = errors.New("not implemented in this development snapshot; see the roadmap in docs/architecture.md")
+// exitCodeError lets a command request a specific process exit code
+// without the generic "oiax: <err>" framing. It is the only way exit codes
+// 2 (plan has pending actions) and 3 (reconcile converged with reported
+// divergence) reach Execute's single return-code path. Execute unwraps it
+// with errors.As.
+type exitCodeError struct {
+	// code is the process exit code to return.
+	code int
+	// msg is printed to stderr when non-empty; empty means a silent status
+	// code (e.g. plan --detailed-exitcode).
+	msg string
+}
+
+func (e exitCodeError) Error() string {
+	if e.msg != "" {
+		return e.msg
+	}
+	return fmt.Sprintf("exit code %d", e.code)
+}
 
 // options are the persistent flags shared by every command.
 type options struct {
@@ -104,13 +120,23 @@ func loadGraph(cmd *cobra.Command, opts *options) (*engine.Graph, error) {
 	return g, nil
 }
 
-// Execute runs the CLI and returns a process exit code.
+// Execute runs the CLI and returns a process exit code. An exitCodeError
+// carries its own code (and an optional message); any other error is the
+// generic failure path (exit 1); nil is success (exit 0).
 func Execute(args []string) int {
 	root := NewRootCommand()
 	root.SetArgs(args)
-	if err := root.Execute(); err != nil {
-		fmt.Fprintf(root.ErrOrStderr(), "oiax: %v\n", err)
-		return 1
+	err := root.Execute()
+	if err == nil {
+		return 0
 	}
-	return 0
+	var ece exitCodeError
+	if errors.As(err, &ece) {
+		if ece.msg != "" {
+			fmt.Fprintln(root.ErrOrStderr(), ece.msg)
+		}
+		return ece.code
+	}
+	fmt.Fprintf(root.ErrOrStderr(), "oiax: %v\n", err)
+	return 1
 }
