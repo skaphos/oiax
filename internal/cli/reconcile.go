@@ -19,7 +19,11 @@ Exit codes (the compatibility contract):
   3  converged with reported divergence requiring human attention`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := loadGraph(cmd, opts)
+			ref, err := effectiveConfigRef(cmd, opts)
+			if err != nil {
+				return err
+			}
+			g, err := loadGraph(cmd, opts, ref)
 			if err != nil {
 				return err
 			}

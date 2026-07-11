@@ -135,6 +135,23 @@ func (r *Runner) ShowFile(ctx context.Context, ref, path string) ([]byte, error)
 	return []byte(out), nil
 }
 
+// DefaultBranchRef resolves the repository's default branch to its
+// remote-tracking ref (for example "origin/main") by reading origin/HEAD,
+// the symbolic ref git records for the remote's default branch. The second
+// return is false when origin/HEAD is not set — a remote-less repository or
+// a shallow checkout that never ran `git remote set-head` — leaving the
+// choice of fallback to the caller. A remote-tracking ref (not the local
+// branch of the same name) is returned deliberately: it is the
+// authoritative committed state of the default branch, independent of any
+// stale local branch.
+func (r *Runner) DefaultBranchRef(ctx context.Context) (string, bool) {
+	out, err := r.run(ctx, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+	if err != nil || out == "" {
+		return "", false
+	}
+	return out, true
+}
+
 // MergeBase returns the best common ancestor of two branches. It returns
 // ("", nil) when the branches share no common ancestor (git exit code 1),
 // mirroring BranchExists; any other failure is an error.

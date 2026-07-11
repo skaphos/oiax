@@ -6,6 +6,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -40,12 +41,12 @@ type options struct {
 	// configPath is the repository-local configuration file.
 	configPath string
 	// configRef pins the ref configuration is read from via
-	// `git show <ref>:<path>`. Empty means the working-tree file at
-	// configPath (resolving the repository default branch automatically
-	// is roadmap scope). Reading configuration from whatever ref
-	// triggered a run would make behavior depend on which branch moved
-	// last, and would execute untrusted pull-request configuration with
-	// privileged credentials.
+	// `git show <ref>:<path>`. When empty, plan and reconcile default to
+	// the repository default branch (origin/HEAD) and the inspection
+	// commands (validate, graph) read the working-tree file. Reading
+	// configuration from whatever ref triggered a run would make behavior
+	// depend on which branch moved last, and would execute untrusted
+	// pull-request configuration with privileged credentials (ADR 0003).
 	configRef string
 	// output selects text or json output for plan-producing commands.
 	output string
@@ -72,7 +73,7 @@ no duplicates, no stale leftovers. It never merges, approves, or deploys.`,
 
 	pf := root.PersistentFlags()
 	pf.StringVar(&opts.configPath, "config", config.DefaultPath, "path to the PromotionGraph configuration file")
-	pf.StringVar(&opts.configRef, "config-ref", "", "ref to read configuration from via git (default: the working-tree file)")
+	pf.StringVar(&opts.configRef, "config-ref", "", "ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)")
 	pf.StringVarP(&opts.output, "output", "o", "text", "output format: text or json")
 
 	root.AddCommand(
@@ -86,23 +87,24 @@ no duplicates, no stale leftovers. It never merges, approves, or deploys.`,
 	return root
 }
 
-// loadGraph loads, converts, and semantically validates the configured
-// promotion graph, reporting every violation at once. With --config-ref
-// the file is read as committed at that ref (the pinned-ref rule);
-// otherwise the working-tree file is read.
-func loadGraph(cmd *cobra.Command, opts *options) (*engine.Graph, error) {
+// loadGraph loads, converts, and semantically validates the promotion
+// graph, reporting every violation at once. configRef selects the source: a
+// non-empty ref is read as committed at that ref (git show <ref>:<path>),
+// the pinned-configuration-ref rule; an empty configRef reads the
+// working-tree file at configPath.
+func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Graph, error) {
 	var cfg *v1alpha1.PromotionGraph
 	var err error
-	if opts.configRef != "" {
+	if configRef != "" {
 		runner := &git.Runner{}
 		var data []byte
-		data, err = runner.ShowFile(cmd.Context(), opts.configRef, opts.configPath)
+		data, err = runner.ShowFile(cmd.Context(), configRef, opts.configPath)
 		if err != nil {
 			return nil, err
 		}
 		cfg, err = config.Parse(data)
 		if err != nil {
-			err = fmt.Errorf("%s at ref %s: %w", opts.configPath, opts.configRef, err)
+			err = fmt.Errorf("%s at ref %s: %w", opts.configPath, configRef, err)
 		}
 	} else {
 		cfg, err = config.Load(opts.configPath)
@@ -118,6 +120,29 @@ func loadGraph(cmd *cobra.Command, opts *options) (*engine.Graph, error) {
 		return nil, fmt.Errorf("%s: %d validation errors", opts.configPath, len(violations))
 	}
 	return g, nil
+}
+
+// effectiveConfigRef resolves the ref plan and reconcile read configuration
+// from, enforcing the pinned-configuration-ref rule (ADR 0003) so a run
+// never depends on the branch that triggered it. An explicit --config-ref
+// wins. Otherwise the repository default branch (origin/HEAD) is used. When
+// the default branch cannot be resolved — a remote-less or shallow checkout
+// with no origin/HEAD — a local run falls back to the working-tree file
+// (empty ref), but a run under GitHub Actions refuses: silently reading the
+// checked-out ref there would execute untrusted pull-request configuration
+// with privileged credentials. The operator pins --config-ref to recover.
+func effectiveConfigRef(cmd *cobra.Command, opts *options) (string, error) {
+	if opts.configRef != "" {
+		return opts.configRef, nil
+	}
+	runner := &git.Runner{}
+	if ref, ok := runner.DefaultBranchRef(cmd.Context()); ok {
+		return ref, nil
+	}
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		return "", fmt.Errorf("cannot resolve the repository default branch (origin/HEAD is not set); pin --config-ref to the default branch, for example --config-ref origin/main")
+	}
+	return "", nil
 }
 
 // Execute runs the CLI and returns a process exit code. An exitCodeError
