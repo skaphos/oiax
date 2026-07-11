@@ -21,7 +21,11 @@ Exit codes (the compatibility contract, following terraform plan):
   2  valid plan with pending actions (only with --detailed-exitcode)`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g, err := loadGraph(cmd, opts)
+			ref, err := effectiveConfigRef(cmd, opts)
+			if err != nil {
+				return err
+			}
+			g, err := loadGraph(cmd, opts, ref)
 			if err != nil {
 				return err
 			}

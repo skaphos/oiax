@@ -75,6 +75,38 @@ func newRepo(t *testing.T) (*git.Runner, string) {
 	return &git.Runner{Dir: dir}, dir
 }
 
+func TestDefaultBranchRef(t *testing.T) {
+	t.Parallel()
+
+	t.Run("resolves from origin/HEAD", func(t *testing.T) {
+		t.Parallel()
+		runner, dir := newRepo(t)
+		head := writeCommit(t, dir, "app.txt", "v0\n", "c0")
+		// Fabricate the remote-tracking default branch locally (no network):
+		// point origin/main at HEAD, then make origin/HEAD symref to it.
+		runGit(t, dir, "update-ref", "refs/remotes/origin/main", head)
+		runGit(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+		ref, ok := runner.DefaultBranchRef(context.Background())
+		if !ok {
+			t.Fatal("DefaultBranchRef reported not resolved, want origin/main")
+		}
+		if ref != "origin/main" {
+			t.Errorf("ref = %q, want origin/main", ref)
+		}
+	})
+
+	t.Run("not resolved without origin/HEAD", func(t *testing.T) {
+		t.Parallel()
+		runner, dir := newRepo(t)
+		writeCommit(t, dir, "app.txt", "v0\n", "c0")
+
+		if ref, ok := runner.DefaultBranchRef(context.Background()); ok {
+			t.Errorf("DefaultBranchRef resolved %q, want not resolved", ref)
+		}
+	})
+}
+
 func TestMergeBase(t *testing.T) {
 	t.Parallel()
 

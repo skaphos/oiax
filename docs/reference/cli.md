@@ -20,7 +20,7 @@ no duplicates, no stale leftovers. It never merges, approves, or deploys.
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from via git (default: the working-tree file)
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -h, --help                help for oiax
   -o, --output string       output format: text or json (default "text")
 ```
@@ -54,7 +54,7 @@ See each sub-command's help for details on how to use the generated script.
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from via git (default: the working-tree file)
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -o, --output string       output format: text or json (default "text")
 ```
 
@@ -109,7 +109,7 @@ oiax completion bash
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from via git (default: the working-tree file)
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -o, --output string       output format: text or json (default "text")
 ```
 
@@ -151,7 +151,7 @@ oiax completion fish [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from via git (default: the working-tree file)
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -o, --output string       output format: text or json (default "text")
 ```
 
@@ -190,7 +190,7 @@ oiax completion powershell [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from via git (default: the working-tree file)
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -o, --output string       output format: text or json (default "text")
 ```
 
@@ -243,7 +243,7 @@ oiax completion zsh [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from via git (default: the working-tree file)
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -o, --output string       output format: text or json (default "text")
 ```
 
@@ -276,7 +276,7 @@ oiax graph [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from via git (default: the working-tree file)
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -o, --output string       output format: text or json (default "text")
 ```
 
@@ -315,7 +315,7 @@ oiax plan [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from via git (default: the working-tree file)
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -o, --output string       output format: text or json (default "text")
 ```
 
@@ -353,7 +353,7 @@ oiax reconcile [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from via git (default: the working-tree file)
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -o, --output string       output format: text or json (default "text")
 ```
 
@@ -388,7 +388,7 @@ oiax validate [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from via git (default: the working-tree file)
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -o, --output string       output format: text or json (default "text")
 ```
 
@@ -414,7 +414,7 @@ oiax version [flags]
 
 ```
       --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
-      --config-ref string   ref to read configuration from via git (default: the working-tree file)
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -o, --output string       output format: text or json (default "text")
 ```
 

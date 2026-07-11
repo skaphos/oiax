@@ -5,10 +5,12 @@ Oiax is configured by a repository-local file, default path
 fields are rejected. Multi-document files are rejected (multiple graphs
 per repository are reserved for a future version).
 
-The file is read from a **pinned ref** — the repository default branch
-unless `--config-ref` says otherwise — never from the ref that triggered
-the run. Configuration on other refs is ignored; see
-[ADR 0003](../adr/0003-pinned-configuration-ref.md).
+`plan` and `reconcile` read the file from a **pinned ref** — the
+repository default branch unless `--config-ref` says otherwise — never
+from the ref that triggered the run. Configuration on other refs is
+ignored; see [ADR 0003](../adr/0003-pinned-configuration-ref.md). The
+inspection commands `validate` and `graph` read the working-tree file by
+default; pass `--config-ref` to inspect a pinned ref instead.
 
 ## PromotionGraph
 
@@ -52,14 +54,14 @@ generated [CLI reference](cli.md) for per-command flags):
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--config` | `.oiax.yaml` | Path to the configuration file. |
-| `--config-ref` | unset (working-tree file) | Ref the configuration is read from, via `git show <ref>:<path>`. In CI, pin this to the repository default branch; resolving it automatically is roadmap scope. |
+| `--config-ref` | see note | Ref the configuration is read from, via `git show <ref>:<path>`. Default: the repository default branch (`origin/HEAD`) for `plan`/`reconcile`, the working-tree file for `validate`/`graph`. When the default branch cannot be resolved (no `origin/HEAD`), `plan`/`reconcile` fall back to the working-tree file locally but refuse under GitHub Actions — pin this flag to recover. |
 | `--output`, `-o` | `text` | Output format for plan-producing commands: `text` or `json`. |
 
 ## Environment variables
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `OIAX_LOG_FORMAT` | `text` | Structured log format: `text` or `json`. (Planned; logging lands with edge evaluation.) |
+| `OIAX_LOG_FORMAT` | `text` | Structured log format: `text` or `json`. |
 
 ## Exit codes
 

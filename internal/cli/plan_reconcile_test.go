@@ -238,6 +238,96 @@ func TestReconcileDivergenceExitsThree(t *testing.T) {
 	}
 }
 
+func TestPlanResolvesDefaultBranchConfig(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	t.Setenv("OIAX_LOG_FORMAT", "")
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	gitCmd := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	writeFile := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitCmd("init", "-q", "-b", "main")
+	gitCmd("config", "user.name", "test")
+	gitCmd("config", "user.email", "test@example.invalid")
+	writeFile("app.txt", "v0\n")
+	writeFile(".oiax.yaml", exampleConfig)
+	gitCmd("add", ".")
+	gitCmd("commit", "-q", "-m", "c0")
+	gitCmd("branch", "development")
+	gitCmd("branch", "test")
+
+	// Fabricate the remote-tracking default branch locally so
+	// DefaultBranchRef resolves without a network remote.
+	headOut, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.TrimSpace(string(headOut))
+	gitCmd("update-ref", "refs/remotes/origin/main", head)
+	gitCmd("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	// Break the working-tree copy: plan must read the committed
+	// default-branch config, not this.
+	writeFile(".oiax.yaml", "not: valid oiax config")
+
+	useForge(t, &fakeForge{})
+
+	out, code := runCode(t, "plan")
+	if code != 0 {
+		t.Fatalf("plan exit = %d, want 0 (committed default-branch config should be read)\n%s", code, out)
+	}
+	if !strings.Contains(out, "In sync, no actions.") {
+		t.Errorf("output = %q, want in-sync plan from the committed config", out)
+	}
+}
+
+func TestPlanRefusesUnresolvableDefaultBranchUnderActions(t *testing.T) {
+	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	t.Setenv("OIAX_LOG_FORMAT", "")
+	t.Setenv("GITHUB_ACTIONS", "true")
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	gitCmd := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	gitCmd("init", "-q", "-b", "main")
+	gitCmd("config", "user.name", "test")
+	gitCmd("config", "user.email", "test@example.invalid")
+	// origin exists but origin/HEAD is unset (the shallow-CI-checkout shape),
+	// so the default branch cannot be resolved. A working-tree .oiax.yaml is
+	// present; under Actions plan must refuse rather than read it.
+	gitCmd("remote", "add", "origin", "https://github.com/example/repo.git")
+	if err := os.WriteFile(filepath.Join(dir, ".oiax.yaml"), []byte(exampleConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, "plan")
+	if err == nil {
+		t.Fatalf("plan succeeded, want refusal under Actions:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "pin --config-ref") {
+		t.Errorf("error = %v, want guidance to pin --config-ref", err)
+	}
+}
+
 func TestPlanForgeErrorExitsOne(t *testing.T) {
 	setupRepo(t)
 	prev := newForge
