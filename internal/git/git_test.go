@@ -3,6 +3,7 @@ package git_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,6 +73,18 @@ func newRepo(t *testing.T) (*git.Runner, string) {
 	requireGit(t)
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-q", "-b", "main")
+	// Repo-local identity so commits made through the production Runner
+	// (which, unlike runGit, does not inject GIT_AUTHOR_*/GIT_COMMITTER_*)
+	// still succeed regardless of the host's global git configuration.
+	// Worktrees share this common config.
+	runGit(t, dir, "config", "user.name", "Test")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	// Pin line-ending handling so cherry-pick replays and worktree
+	// checkouts round-trip bytes identically on every platform. Windows
+	// runners default to core.autocrlf=true, which rewrites LF->CRLF in the
+	// checked-out worktree and breaks byte-for-byte content assertions and
+	// `git status --porcelain` cleanliness checks.
+	runGit(t, dir, "config", "core.autocrlf", "false")
 	return &git.Runner{Dir: dir}, dir
 }
 
@@ -381,6 +394,260 @@ func TestIsAncestorRejectsNonOID(t *testing.T) {
 	}
 	if _, err := r.IsAncestor(context.Background(), sha, "main"); err == nil {
 		t.Fatal("IsAncestor accepted a branch name as descendant")
+	}
+}
+
+func TestShortSHA(t *testing.T) {
+	t.Parallel()
+	r, dir := newRepo(t)
+	full := writeCommit(t, dir, "a.txt", "a\n", "A")
+
+	short, err := r.ShortSHA(context.Background(), "main")
+	if err != nil {
+		t.Fatalf("ShortSHA: %v", err)
+	}
+	// The abbreviation length is fixed (not git's minimum-unique length, which
+	// depends on the local object database), so the backflow branch name it
+	// feeds is deterministic across environments.
+	if len(short) != 12 {
+		t.Fatalf("ShortSHA = %q (len %d), want a fixed 12-char abbreviation", short, len(short))
+	}
+	if !strings.HasPrefix(full, short) {
+		t.Fatalf("ShortSHA = %q is not a prefix of full sha %q", short, full)
+	}
+	if !oidLike(short) {
+		t.Fatalf("ShortSHA = %q is not object-id shaped", short)
+	}
+}
+
+func TestShortSHAInvalidName(t *testing.T) {
+	t.Parallel()
+	r, dir := newRepo(t)
+	writeCommit(t, dir, "a.txt", "a\n", "A")
+	if _, err := r.ShortSHA(context.Background(), "bad..name"); err == nil {
+		t.Fatal("ShortSHA accepted an invalid branch name")
+	}
+}
+
+func TestWorktreeCreateCleanup(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+	base := writeCommit(t, dir, "base.txt", "base\n", "base")
+
+	wt, cleanup, err := r.Worktree(ctx, "main")
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+
+	// The worktree directory exists and holds a detached checkout of main.
+	if fi, err := os.Stat(wt.Dir); err != nil || !fi.IsDir() {
+		t.Fatalf("worktree dir %q not present: %v", wt.Dir, err)
+	}
+	if got := runGit(t, wt.Dir, "rev-parse", "HEAD"); got != base {
+		t.Fatalf("worktree HEAD = %q, want %q", got, base)
+	}
+	if _, err := os.Stat(filepath.Join(wt.Dir, "base.txt")); err != nil {
+		t.Fatalf("worktree missing checked-out file: %v", err)
+	}
+
+	// The original checkout is untouched: still on main at the same commit.
+	if got := runGit(t, dir, "rev-parse", "HEAD"); got != base {
+		t.Fatalf("original HEAD moved to %q, want %q", got, base)
+	}
+	if got := runGit(t, dir, "rev-parse", "--abbrev-ref", "HEAD"); got != "main" {
+		t.Fatalf("original branch = %q, want main", got)
+	}
+
+	cleanup()
+
+	// The worktree directory is gone and no longer registered.
+	if _, err := os.Stat(wt.Dir); !os.IsNotExist(err) {
+		t.Fatalf("worktree dir still present after cleanup: %v", err)
+	}
+	if list := runGit(t, dir, "worktree", "list", "--porcelain"); strings.Contains(list, wt.Dir) {
+		t.Fatalf("worktree still registered after cleanup:\n%s", list)
+	}
+}
+
+func TestWorktreeInvalidRef(t *testing.T) {
+	t.Parallel()
+	r, dir := newRepo(t)
+	writeCommit(t, dir, "base.txt", "base\n", "base")
+	if _, _, err := r.Worktree(context.Background(), "bad..name"); err == nil {
+		t.Fatal("Worktree accepted an invalid ref")
+	}
+}
+
+func TestCherryPickHappyPath(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+
+	// base is shared; target branches from it. main then gains two
+	// downstream-only commits to be returned to target.
+	base := writeCommit(t, dir, "base.txt", "base\n", "base")
+	runGit(t, dir, "branch", "target")
+	c1 := writeCommit(t, dir, "hotfix1.txt", "one\n", "first hotfix")
+	c2 := writeCommit(t, dir, "hotfix2.txt", "two\n", "second hotfix")
+
+	wt, cleanup, err := r.Worktree(ctx, "target")
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	defer cleanup()
+
+	head, err := wt.CherryPick(ctx, []string{c1, c2})
+	if err != nil {
+		t.Fatalf("CherryPick: %v", err)
+	}
+	if head == base {
+		t.Fatal("CherryPick returned the unchanged target head")
+	}
+
+	// Both commits' content replayed into the worktree.
+	for _, f := range []struct{ name, want string }{
+		{"hotfix1.txt", "one\n"},
+		{"hotfix2.txt", "two\n"},
+	} {
+		got, err := os.ReadFile(filepath.Join(wt.Dir, f.name))
+		if err != nil {
+			t.Fatalf("read %s: %v", f.name, err)
+		}
+		if string(got) != f.want {
+			t.Fatalf("%s = %q, want %q", f.name, got, f.want)
+		}
+	}
+
+	// The -x provenance trailer records both original commits.
+	bodies := runGit(t, wt.Dir, "log", "--format=%B", base+"..HEAD")
+	for _, orig := range []string{c1, c2} {
+		want := "(cherry picked from commit " + orig
+		if !strings.Contains(bodies, want) {
+			t.Fatalf("cherry-pick log missing %q:\n%s", want, bodies)
+		}
+	}
+}
+
+func TestCherryPickConflict(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+
+	writeCommit(t, dir, "conflict.txt", "base\n", "base")
+	runGit(t, dir, "branch", "target")
+
+	// main: one commit that applies cleanly, then one that edits the same
+	// line target will have changed independently.
+	cClean := writeCommit(t, dir, "other.txt", "x\n", "clean commit")
+	cConflict := writeCommit(t, dir, "conflict.txt", "main-change\n", "conflicting edit")
+
+	// target diverges the same line so the second pick cannot apply.
+	runGit(t, dir, "switch", "-q", "target")
+	writeCommit(t, dir, "conflict.txt", "target-change\n", "target edit")
+	runGit(t, dir, "switch", "-q", "main")
+
+	wt, cleanup, err := r.Worktree(ctx, "target")
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	defer cleanup()
+
+	_, err = wt.CherryPick(ctx, []string{cClean, cConflict})
+	var conflict *git.CherryPickConflict
+	if !errors.As(err, &conflict) {
+		t.Fatalf("CherryPick error = %v, want *CherryPickConflict", err)
+	}
+	if conflict.SHA != cConflict {
+		t.Errorf("conflict SHA = %q, want %q", conflict.SHA, cConflict)
+	}
+	if conflict.Subject != "conflicting edit" {
+		t.Errorf("conflict Subject = %q, want %q", conflict.Subject, "conflicting edit")
+	}
+	if conflict.Applied != 1 {
+		t.Errorf("conflict Applied = %d, want 1", conflict.Applied)
+	}
+
+	// The worktree was aborted back to a clean state (no conflict markers,
+	// no in-progress cherry-pick).
+	if status := runGit(t, wt.Dir, "status", "--porcelain"); status != "" {
+		t.Fatalf("worktree not clean after abort:\n%s", status)
+	}
+}
+
+func TestCherryPickIsDeterministic(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+
+	base := writeCommit(t, dir, "base.txt", "base\n", "base")
+	runGit(t, dir, "branch", "target")
+	c1 := writeCommit(t, dir, "hotfix.txt", "one\n", "hotfix")
+
+	// Replaying the same commit onto the same target head in two independent
+	// worktrees must yield the same HEAD SHA: the committer identity and date
+	// are pinned to the original commit, so the replay does not depend on the
+	// wall clock. Without the pin cherry-pick stamps committer=now and the two
+	// runs would differ, so the following force-push would never be a no-op.
+	pick := func() string {
+		wt, cleanup, err := r.Worktree(ctx, "target")
+		if err != nil {
+			t.Fatalf("Worktree: %v", err)
+		}
+		defer cleanup()
+		head, err := wt.CherryPick(ctx, []string{c1})
+		if err != nil {
+			t.Fatalf("CherryPick: %v", err)
+		}
+		return head
+	}
+	first := pick()
+	second := pick()
+	if first != second {
+		t.Fatalf("cherry-pick not deterministic: %q vs %q", first, second)
+	}
+	if first == base {
+		t.Fatal("cherry-pick returned the unchanged target head")
+	}
+
+	// The replayed commit's committer date equals the original's, not "now".
+	wantDate := runGit(t, dir, "show", "-s", "--format=%cI", c1)
+	gotDate := runGit(t, dir, "show", "-s", "--format=%cI", first)
+	if gotDate != wantDate {
+		t.Fatalf("replayed committer date = %q, want the original's %q", gotDate, wantDate)
+	}
+}
+
+func TestCherryPickDropsRedundant(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+
+	writeCommit(t, dir, "f.txt", "a\n", "base")
+	runGit(t, dir, "branch", "target")
+	// main introduces the change a->b.
+	c1 := writeCommit(t, dir, "f.txt", "b\n", "change on main")
+	// target already reaches the same content by a different commit, so the
+	// pick reduces to an empty diff. --empty=drop must skip it and converge,
+	// never report it as a conflict.
+	runGit(t, dir, "switch", "-q", "target")
+	writeCommit(t, dir, "f.txt", "b\n", "same change on target")
+	runGit(t, dir, "switch", "-q", "main")
+
+	wt, cleanup, err := r.Worktree(ctx, "target")
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	defer cleanup()
+
+	targetHead := runGit(t, dir, "rev-parse", "target")
+	head, err := wt.CherryPick(ctx, []string{c1})
+	if err != nil {
+		t.Fatalf("CherryPick of a redundant commit must not error: %v", err)
+	}
+	// The redundant commit was dropped, so HEAD did not advance.
+	if head != targetHead {
+		t.Fatalf("HEAD = %q, want unchanged target head %q (redundant pick dropped)", head, targetHead)
 	}
 }
 

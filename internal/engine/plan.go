@@ -79,9 +79,29 @@ func planDownstream(g *Graph, e EdgeState) []Action {
 		return nil
 	}
 	// Evaluation order per the design: backflow source first, then drift
-	// policy, then report. Backflow request construction is v0.2 scope;
-	// a backflow source's downstream content is reported until then.
-	if b, ok := g.Branches[e.To.Name]; ok && b.Drift == v1alpha1.DriftExpected && !g.isBackflowSource(e.To.Name) {
+	// policy, then report.
+	if g.isBackflowSource(e.To.Name) {
+		// The destination is a downstream backflow source: its
+		// downstream-only commits are returned to the backflow target by
+		// cherry-pick. When every commit is already returned (matched by
+		// content, provenance, or an Oiax-Backflow: skip trailer) ToReturn is
+		// empty and the edge has converged — emit nothing.
+		if len(e.ToReturn) == 0 {
+			return nil
+		}
+		source, target := e.To.Name, g.Backflow.Target
+		return []Action{{
+			Type:       ActionCreateBackflowRequest,
+			From:       source,
+			To:         target,
+			Unpromoted: len(e.ToReturn),
+			Branch:     BackflowBranchName(source, target, e.SourceHeadShort),
+			Reason:     fmt.Sprintf("%d downstream-only commits on %s to return to %s", len(e.ToReturn), source, target),
+		}}
+	}
+	// A non-backflow-source destination with expected drift is intentionally
+	// ignored; otherwise its downstream content is a reported divergence.
+	if b, ok := g.Branches[e.To.Name]; ok && b.Drift == v1alpha1.DriftExpected {
 		return nil
 	}
 	return []Action{{
@@ -91,6 +111,16 @@ func planDownstream(g *Graph, e EdgeState) []Action {
 		Unpromoted: len(e.DownstreamOnly),
 		Reason:     fmt.Sprintf("%s has %d commits not represented in %s", e.To.Name, len(e.DownstreamOnly), e.From.Name),
 	}}
+}
+
+// BackflowBranchName builds the deterministic branch Oiax pushes a backflow
+// request to: oiax/backflow/<source>-to-<target>/<shortSHA>, where shortSHA is
+// the short SHA of the backflow source (downstream) head. Determinism is the
+// concurrency strategy — the same source head yields the same branch (an
+// idempotent force-push), while a new hotfix advances the head to a new branch
+// that supersedes the prior request.
+func BackflowBranchName(source, target, shortSHA string) string {
+	return fmt.Sprintf("oiax/backflow/%s-to-%s/%s", source, target, shortSHA)
 }
 
 func (g *Graph) isBackflowSource(branch string) bool {

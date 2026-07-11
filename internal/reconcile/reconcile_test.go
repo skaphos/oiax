@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -14,6 +15,9 @@ import (
 	"github.com/skaphos/oiax/pkg/api/v1alpha1"
 )
 
+// oidHex matches a full git object id, for asserting a pushed commit SHA.
+var oidHex = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
 // fakeForge records mutations and serves canned managed-request lists.
 type fakeForge struct {
 	open   []engine.ChangeRequest
@@ -22,6 +26,7 @@ type fakeForge struct {
 	created []forge.CreateRequest
 	updated []forge.UpdateRequest
 	closed  []forge.RequestID
+	pushed  []forge.BranchPush
 
 	createResult engine.ChangeRequest
 	createErr    error
@@ -52,8 +57,9 @@ func (f *fakeForge) CloseRequest(_ context.Context, id forge.RequestID, _ forge.
 	return nil
 }
 
-func (f *fakeForge) PushBranch(context.Context, forge.BranchPush) error {
-	return forge.ErrNotImplemented
+func (f *fakeForge) PushBranch(_ context.Context, push forge.BranchPush) error {
+	f.pushed = append(f.pushed, push)
+	return nil
 }
 
 // testGraph is the three-branch graph the tests plan against.
@@ -298,11 +304,13 @@ func TestPlanPatchIdentityRungSettlesEdge(t *testing.T) {
 }
 
 func TestPlanReportsDownstreamDivergence(t *testing.T) {
-	// main gains a hotfix commit not present on test; test->main reports
-	// divergence (main has drift forbidden).
+	// test gains a commit not present on development; development->test reports
+	// divergence (test is drift-forbidden and NOT a backflow source, so it is
+	// not returned by backflow). A backflow source in test->main's position
+	// would backflow instead — covered by the backflow tests.
 	r, _ := gitHarness(t)
-	checkout(t, r, "main")
-	commitOn(t, r.Dir, "hotfix.txt", "urgent\n", "hotfix on main")
+	checkout(t, r, "test")
+	commitOn(t, r.Dir, "drift.txt", "drift\n", "drift on test")
 
 	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
 	plan, err := c.Plan(context.Background())
@@ -311,12 +319,12 @@ func TestPlanReportsDownstreamDivergence(t *testing.T) {
 	}
 	var reports int
 	for _, a := range plan.Actions {
-		if a.Type == engine.ActionReportDivergence && a.From == "test" && a.To == "main" {
+		if a.Type == engine.ActionReportDivergence && a.From == "development" && a.To == "test" {
 			reports++
 		}
 	}
 	if reports != 1 {
-		t.Fatalf("want 1 report-divergence for test->main, got %d: %+v", reports, plan.Actions)
+		t.Fatalf("want 1 report-divergence for development->test, got %d: %+v", reports, plan.Actions)
 	}
 }
 
@@ -403,16 +411,13 @@ func TestApplyCloseObsoleteRequest(t *testing.T) {
 }
 
 func TestApplyReportDivergenceSetsResultWithoutForgeCall(t *testing.T) {
-	r, _ := gitHarness(t)
-	checkout(t, r, "main")
-	commitOn(t, r.Dir, "hotfix.txt", "urgent\n", "hotfix on main")
-
+	// The report-divergence arm is git-independent: it flips Divergence and
+	// touches no forge. Feed it a single manual action to isolate the arm.
 	f := &fakeForge{}
-	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
-	plan, err := c.Plan(context.Background())
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	c := &Coordinator{Git: &git.Runner{}, Forge: f, Graph: testGraph()}
+	plan := engine.Plan{Actions: []engine.Action{{
+		Type: engine.ActionReportDivergence, From: "development", To: "test", Reason: "drift",
+	}}}
 	res, err := c.Apply(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
@@ -420,15 +425,264 @@ func TestApplyReportDivergenceSetsResultWithoutForgeCall(t *testing.T) {
 	if !res.Divergence {
 		t.Error("want Divergence true")
 	}
-	if len(f.created)+len(f.updated)+len(f.closed) != 0 {
+	if len(f.created)+len(f.updated)+len(f.closed)+len(f.pushed) != 0 {
 		t.Error("report-divergence must not call the forge")
 	}
 }
 
-func TestApplyRejectsBackflowAction(t *testing.T) {
-	c := &Coordinator{Git: &git.Runner{}, Forge: &fakeForge{}, Graph: testGraph()}
-	plan := engine.Plan{Actions: []engine.Action{{Type: engine.ActionCreateBackflowRequest, From: "main", To: "development"}}}
-	if _, err := c.Apply(context.Background(), plan); err == nil {
-		t.Fatal("want error for backflow action in v0.1 plan")
+func TestApplyExecutesBackflowAction(t *testing.T) {
+	// A hotfix lands on main (a backflow source) but not on development (the
+	// backflow target). Apply must cherry-pick it back, force-push the
+	// deterministic branch, and open a managed backflow request.
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	f := &fakeForge{createResult: engine.ChangeRequest{ID: "1", Type: engine.RequestTypeBackflow}}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	// The plan carries exactly the backflow action (all promotion edges in
+	// sync).
+	if len(plan.Actions) != 1 || plan.Actions[0].Type != engine.ActionCreateBackflowRequest {
+		t.Fatalf("plan actions = %+v, want one backflow action", plan.Actions)
+	}
+
+	res, err := c.Apply(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.Applied != 1 || res.Divergence {
+		t.Errorf("result = %+v, want Applied=1 Divergence=false", res)
+	}
+
+	short, err := r.ShortSHA(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBranch := engine.BackflowBranchName("main", "development", short)
+
+	if len(f.pushed) != 1 {
+		t.Fatalf("want 1 push, got %d", len(f.pushed))
+	}
+	if f.pushed[0].Name != wantBranch || !f.pushed[0].Force {
+		t.Errorf("push = %+v, want name=%s force=true", f.pushed[0], wantBranch)
+	}
+	mainHead, _ := r.Head(context.Background(), "main")
+	if !oidHex.MatchString(f.pushed[0].SHA) || f.pushed[0].SHA == mainHead {
+		t.Errorf("pushed SHA = %q, want a fresh cherry-picked commit distinct from main head", f.pushed[0].SHA)
+	}
+
+	if len(f.created) != 1 {
+		t.Fatalf("want 1 create, got %d", len(f.created))
+	}
+	got := f.created[0]
+	if got.Type != engine.RequestTypeBackflow || got.Target != "development" || got.Source != wantBranch {
+		t.Errorf("create = %+v, want backflow head=%s base=development", got, wantBranch)
+	}
+	if got.Graph != "environments" || got.SourceHead != f.pushed[0].SHA {
+		t.Errorf("create metadata = %+v", got)
+	}
+}
+
+func TestApplyBackflowConflictReportsDivergence(t *testing.T) {
+	// development and main touch the same file with different content, so the
+	// hotfix cannot cherry-pick cleanly onto development. The backflow becomes
+	// a reported divergence: no push, no request, worktree cleaned up.
+	r, commit := gitHarness(t)
+	checkout(t, r, "development")
+	commit("app.txt", "dev-change\n", "dev edit")
+	checkout(t, r, "main")
+	commit("app.txt", "hotfix-change\n", "hotfix on main")
+
+	short, err := r.ShortSHA(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Drive the backflow arm directly with the deterministic action so the
+	// test isolates the conflict path from the promotion actions the diverged
+	// development branch would otherwise produce.
+	a := engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+		Unpromoted: 1, Branch: engine.BackflowBranchName("main", "development", short),
+	}
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence {
+		t.Error("want Divergence true on cherry-pick conflict")
+	}
+	if res.Applied != 0 {
+		t.Errorf("Applied = %d, want 0 on conflict", res.Applied)
+	}
+	if len(f.pushed) != 0 || len(f.created) != 0 {
+		t.Errorf("conflict must push nothing and create nothing: pushed=%d created=%d", len(f.pushed), len(f.created))
+	}
+}
+
+func TestPlanBackflowAlreadyReturnedByContent(t *testing.T) {
+	// The hotfix on main was already cherry-picked onto development (same
+	// diff, distinct SHA). Its patch-id is present on the target, so ToReturn
+	// is empty and the plan proposes no backflow action. development gains an
+	// unrelated commit first so the cherry-pick lands on a distinct parent and
+	// yields a distinct SHA (isolating the content/patch-id rung — no
+	// cherry-pick -x provenance is used).
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	hotfix := commit("hotfix.txt", "urgent\n", "hotfix on main")
+	checkout(t, r, "development")
+	commit("dev.txt", "dev work\n", "unrelated dev commit")
+	gitExec(t, r.Dir, "cherry-pick", hotfix)
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			t.Errorf("already-returned hotfix must not backflow, got %+v", a)
+		}
+	}
+}
+
+func TestPlanBackflowSkipTrailerSuppresses(t *testing.T) {
+	// A hotfix on main carrying the O6 'Oiax-Backflow: skip' trailer is
+	// intentionally not returned: the identity ladder honors it, so ToReturn
+	// is empty and no backflow action is planned.
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main\n\nOiax-Backflow: skip")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			t.Errorf("skip-trailer hotfix must not backflow, got %+v", a)
+		}
+	}
+}
+
+func TestPlanBackflowSkipMentionInProseStillReturns(t *testing.T) {
+	// The O6 override is a git TRAILER, not any occurrence of the text. A hotfix
+	// whose body merely mentions 'Oiax-Backflow: skip' in prose (with more text
+	// after it, so it is not the last-paragraph trailer block) must still be
+	// returned — otherwise a stray mention silently drops a legitimate hotfix.
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n",
+		"hotfix on main\n\nOiax-Backflow: skip\n\nWe considered skipping this but decided to return it.")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	var found bool
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a prose mention of the trailer must not suppress backflow; actions=%+v", plan.Actions)
+	}
+}
+
+func TestPlanBackflowExcludesMergeCommits(t *testing.T) {
+	// A merge commit on the backflow source (the ordinary merge-PR shape) has no
+	// mainline and cannot be cherry-picked; it must be excluded from the return
+	// set so it never becomes a permanent false divergence that blocks the
+	// genuine hotfix batched with it. The non-merge commits still return.
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	// A feature branch merged into main with a real merge commit, plus a hotfix.
+	gitExec(t, r.Dir, "switch", "-q", "-c", "feature")
+	commit("feature.txt", "feat\n", "feature work")
+	checkout(t, r, "main")
+	gitExec(t, r.Dir, "merge", "--no-ff", "-q", "-m", "Merge feature", "feature")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	f := &fakeForge{createResult: engine.ChangeRequest{ID: "1", Type: engine.RequestTypeBackflow}}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	var bf *engine.Action
+	for i := range plan.Actions {
+		if plan.Actions[i].Type == engine.ActionCreateBackflowRequest {
+			bf = &plan.Actions[i]
+		}
+	}
+	if bf == nil {
+		t.Fatalf("want a backflow action, got %+v", plan.Actions)
+	}
+	// The feature commit and the hotfix return; the merge commit does not.
+	if bf.Unpromoted != 2 {
+		t.Errorf("backflow returns %d commits, want 2 (feature + hotfix, merge excluded)", bf.Unpromoted)
+	}
+
+	res, err := c.Apply(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.Divergence {
+		t.Error("a merge on the source must not produce a cherry-pick divergence")
+	}
+	if res.Applied != 1 || len(f.pushed) != 1 || len(f.created) != 1 {
+		t.Errorf("want the backflow to converge: applied=%d pushed=%d created=%d", res.Applied, len(f.pushed), len(f.created))
+	}
+}
+
+func TestApplyBackflowSupersedesOnlyStrictlyOlderRequest(t *testing.T) {
+	// Two hotfixes land on main in sequence; the current head is the second.
+	// An open managed backflow request encoding the FIRST head (an ancestor of
+	// the current one) is stale and must be superseded. An open request
+	// encoding an unrelated, non-ancestor head must be left alone — closing it
+	// would let a run supersede work built on a head newer than its own.
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	h1 := commit("hotfix1.txt", "one\n", "first hotfix")
+	commit("hotfix2.txt", "two\n", "second hotfix")
+
+	// An unrelated divergent head that is neither ancestor nor descendant of
+	// main's current head.
+	gitExec(t, r.Dir, "switch", "-q", "-c", "side", "development")
+	sideFull := commit("side.txt", "s\n", "unrelated side commit")
+	checkout(t, r, "main")
+
+	short := func(sha string) string { return gitExec(t, r.Dir, "rev-parse", "--short=12", sha) }
+	olderBranch := engine.BackflowBranchName("main", "development", short(h1))
+	sideBranch := engine.BackflowBranchName("main", "development", short(sideFull))
+
+	f := &fakeForge{
+		createResult: engine.ChangeRequest{ID: "new", Type: engine.RequestTypeBackflow},
+		open: []engine.ChangeRequest{
+			{ID: "older", Type: engine.RequestTypeBackflow, Source: olderBranch, Target: "development"},
+			{ID: "unrelated", Type: engine.RequestTypeBackflow, Source: sideBranch, Target: "development"},
+		},
+	}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	if len(f.closed) != 1 || f.closed[0] != forge.RequestID("older") {
+		t.Fatalf("closed = %v, want only the strictly-older request %q", f.closed, "older")
 	}
 }

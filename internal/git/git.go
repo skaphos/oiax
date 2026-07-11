@@ -13,7 +13,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -29,6 +31,12 @@ type Runner struct {
 	// Dir is the repository working directory. Empty means the current
 	// directory.
 	Dir string
+	// Env, when non-empty, is appended to the inherited process environment
+	// for every git invocation. It exists so a cherry-pick can pin the
+	// committer identity and date (making the replayed SHA a deterministic
+	// function of its inputs); it is not safe for concurrent use, so set it
+	// only on a Runner bound to an ephemeral worktree.
+	Env []string
 }
 
 // Commit is one observed commit. It is git-local; the coordination layer
@@ -51,6 +59,9 @@ func (r *Runner) run(ctx context.Context, args ...string) (string, error) {
 func (r *Runner) runStdin(ctx context.Context, stdin []byte, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = r.Dir
+	if len(r.Env) > 0 {
+		cmd.Env = append(os.Environ(), r.Env...)
+	}
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
@@ -277,4 +288,165 @@ func (r *Runner) IsAncestor(ctx context.Context, ancestor, descendant string) (b
 		return false, nil
 	}
 	return false, err
+}
+
+// shortSHALen is the fixed abbreviation length for backflow branch names.
+// A bare `git rev-parse --short` chooses the minimum-unique length for the
+// local object database (min 7, growing with object count and differing
+// between shallow and full clones), so the same head could yield different
+// branch names across environments and break the force-push idempotency the
+// deterministic name exists to guarantee. A fixed length removes that
+// dependence on local repository state. Twelve hex digits keep the collision
+// probability negligible while remaining object-id-shaped.
+const shortSHALen = 12
+
+// ShortSHA resolves a branch head to a fixed-length abbreviated object id
+// (git rev-parse --short=12). Backflow branch names embed the short SHA of
+// the downstream source head so a given head deterministically yields one
+// branch name (the concurrency strategy); the abbreviation length is fixed
+// so that name depends only on the head, not on local object-database state.
+// The branch name is validated through CheckRefFormat and passed as a
+// fully-qualified ref.
+func (r *Runner) ShortSHA(ctx context.Context, branch string) (string, error) {
+	if err := r.CheckRefFormat(ctx, branch); err != nil {
+		return "", err
+	}
+	return r.run(ctx, "rev-parse", fmt.Sprintf("--short=%d", shortSHALen), "refs/heads/"+branch)
+}
+
+// ResolveCommit resolves an object id (or an unambiguous abbreviation of one)
+// to its full commit SHA. The input is guarded with oidPattern so it can only
+// be a hex object id, never an option or a ref expression; it is used to turn
+// the short SHA encoded in a backflow branch name back into a commit for an
+// ancestry test. A resolution failure (unknown/ambiguous object) is returned
+// as an error so callers can treat an unresolvable prior head conservatively.
+func (r *Runner) ResolveCommit(ctx context.Context, oid string) (string, error) {
+	if !oidPattern.MatchString(oid) {
+		return "", fmt.Errorf("invalid oid %q", oid)
+	}
+	return r.run(ctx, "rev-parse", "--verify", "--end-of-options", oid+"^{commit}")
+}
+
+// Worktree creates an ephemeral, detached working tree checked out at ref
+// (git worktree add --detach). It exists so mutating operations — chiefly a
+// cherry-pick sequence — never touch the caller's checked-out branch or
+// index. It returns a Runner bound to the new tree and a cleanup func that
+// removes the worktree registration and its directory; the caller MUST
+// invoke cleanup on every exit path (defer it). ref accepts either a branch
+// name (validated and fully qualified) or a bare object id, mirroring
+// validRev, so the target head may be supplied as either.
+func (r *Runner) Worktree(ctx context.Context, ref string) (*Runner, func(), error) {
+	rev, err := r.validRev(ctx, ref)
+	if err != nil {
+		return nil, nil, err
+	}
+	// A parent temp dir holds a not-yet-existing child path: git worktree
+	// add insists the target path not already exist, and MkdirTemp creates
+	// the directory it returns.
+	parent, err := os.MkdirTemp("", "oiax-worktree-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create worktree tempdir: %w", err)
+	}
+	dir := filepath.Join(parent, "wt")
+	if _, err := r.run(ctx, "worktree", "add", "--detach", dir, rev); err != nil {
+		_ = os.RemoveAll(parent)
+		return nil, nil, fmt.Errorf("add worktree at %s: %w", ref, err)
+	}
+	cleanup := func() {
+		// Use a fresh context: cleanup must run even when the caller's
+		// context is already cancelled or timed out. The worktree metadata
+		// lives in the parent repo, so run the removal there before deleting
+		// the directory tree.
+		_, _ = r.run(context.Background(), "worktree", "remove", "--force", dir)
+		_ = os.RemoveAll(parent)
+	}
+	return &Runner{Dir: dir}, cleanup, nil
+}
+
+// CherryPickConflict reports that a cherry-pick sequence stopped on a commit
+// whose content genuinely conflicted with the target (git exit code 1). It
+// carries enough to surface a reported divergence without any git state: the
+// failing commit, its subject, and how many earlier commits applied cleanly
+// before it. The worktree has been reset with `git cherry-pick --abort` by the
+// time this error is returned. Operational failures (a killed subprocess, a
+// cancelled context, a structural refusal such as a merge commit) are NOT
+// CherryPickConflicts — they propagate as ordinary errors so a transient
+// problem is not misreported as a human-actionable content conflict.
+type CherryPickConflict struct {
+	// SHA is the object id of the commit that failed to apply.
+	SHA string
+	// Subject is the failing commit's subject line (git show -s --format=%s).
+	Subject string
+	// Applied is the number of commits that cherry-picked cleanly before the
+	// failure (0 means the very first commit conflicted).
+	Applied int
+}
+
+func (e *CherryPickConflict) Error() string {
+	return fmt.Sprintf("cherry-pick conflict on %s %q after %d applied cleanly",
+		e.SHA, e.Subject, e.Applied)
+}
+
+// CherryPick replays shas onto the Runner's checked-out HEAD one at a time
+// with `git cherry-pick -x` (each replayed commit records a
+// "(cherry picked from commit <sha>)" provenance trailer). shas must be in
+// application order, oldest first. It is intended to run against a Runner
+// bound to an ephemeral Worktree, never the caller's checkout.
+//
+// Each pick pins the committer identity and date to the ORIGINAL commit's, so
+// the replayed HEAD is a deterministic function of its inputs: cherry-pick
+// otherwise stamps the committer date to "now", giving a different HEAD SHA on
+// every run and making the force-push that follows never a no-op (it would
+// churn the managed branch and the open request's head on every reconcile).
+//
+// `--empty=drop` skips a pick that reduces to an empty diff because its change
+// is already present on the target (a redundant return): that is convergence,
+// not a conflict.
+//
+// On full success it returns the new HEAD object id. On the first commit whose
+// content genuinely conflicts (git exit code 1) it runs `git cherry-pick
+// --abort` (leaving the worktree clean) and returns a *CherryPickConflict
+// naming that commit and the count of commits applied cleanly before it;
+// nothing is pushed. Any other failure (exit code other than 1: a cancelled
+// context, a killed subprocess, a structural refusal) propagates as an
+// ordinary error rather than a *CherryPickConflict. Each sha is guarded with
+// oidPattern before use.
+func (r *Runner) CherryPick(ctx context.Context, shas []string) (string, error) {
+	for i, sha := range shas {
+		if !oidPattern.MatchString(sha) {
+			return "", fmt.Errorf("invalid commit oid %q", sha)
+		}
+		// Pin the committer to the original commit's name, email and date so
+		// the replayed SHA is reproducible across runs and environments.
+		ci, err := r.run(ctx, "show", "-s", "--format=%cn%x1f%ce%x1f%cI", "--end-of-options", sha)
+		if err != nil {
+			return "", fmt.Errorf("read committer of %s: %w", sha, err)
+		}
+		name, rest, _ := strings.Cut(ci, "\x1f")
+		email, date, _ := strings.Cut(rest, "\x1f")
+		r.Env = []string{
+			"GIT_COMMITTER_NAME=" + name,
+			"GIT_COMMITTER_EMAIL=" + email,
+			"GIT_COMMITTER_DATE=" + date,
+		}
+		_, err = r.run(ctx, "cherry-pick", "-x", "--empty=drop", sha)
+		r.Env = nil
+		if err == nil {
+			continue
+		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			// Exit 1 is git's genuine-content-conflict signal. Capture the
+			// subject before aborting (the commit object survives the abort).
+			subject, _ := r.run(ctx, "show", "-s", "--format=%s", "--end-of-options", sha)
+			_, _ = r.run(ctx, "cherry-pick", "--abort")
+			return "", &CherryPickConflict{SHA: sha, Subject: subject, Applied: i}
+		}
+		// Any other exit code is an operational or structural failure, not a
+		// content conflict. Best-effort abort with a fresh context (the caller's
+		// may be cancelled), then surface the real error.
+		_, _ = r.run(context.Background(), "cherry-pick", "--abort")
+		return "", fmt.Errorf("cherry-pick %s: %w", sha, err)
+	}
+	return r.run(ctx, "rev-parse", "HEAD")
 }

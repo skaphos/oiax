@@ -66,10 +66,32 @@ func TestBuildPlan(t *testing.T) {
 			want: []ActionType{ActionCloseObsoleteRequest},
 		},
 		{
-			name: "downstream-only content on a backflow source is reported",
+			name: "downstream-only content on a backflow source is returned",
 			edge: func() EdgeState {
 				e := edge("production-stage-1", "main")
 				e.DownstreamOnly = []Commit{{SHA: "x", Subject: "hotfix"}}
+				e.ToReturn = []Commit{{SHA: "x", Subject: "hotfix"}}
+				e.SourceHeadShort = "abc1234"
+				return e
+			}(),
+			want: []ActionType{ActionCreateBackflowRequest},
+		},
+		{
+			name: "backflow source with everything already returned converges",
+			edge: func() EdgeState {
+				e := edge("production-stage-1", "main")
+				e.DownstreamOnly = []Commit{{SHA: "x", Subject: "hotfix"}}
+				e.ToReturn = nil // all already returned
+				e.SourceHeadShort = "abc1234"
+				return e
+			}(),
+			want: nil,
+		},
+		{
+			name: "downstream-only content on a non-backflow-source is reported",
+			edge: func() EdgeState {
+				e := edge("development", "test")
+				e.DownstreamOnly = []Commit{{SHA: "x", Subject: "drift"}}
 				return e
 			}(),
 			want: []ActionType{ActionReportDivergence},
@@ -92,6 +114,46 @@ func TestBuildPlan(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildPlanBackflowRequestPayload(t *testing.T) {
+	g := FromConfig(validGraph())
+
+	// main is a backflow source; the target is development. Two commits remain
+	// to return after identity filtering.
+	e := edge("production-stage-1", "main")
+	e.DownstreamOnly = []Commit{{SHA: "x", Subject: "hotfix a"}, {SHA: "y", Subject: "hotfix b"}, {SHA: "z", Subject: "already returned"}}
+	e.ToReturn = []Commit{{SHA: "x", Subject: "hotfix a"}, {SHA: "y", Subject: "hotfix b"}}
+	e.SourceHeadShort = "deadbee"
+
+	plan := BuildPlan(g, []EdgeState{e})
+	if len(plan.Actions) != 1 {
+		t.Fatalf("actions = %+v, want exactly one backflow action", plan.Actions)
+	}
+	a := plan.Actions[0]
+	if a.Type != ActionCreateBackflowRequest {
+		t.Fatalf("type = %q, want %q", a.Type, ActionCreateBackflowRequest)
+	}
+	if a.From != "main" || a.To != "development" {
+		t.Errorf("from/to = %q -> %q, want main -> development", a.From, a.To)
+	}
+	if a.Unpromoted != 2 {
+		t.Errorf("Unpromoted = %d, want 2 (ToReturn count, not DownstreamOnly)", a.Unpromoted)
+	}
+	want := "oiax/backflow/main-to-development/deadbee"
+	if a.Branch != want {
+		t.Errorf("Branch = %q, want %q", a.Branch, want)
+	}
+	if a.Branch != BackflowBranchName("main", "development", "deadbee") {
+		t.Errorf("Branch not built by BackflowBranchName")
+	}
+}
+
+func TestBackflowBranchName(t *testing.T) {
+	got := BackflowBranchName("main", "development", "abc1234")
+	if want := "oiax/backflow/main-to-development/abc1234"; got != want {
+		t.Fatalf("BackflowBranchName = %q, want %q", got, want)
 	}
 }
 
