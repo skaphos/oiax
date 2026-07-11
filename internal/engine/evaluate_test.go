@@ -190,6 +190,109 @@ func TestEvaluateEdge(t *testing.T) {
 	}
 }
 
+// TestEvaluateEdgeToReturn exercises the pure backflow filter: DownstreamOnly
+// minus everything already returned, by content (patch-id) or by resolved SHA
+// (cherry-pick -x provenance and the O6 'Oiax-Backflow: skip' trailer).
+func TestEvaluateEdgeToReturn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		obs          EdgeObservation
+		wantToReturn []Commit
+	}{
+		{
+			name: "no downstream content yields nothing to return",
+			obs: EdgeObservation{
+				From: BranchState{Name: "main", Head: "h-main"},
+				To:   BranchState{Name: "dev", Head: "h-dev"},
+			},
+			wantToReturn: nil,
+		},
+		{
+			name: "all downstream content returns when nothing already returned",
+			obs: EdgeObservation{
+				From:           BranchState{Name: "prod", Head: "h-prod"},
+				To:             BranchState{Name: "main", Head: "h-main"},
+				DownstreamOnly: commits("x", "y"),
+			},
+			wantToReturn: commits("x", "y"),
+		},
+		{
+			name: "patch-id already on target excludes a returned commit",
+			obs: EdgeObservation{
+				From:               BranchState{Name: "prod", Head: "h-prod"},
+				To:                 BranchState{Name: "main", Head: "h-main"},
+				DownstreamOnly:     commits("x", "y"),
+				DownstreamPatchIDs: patchIDs("x", "y"),
+				ReturnedPatchIDs:   idSet("p-x"), // x already on target by content
+			},
+			wantToReturn: commits("y"),
+		},
+		{
+			name: "O6 skip trailer and cherry-pick provenance SHAs are excluded",
+			obs: EdgeObservation{
+				From:           BranchState{Name: "prod", Head: "h-prod"},
+				To:             BranchState{Name: "main", Head: "h-main"},
+				DownstreamOnly: commits("skip", "picked", "fresh"),
+				// "skip" carries Oiax-Backflow: skip; "picked" already returned
+				// via cherry-pick -x provenance. Both resolved to SHAs upstream.
+				AlreadyReturned: idSet("skip", "picked"),
+			},
+			wantToReturn: commits("fresh"),
+		},
+		{
+			name: "order is preserved (newest first) after filtering",
+			obs: EdgeObservation{
+				From:            BranchState{Name: "prod", Head: "h-prod"},
+				To:              BranchState{Name: "main", Head: "h-main"},
+				DownstreamOnly:  commits("c", "b", "a"),
+				AlreadyReturned: idSet("b"),
+			},
+			wantToReturn: commits("c", "a"),
+		},
+		{
+			name: "everything already returned yields nil, not empty slice",
+			obs: EdgeObservation{
+				From:            BranchState{Name: "prod", Head: "h-prod"},
+				To:              BranchState{Name: "main", Head: "h-main"},
+				DownstreamOnly:  commits("x", "y"),
+				AlreadyReturned: idSet("x", "y"),
+			},
+			wantToReturn: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := EvaluateEdge(tt.obs)
+			if !reflect.DeepEqual(got.ToReturn, tt.wantToReturn) {
+				t.Errorf("ToReturn = %v, want %v", got.ToReturn, tt.wantToReturn)
+			}
+			// The promotion ladder must never mutate DownstreamOnly.
+			if !reflect.DeepEqual(got.DownstreamOnly, tt.obs.DownstreamOnly) {
+				t.Errorf("DownstreamOnly = %v, want %v", got.DownstreamOnly, tt.obs.DownstreamOnly)
+			}
+		})
+	}
+}
+
+// TestEvaluateEdgePassesThroughSourceHeadShort confirms the backflow branch
+// segment survives the ladder unchanged.
+func TestEvaluateEdgePassesThroughSourceHeadShort(t *testing.T) {
+	t.Parallel()
+
+	obs := EdgeObservation{
+		From:            BranchState{Name: "prod", Head: "h-prod"},
+		To:              BranchState{Name: "main", Head: "h-main"},
+		SourceHeadShort: "deadbee",
+	}
+	if got := EvaluateEdge(obs); got.SourceHeadShort != "deadbee" {
+		t.Errorf("SourceHeadShort = %q, want %q", got.SourceHeadShort, "deadbee")
+	}
+}
+
 // TestEvaluateEdgePassesThroughRequestAndMergeable confirms the advisory
 // forge fields survive the ladder unchanged.
 func TestEvaluateEdgePassesThroughRequestAndMergeable(t *testing.T) {

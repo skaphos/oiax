@@ -23,6 +23,7 @@ type fakeForge struct {
 	created []forge.CreateRequest
 	updated []forge.UpdateRequest
 	closed  []forge.RequestID
+	pushed  []forge.BranchPush
 }
 
 func (f *fakeForge) ListManagedRequests(_ context.Context, filter forge.RequestFilter) ([]engine.ChangeRequest, error) {
@@ -47,8 +48,9 @@ func (f *fakeForge) CloseRequest(_ context.Context, id forge.RequestID, _ forge.
 	return nil
 }
 
-func (f *fakeForge) PushBranch(context.Context, forge.BranchPush) error {
-	return forge.ErrNotImplemented
+func (f *fakeForge) PushBranch(_ context.Context, push forge.BranchPush) error {
+	f.pushed = append(f.pushed, push)
+	return nil
 }
 
 // useForge substitutes the package forge factory for the duration of a test.
@@ -121,6 +123,8 @@ func runCode(t *testing.T, args ...string) (string, int) {
 		}
 		return out.String(), ece.code
 	}
+	// Surface the generic error text so a failing test can explain itself.
+	out.WriteString(err.Error() + "\n")
 	return out.String(), 1
 }
 
@@ -217,11 +221,59 @@ func TestReconcileConvergedExitsZero(t *testing.T) {
 	}
 }
 
-func TestReconcileDivergenceExitsThree(t *testing.T) {
+func TestReconcileBackflowsHotfixExitsZero(t *testing.T) {
+	// A hotfix on main — a backflow source in exampleConfig — is returned to
+	// development: reconcile cherry-picks it, force-pushes the deterministic
+	// branch, opens a managed backflow request, and exits 0. (This flipped
+	// from the old exit-3 report-divergence semantics now that backflow is
+	// wired; a genuine exit-3 case is built from a cherry-pick conflict below.)
 	git := setupRepo(t)
 	git("checkout", "-q", "main")
 	git("write", "hotfix.txt", "urgent\n")
 	git("add", ".")
+	git("commit", "-q", "-m", "hotfix")
+	f := &fakeForge{}
+	useForge(t, f)
+
+	out, code := runCode(t, "reconcile")
+	if code != 0 {
+		t.Fatalf("reconcile exit = %d, want 0\n%s", code, out)
+	}
+	var backflow int
+	for _, c := range f.created {
+		if c.Type == engine.RequestTypeBackflow {
+			backflow++
+			if c.Target != "development" {
+				t.Errorf("backflow target = %q, want development", c.Target)
+			}
+			if !strings.HasPrefix(c.Source, "oiax/backflow/main-to-development/") {
+				t.Errorf("backflow head branch = %q, want oiax/backflow/main-to-development/ prefix", c.Source)
+			}
+		}
+	}
+	if backflow != 1 {
+		t.Fatalf("want 1 backflow create, got %d: %+v", backflow, f.created)
+	}
+	if len(f.pushed) != 1 {
+		t.Fatalf("want 1 push, got %d", len(f.pushed))
+	}
+}
+
+func TestReconcileBackflowConflictExitsThree(t *testing.T) {
+	// development and main touch the same file with divergent content, so the
+	// hotfix cannot cherry-pick cleanly back onto development. The backflow
+	// becomes a reported divergence: exit 3, nothing pushed, no backflow
+	// request opened.
+	git := setupRepo(t)
+	// Add only app.txt (not the untracked .oiax.yaml, which must survive the
+	// final checkout so reconcile can read the config from the working tree).
+	git("checkout", "-q", "development")
+	git("write", "app.txt", "dev-change\n")
+	git("add", "app.txt")
+	git("commit", "-q", "-m", "dev edit")
+	git("checkout", "-q", "main")
+	git("write", "app.txt", "hotfix-change\n")
+	git("add", "app.txt")
 	git("commit", "-q", "-m", "hotfix")
 	f := &fakeForge{}
 	useForge(t, f)
@@ -233,8 +285,13 @@ func TestReconcileDivergenceExitsThree(t *testing.T) {
 	if !strings.Contains(out, "converged with reported divergence") {
 		t.Errorf("output missing divergence message:\n%s", out)
 	}
-	if len(f.created)+len(f.updated)+len(f.closed) != 0 {
-		t.Error("divergence must not mutate the forge")
+	for _, c := range f.created {
+		if c.Type == engine.RequestTypeBackflow {
+			t.Errorf("backflow request created despite conflict: %+v", c)
+		}
+	}
+	if len(f.pushed) != 0 {
+		t.Errorf("conflict must push nothing, got %d", len(f.pushed))
 	}
 }
 

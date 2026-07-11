@@ -69,6 +69,19 @@ type EdgeState struct {
 	Equivalence Equivalence `json:"equivalence"`
 	// DownstreamOnly holds destination content absent from the source.
 	DownstreamOnly []Commit `json:"downstreamOnly"`
+	// ToReturn holds the downstream-only commits that must be backflowed to
+	// the backflow target: DownstreamOnly minus everything already returned
+	// (matched by patch identity or by an explicit already-returned SHA,
+	// which includes cherry-pick -x provenance and the O6 'Oiax-Backflow:
+	// skip' trailer). It is meaningful only when To is a backflow source;
+	// nil when nothing remains to return.
+	ToReturn []Commit `json:"toReturn,omitempty"`
+	// SourceHeadShort is the short SHA of the backflow source head (the
+	// downstream head, i.e. To.Head abbreviated). It is the trailing segment
+	// of the deterministic backflow branch name and is populated by the
+	// reconcile layer; empty for edges whose destination is not a backflow
+	// source.
+	SourceHeadShort string `json:"sourceHeadShort,omitempty"`
 	// ManagedRequest is the existing managed promotion request for this
 	// edge, if any.
 	ManagedRequest *ChangeRequest `json:"managedRequest,omitempty"`
@@ -103,6 +116,10 @@ type Action struct {
 	Equivalence Equivalence `json:"equivalence,omitempty"`
 	// Request identifies the managed request an update or close acts on.
 	Request *ChangeRequest `json:"request,omitempty"`
+	// Branch is the deterministic backflow branch name a create-backflow
+	// action pushes to (oiax/backflow/<source>-to-<target>/<shortSHA>);
+	// empty for promotion actions.
+	Branch string `json:"branch,omitempty"`
 	// Reason is a human-readable explanation of why the action exists.
 	Reason string `json:"reason"`
 }

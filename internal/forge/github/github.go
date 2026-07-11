@@ -31,6 +31,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,6 +46,12 @@ const (
 	defaultBaseURL = "https://api.github.com"
 	acceptHeader   = "application/vnd.github+json"
 	apiVersion     = "2022-11-28"
+	// gitRemoteHost is the host of the authenticated push remote built when
+	// GitRemote is not injected.
+	gitRemoteHost = "github.com"
+	// tokenRedaction replaces the credential in any git output surfaced in an
+	// error, mirroring the assertNoToken guarantee for the REST surface.
+	tokenRedaction = "[redacted]"
 	// botLogin is the author of pull requests created with the default
 	// GITHUB_TOKEN; it is exactly the condition under which
 	// `on: pull_request` workflows do not fire.
@@ -53,6 +62,11 @@ const (
 		"; on: pull_request workflows will not run for it. Configure a GitHub App " +
 		"installation token so managed requests get CI."
 )
+
+// oidPattern matches a git object id (or an unambiguous abbreviation). A
+// commit id pushed to a ref reaches git as data and is guarded with this
+// before use, so a branch name can never masquerade as a revision.
+var oidPattern = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 
 // Provider is the GitHub implementation of forge.Forge.
 type Provider struct {
@@ -69,6 +83,17 @@ type Provider struct {
 	// HTTP is the client used for requests (default http.DefaultClient);
 	// injectable for tests.
 	HTTP *http.Client
+	// GitDir is the working directory PushBranch runs git from. It must
+	// share an object database with the commit being pushed (the ephemeral
+	// cherry-pick worktree's repository). Empty means the current directory.
+	// It is a path, not a credential — safe to log.
+	GitDir string
+	// GitRemote overrides the push remote (default: the authenticated GitHub
+	// https URL built from Owner/Repo and an x-access-token credential).
+	// Tests point it at a local bare repository so the push touches no
+	// network and carries no token. When it embeds a credential it is never
+	// logged.
+	GitRemote string
 	// Warn, when set, receives a one-time degradation warning if a created
 	// request will not trigger CI. The coordination layer wires this to
 	// its annotation sink; a nil sink discards the warning.
@@ -262,15 +287,89 @@ func (p *Provider) CloseRequest(ctx context.Context, id forge.RequestID, reason 
 	return nil
 }
 
-// PushBranch refuses any branch name outside the oiax/ namespace before
-// touching git. The actual push is v0.2 scope (backflow); in v0.1 no
-// planned action emits one, so the confined push returns
-// forge.ErrNotImplemented while the namespace guard is real.
+// PushBranch pushes push.SHA to refs/heads/<push.Name>, confined to the
+// oiax/ namespace: any name outside oiax/ is refused before git is touched,
+// so force-pushing can never escape the namespace Oiax owns.
+//
+// The GitHub REST refs API cannot upload git objects, so the push shells
+// out to git following the no-shell posture: arguments are passed as exec
+// args (never a shell string), the branch name is validated with
+// git check-ref-format, the commit id is guarded with oidPattern, and both
+// reach git as operands after --end-of-options. The push runs in GitDir,
+// which must share an object database with the commit.
+//
+// The remote is GitRemote when set (tests point it at a local bare repo),
+// otherwise the authenticated GitHub https URL carrying an x-access-token
+// credential built from Owner/Repo/Token. The credential never appears in a
+// returned error: git's output is scrubbed of the token before it is
+// surfaced. push.Force selects a force push (the determinism strategy: the
+// same source head yields the same branch, so re-pushing is idempotent).
 func (p *Provider) PushBranch(ctx context.Context, push forge.BranchPush) error {
 	if !strings.HasPrefix(push.Name, "oiax/") {
 		return fmt.Errorf("push branch %q: refused outside the oiax/ namespace", push.Name)
 	}
-	return forge.ErrNotImplemented
+	if !oidPattern.MatchString(push.SHA) {
+		return fmt.Errorf("push branch %q: invalid commit id", push.Name)
+	}
+	if err := p.checkRefFormat(ctx, push.Name); err != nil {
+		return err
+	}
+
+	args := []string{"push"}
+	if push.Force {
+		args = append(args, "--force")
+	}
+	// Everything after --end-of-options is an operand, never a flag: the
+	// remote (trusted config) and the refspec (a hex id + a validated ref)
+	// reach git as data.
+	args = append(args, "--end-of-options", p.gitRemote(), push.SHA+":refs/heads/"+push.Name)
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = p.GitDir
+	// Never block on an interactive credential prompt (e.g. a bad token):
+	// fail fast instead of hanging.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return fmt.Errorf("push branch %q: %w: %s", push.Name, err, p.scrubToken(msg))
+		}
+		return fmt.Errorf("push branch %q: %w", push.Name, err)
+	}
+	return nil
+}
+
+// checkRefFormat validates a branch name with git before it is used as a
+// ref, mirroring the internal/git posture (names reach git as data, not a
+// shell). It runs in GitDir. The error carries the name (caller data, never
+// a credential), never git's raw output.
+func (p *Provider) checkRefFormat(ctx context.Context, name string) error {
+	cmd := exec.CommandContext(ctx, "git", "check-ref-format", "--branch", name)
+	cmd.Dir = p.GitDir
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("push branch %q: invalid branch name", name)
+	}
+	return nil
+}
+
+// gitRemote returns the push remote: GitRemote verbatim when injected, else
+// the authenticated GitHub https URL with an x-access-token credential.
+func (p *Provider) gitRemote() string {
+	if p.GitRemote != "" {
+		return p.GitRemote
+	}
+	return "https://x-access-token:" + p.Token + "@" + gitRemoteHost + "/" +
+		url.PathEscape(p.Owner) + "/" + url.PathEscape(p.Repo) + ".git"
+}
+
+// scrubToken removes the credential from a string surfaced to callers, so a
+// git failure that echoes the remote URL cannot leak the token.
+func (p *Provider) scrubToken(s string) string {
+	if p.Token == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, p.Token, tokenRedaction)
 }
 
 // adoptDuplicate re-lists open managed requests for the same graph and

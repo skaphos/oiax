@@ -134,21 +134,46 @@ Given `backflow: {sources: [main], target: development}` and a hotfix
    identity check's cheapest rung),
 3. opens a managed request from that branch to the target.
 
-The branch name is deterministic —
-`oiax/backflow/<source>-to-<target>/<source-head-short-sha>` — and
-determinism is the concurrency strategy: racing runs converge on the
-same ref, identical pushes are no-ops, conflicting creates fail cleanly
-at the ref level. Branches under `oiax/` are Oiax's to force-push and
-delete; no ref outside that namespace is ever force-pushed.
+Execution is specified in
+[ADR 0004](adr/0004-backflow-execution.md). The branch name is
+deterministic — `oiax/backflow/<source>-to-<target>/<short-sha>`, where
+`<short-sha>` is a fixed-length short SHA of the **backflow source branch
+head** (the downstream head), not the replayed commits. Determinism is
+the concurrency strategy: the same source head yields the same name, so
+racing or repeated runs converge on one ref. The force-push is a no-op
+on a repeated run *when the source and target heads are both unchanged*:
+the cherry-pick pins each commit's committer identity and date to the
+original commit's, so a fixed replay base and inputs produce an identical
+HEAD SHA rather than a fresh one stamped with the wall-clock time. The
+replay lands on the *current* target head, so an advancing target
+re-pushes the branch onto the new base — the intended behaviour for a
+return request that must merge into the live target — and concurrent runs
+that observe the same source and target heads still produce identical
+pushes, so they converge rather than clobber. A new hotfix
+advances the source head, mints a new name, and supersedes the prior
+request (the stale request is closed only when its encoded head is an
+ancestor of the new one, so supersede stays monotonic under concurrent
+runs that observe different heads). At most one active managed backflow
+request exists per (source,target): on a new hotfix the stale request is
+closed with an explanatory comment and the new one opened. Branches
+under `oiax/` are Oiax's to force-push and delete; no ref outside that
+namespace is ever force-pushed. The replay runs in an ephemeral detached
+worktree, never the caller's checkout, and that worktree is removed on
+every exit path.
 
 Backflow identity ("is downstream commit X already represented in the
-target?"): cherry-pick trailer → stable patch-id → otherwise unreturned.
-Known limitation, stated rather than hidden: patch identity breaks when
-a cherry-pick needed conflict resolution and no trailer exists; a manual
-override marker is planned with backflow (v0.2).
+target?"): cherry-pick trailer → stable patch-id → the `Oiax-Backflow:
+skip` commit trailer → otherwise unreturned. The trailer is a human
+escape hatch (ADR 0004): it marks a downstream commit as intentionally
+not-returned — for a hotfix deliberately kept downstream-only, or a
+commit whose patch identity cannot be recovered because an earlier
+cherry-pick resolved conflicts and left no trailer. Like all Oiax state
+it lives in Git, not a private database.
 
 Cherry-pick conflicts stop the operation: nothing partial is pushed, and
-the output identifies the failing commit and how many applied cleanly.
+the diagnostic identifies the failing commit's SHA and subject and how
+many commits applied cleanly. This is a reported divergence
+(reconcile exit 3), not a created request.
 
 ## Layers
 
@@ -280,9 +305,12 @@ workflow annotations for warnings/errors and a plan summary written to
   metadata; obsolescence handling; `validate`/`plan`/`reconcile`/`graph`
   with text and JSON output; exit-code contract; GitHub forge provider;
   GitHub Action wrapper.
-- **v0.2** — backflow: drift policy enforcement at runtime,
-  deterministic backflow branches, cherry-pick `-x`, identity ladder,
-  conflict diagnostics.
+- **v0.2** *(implemented)* — backflow: drift policy enforcement at
+  runtime, deterministic backflow branches keyed to the source head,
+  cherry-pick `-x` replay in an ephemeral worktree, identity ladder with
+  the `Oiax-Backflow: skip` override, supersede-and-close on a new
+  hotfix, conflict diagnostics as reported divergence
+  ([ADR 0004](adr/0004-backflow-execution.md)).
 - **v0.3** — native GitHub App mode; org-level defaults; request
   templates; labels/assignees/reviewers.
 - **v0.4** — Azure DevOps provider; provider capability discovery.

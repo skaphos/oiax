@@ -19,6 +19,27 @@ type EdgeObservation struct {
 	// the source), newest first. Passed straight through to EdgeState.
 	DownstreamOnly []Commit
 
+	// SourceHeadShort is the short SHA of the backflow source head — the
+	// downstream head (To.Head) abbreviated. It is the trailing segment of the
+	// deterministic backflow branch name and is passed straight through to
+	// EdgeState. Empty when To is not a backflow source.
+	SourceHeadShort string
+
+	// DownstreamPatchIDs maps each DownstreamOnly SHA to its stable patch-id.
+	// Used to decide, by content, which downstream commits are already
+	// represented on the backflow target.
+	DownstreamPatchIDs map[string]string
+	// ReturnedPatchIDs is the set of stable patch-ids already present on the
+	// backflow target for the downstream range. A downstream commit whose
+	// patch-id is here has already been returned (handles cherry-picks whose
+	// SHAs were rewritten and independent re-application).
+	ReturnedPatchIDs map[string]struct{}
+	// AlreadyReturned is the set of DownstreamOnly SHAs the reconcile layer has
+	// resolved as already returned by identity rather than content: the source
+	// SHA recorded in a target commit's 'git cherry-pick -x' provenance trailer
+	// and any downstream commit carrying the O6 'Oiax-Backflow: skip' trailer.
+	AlreadyReturned map[string]struct{}
+
 	// CandidatePatchIDs maps each candidate SHA to its stable patch-id.
 	CandidatePatchIDs map[string]string
 	// DestinationPatchIDs is the set of stable patch-ids present in
@@ -56,12 +77,14 @@ type EdgeObservation struct {
 //  5. Promotion required: any survivors are the unpromoted commits.
 func EvaluateEdge(obs EdgeObservation) EdgeState {
 	state := EdgeState{
-		From:           obs.From,
-		To:             obs.To,
-		DownstreamOnly: obs.DownstreamOnly,
-		ManagedRequest: obs.ManagedRequest,
-		Mergeable:      obs.Mergeable,
-		Equivalence:    EquivalenceReachability,
+		From:            obs.From,
+		To:              obs.To,
+		DownstreamOnly:  obs.DownstreamOnly,
+		ToReturn:        backflowToReturn(obs),
+		SourceHeadShort: obs.SourceHeadShort,
+		ManagedRequest:  obs.ManagedRequest,
+		Mergeable:       obs.Mergeable,
+		Equivalence:     EquivalenceReachability,
 	}
 
 	// Rung 1: reachability. Nothing reachable-only on the source ⇒ in sync.
@@ -110,4 +133,33 @@ func EvaluateEdge(obs EdgeObservation) EdgeState {
 	state.Unpromoted = survivors
 	state.Equivalence = EquivalenceReachability
 	return state
+}
+
+// backflowToReturn purely filters DownstreamOnly down to the commits that
+// still need returning to the backflow target. A downstream commit is dropped
+// when the reconcile layer resolved its SHA as already returned (cherry-pick -x
+// provenance or the O6 'Oiax-Backflow: skip' trailer) or when its patch-id is
+// already present on the target. Order is preserved (newest first); the result
+// is nil when nothing remains, matching the Unpromoted convention so identical
+// observations yield DeepEqual EdgeStates.
+func backflowToReturn(obs EdgeObservation) []Commit {
+	if len(obs.DownstreamOnly) == 0 {
+		return nil
+	}
+	toReturn := make([]Commit, 0, len(obs.DownstreamOnly))
+	for _, c := range obs.DownstreamOnly {
+		if _, ok := obs.AlreadyReturned[c.SHA]; ok {
+			continue
+		}
+		if pid, ok := obs.DownstreamPatchIDs[c.SHA]; ok {
+			if _, present := obs.ReturnedPatchIDs[pid]; present {
+				continue
+			}
+		}
+		toReturn = append(toReturn, c)
+	}
+	if len(toReturn) == 0 {
+		return nil
+	}
+	return toReturn
 }

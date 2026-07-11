@@ -17,15 +17,28 @@
 package reconcile
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"os/exec"
+	"regexp"
+	"slices"
+	"strings"
 
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
 	"github.com/skaphos/oiax/internal/git"
 )
+
+// cherryPickedFromRE captures the source object id recorded by
+// 'git cherry-pick -x' in a "(cherry picked from commit <sha>)" provenance
+// line, so a downstream commit already returned to the target is recognized
+// by identity even when its patch-id was rewritten during conflict
+// resolution.
+var cherryPickedFromRE = regexp.MustCompile(`cherry picked from commit ([0-9a-f]{7,40})`)
 
 // Coordinator wires the git layer and a forge provider to the engine. It
 // holds no mutable state of its own; Plan and Apply take a context and
@@ -162,7 +175,194 @@ func (c *Coordinator) observe(ctx context.Context, from, to string, open, merged
 		obs.PromotedByBaseline = promoted
 	}
 
+	// Backflow identity-ladder inputs. When the destination is a backflow
+	// source, its downstream-only commits are returned to the backflow target;
+	// gather the content and identity signals the engine's ToReturn filter
+	// consumes. Direction: `to` is the downstream source (e.g. main), the
+	// backflow target (e.g. development) is authoritative.
+	if c.isBackflowSource(to) && len(downstream) > 0 {
+		target := c.Graph.Backflow.Target
+
+		// Patch-ids of the downstream range (from..to), keyed by commit SHA:
+		// the content fingerprint of each downstream-only commit. PatchIDs
+		// omits merge commits and empty commits (neither has a diff).
+		dpid, err := c.Git.PatchIDs(ctx, from, to)
+		if err != nil {
+			return engine.EdgeObservation{}, wrap(err)
+		}
+		obs.DownstreamPatchIDs = dpid
+
+		// Restrict the returnable set to commits that carry a diff. The raw
+		// downstream range includes merge commits (from an ordinary promotion
+		// merged into the source, the common case) and any empty commits, and
+		// cherry-pick can return neither: a merge has no mainline (`git
+		// cherry-pick` of it fails outright) and an empty commit no content.
+		// Keeping only commits with a patch-id drops both, so an ordinary merge
+		// on the source cannot become a permanent false divergence that blocks
+		// genuine hotfixes batched behind it.
+		returnable := make([]engine.Commit, 0, len(obs.DownstreamOnly))
+		for _, cm := range obs.DownstreamOnly {
+			if _, ok := dpid[cm.SHA]; ok {
+				returnable = append(returnable, cm)
+			}
+		}
+		obs.DownstreamOnly = returnable
+
+		// Patch-ids already present on the backflow target since it diverged
+		// from the source: a downstream commit whose diff is here has already
+		// been returned by content.
+		returned := make(map[string]struct{})
+		tmb, err := c.Git.MergeBase(ctx, to, target)
+		if err != nil {
+			return engine.EdgeObservation{}, wrap(err)
+		}
+		if tmb != "" {
+			rp, err := c.Git.PatchIDs(ctx, tmb, target)
+			if err != nil {
+				return engine.EdgeObservation{}, wrap(err)
+			}
+			for _, pid := range rp {
+				returned[pid] = struct{}{}
+			}
+		}
+		obs.ReturnedPatchIDs = returned
+
+		// SHAs resolved as already returned by identity rather than content:
+		// the source SHA named in a target commit's cherry-pick -x provenance
+		// trailer, and any downstream commit carrying the O6 skip trailer.
+		already, err := c.backflowAlreadyReturned(ctx, from, to, target, tmb)
+		if err != nil {
+			return engine.EdgeObservation{}, wrap(err)
+		}
+		obs.AlreadyReturned = already
+
+		// The trailing segment of the deterministic backflow branch name is the
+		// short SHA of the downstream (source) head.
+		short, err := c.Git.ShortSHA(ctx, to)
+		if err != nil {
+			return engine.EdgeObservation{}, wrap(err)
+		}
+		obs.SourceHeadShort = short
+	}
+
 	return obs, nil
+}
+
+// isBackflowSource reports whether a branch is a configured backflow source
+// (a downstream branch whose downstream-only commits are returned to the
+// backflow target). It mirrors the engine's unexported predicate; reconcile
+// cannot call across the package boundary.
+func (c *Coordinator) isBackflowSource(branch string) bool {
+	return c.Graph.Backflow.Enabled && slices.Contains(c.Graph.Backflow.Sources, branch)
+}
+
+// backflowAlreadyReturned resolves, by identity, which downstream-only SHAs
+// have already been returned to the backflow target:
+//
+//   - a downstream commit carrying the O6 'Oiax-Backflow: skip' trailer is
+//     treated as intentionally not backflowed;
+//   - a target commit's 'cherry picked from commit <sha>' provenance names a
+//     downstream SHA that has already been returned.
+//
+// It reads commit message bodies, which the git.Runner does not expose, so it
+// shells out directly following the same no-shell posture: the range endpoints
+// reach git as operands after --end-of-options, never as a shell string.
+func (c *Coordinator) backflowAlreadyReturned(ctx context.Context, from, to, target, targetMergeBase string) (map[string]struct{}, error) {
+	already := make(map[string]struct{})
+
+	// O6 skip trailer on the downstream-only range (from..to). This is a git
+	// TRAILER (a key:value in the message's last paragraph), parsed with git's
+	// own trailer semantics — not a whole-body line match — so a commit that
+	// merely quotes 'Oiax-Backflow: skip' in prose elsewhere in its body does
+	// not falsely suppress a legitimate hotfix.
+	skips, err := c.backflowSkipTrailers(ctx, "refs/heads/"+from+"..refs/heads/"+to)
+	if err != nil {
+		return nil, err
+	}
+	for sha := range skips {
+		already[sha] = struct{}{}
+	}
+
+	// Cherry-pick -x provenance on the target's commits since it diverged from
+	// the source (targetMergeBase..target).
+	if targetMergeBase != "" {
+		targetBodies, err := c.commitBodies(ctx, targetMergeBase+"..refs/heads/"+target)
+		if err != nil {
+			return nil, err
+		}
+		for _, body := range targetBodies {
+			for _, m := range cherryPickedFromRE.FindAllStringSubmatch(body, -1) {
+				already[m[1]] = struct{}{}
+			}
+		}
+	}
+	return already, nil
+}
+
+// commitBodies returns the full commit message body of every commit in the
+// given rev-range, keyed by full commit SHA. It runs in the git Runner's
+// working directory. Records are NUL-delimited (commit bodies contain
+// newlines) and each is "<sha>\x1f<body>".
+func (c *Coordinator) commitBodies(ctx context.Context, revRange string) (map[string]string, error) {
+	cmd := exec.CommandContext(ctx, "git", "log", "--no-color", "-z",
+		"--format=%H%x1f%B", "--end-of-options", revRange)
+	cmd.Dir = c.Git.Dir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("read commit bodies for %q: %w: %s", revRange, err, strings.TrimSpace(stderr.String()))
+	}
+	out := make(map[string]string)
+	for _, rec := range strings.Split(stdout.String(), "\x00") {
+		if strings.Trim(rec, "\n") == "" {
+			continue
+		}
+		sha, body, ok := strings.Cut(rec, "\x1f")
+		if !ok {
+			return nil, fmt.Errorf("unexpected git log record %q", rec)
+		}
+		out[strings.TrimLeft(sha, "\n")] = body
+	}
+	return out, nil
+}
+
+// backflowSkipTrailers returns the set of commit SHAs in revRange whose
+// message carries the O6 'Oiax-Backflow: skip' git trailer. It uses git's
+// %(trailers) pretty-format with a key filter, so matching follows git's
+// trailer semantics (last-paragraph key:value blocks) rather than a naive
+// whole-body scan: a mention of the trailer in ordinary prose does not match.
+// A trailer value is recognized as a skip when it is exactly 'skip'
+// (case-insensitive, trimmed). It follows the same no-shell posture as
+// commitBodies: the range reaches git as an operand after --end-of-options.
+func (c *Coordinator) backflowSkipTrailers(ctx context.Context, revRange string) (map[string]struct{}, error) {
+	cmd := exec.CommandContext(ctx, "git", "log", "--no-color", "-z",
+		"--format=%H%x1f%(trailers:key=Oiax-Backflow,valueonly=true,separator=%x1e)",
+		"--end-of-options", revRange)
+	cmd.Dir = c.Git.Dir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("read skip trailers for %q: %w: %s", revRange, err, strings.TrimSpace(stderr.String()))
+	}
+	skips := make(map[string]struct{})
+	for _, rec := range strings.Split(stdout.String(), "\x00") {
+		if strings.Trim(rec, "\n") == "" {
+			continue
+		}
+		sha, values, ok := strings.Cut(rec, "\x1f")
+		if !ok {
+			return nil, fmt.Errorf("unexpected git log record %q", rec)
+		}
+		for _, v := range strings.Split(values, "\x1e") {
+			if strings.EqualFold(strings.TrimSpace(v), "skip") {
+				skips[strings.TrimLeft(sha, "\n")] = struct{}{}
+				break
+			}
+		}
+	}
+	return skips, nil
 }
 
 // Apply executes a plan's actions against the forge, in plan order, and
@@ -227,7 +427,9 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 			c.log().Warn(fmt.Sprintf("reported divergence on %s -> %s: %s", a.From, a.To, a.Reason))
 
 		case engine.ActionCreateBackflowRequest:
-			return res, fmt.Errorf("apply %s->%s: backflow requests are v0.2 scope and must not appear in a v0.1 plan", a.From, a.To)
+			if err := c.applyBackflow(ctx, a, &res); err != nil {
+				return res, err
+			}
 
 		case engine.ActionNoOp:
 			// Nothing to do.
@@ -237,6 +439,170 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 		}
 	}
 	return res, nil
+}
+
+// applyBackflow returns downstream-only commits to the backflow target by
+// cherry-pick, then opens (or adopts) the managed backflow request. All git
+// mutation happens in an ephemeral detached worktree that is always removed,
+// so the caller's checkout and index are never touched. A cherry-pick
+// conflict is a reported divergence (res.Divergence), not a created request:
+// nothing is pushed and no request is opened.
+func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *Result) error {
+	// The action carries a count and the plan-time branch, not the SHAs, so
+	// re-derive the commits to return from live state — mirroring how the
+	// promotion arms re-resolve the live head.
+	st, err := c.backflowActionState(ctx, a)
+	if err != nil {
+		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+	}
+	toReturn := st.ToReturn
+	if len(toReturn) == 0 {
+		// Converged between plan and apply: nothing left to return.
+		return nil
+	}
+
+	// Recompute the deterministic branch name from the LIVE source head just
+	// observed, not the plan-time name on the action. The re-derived commits
+	// belong to the current head, so if a hotfix advanced the source between
+	// plan and apply the branch must identify that head — otherwise the content
+	// lands on a branch named for a stale head and the name no longer maps to
+	// what it carries (O4).
+	branch := engine.BackflowBranchName(a.From, a.To, st.SourceHeadShort)
+
+	// DownstreamOnly (and thus ToReturn) is newest-first; cherry-pick applies
+	// oldest-first.
+	shas := make([]string, len(toReturn))
+	for i, cm := range toReturn {
+		shas[len(toReturn)-1-i] = cm.SHA
+	}
+
+	// Cherry-pick onto the target head inside an ephemeral detached worktree,
+	// always cleaned up, so the caller's branch and index are never mutated.
+	wt, cleanup, err := c.Git.Worktree(ctx, a.To)
+	if err != nil {
+		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+	}
+	defer cleanup()
+
+	head, err := wt.CherryPick(ctx, shas)
+	if err != nil {
+		var conflict *git.CherryPickConflict
+		if errors.As(err, &conflict) {
+			// Reported divergence (reconcile exit 3): surface the failing
+			// commit and how many applied cleanly, push nothing, create nothing.
+			res.Divergence = true
+			c.log().Warn(fmt.Sprintf(
+				"backflow %s -> %s halted on cherry-pick conflict at %s %q after %d applied cleanly; no request created",
+				a.From, a.To, conflict.SHA, conflict.Subject, conflict.Applied))
+			return nil
+		}
+		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+	}
+
+	// Force-push the deterministic branch (confined to oiax/ by the provider).
+	// The branch name is a pure function of the source head, and the replayed
+	// HEAD is deterministic too (CherryPick pins the committer), so a repeated
+	// run at the same source head re-pushes an identical SHA — a genuine no-op.
+	if err := c.Forge.PushBranch(ctx, forge.BranchPush{Name: branch, SHA: head, Force: true}); err != nil {
+		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+	}
+
+	// Open (or adopt) the managed backflow request. The head branch is the
+	// pushed oiax/ branch; the base is the backflow target.
+	if _, err := c.Forge.CreateRequest(ctx, forge.CreateRequest{
+		Graph:      c.Graph.Name,
+		Type:       engine.RequestTypeBackflow,
+		Source:     branch,
+		Target:     a.To,
+		SourceHead: head,
+		Title:      fmt.Sprintf("oiax: backflow %s to %s", a.From, a.To),
+		Body:       backflowBody(a),
+	}); err != nil {
+		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+	}
+	res.Applied++
+
+	// Supersede: at most one active managed backflow request per (source,
+	// target). A new hotfix advanced the branch, so close any strictly older
+	// one.
+	if err := c.supersedeBackflow(ctx, a, branch); err != nil {
+		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+	}
+	return nil
+}
+
+// backflowActionState re-derives, from live state, the edge state a backflow
+// action operates on. The action's From is the backflow source (a downstream
+// branch); the returned EdgeState carries the commits to return (ToReturn) and
+// the current source-head short SHA (SourceHeadShort) that names the branch.
+func (c *Coordinator) backflowActionState(ctx context.Context, a engine.Action) (engine.EdgeState, error) {
+	for _, p := range c.Graph.Promotions {
+		if p.To == a.From {
+			obs, err := c.observe(ctx, p.From, p.To, nil, nil)
+			if err != nil {
+				return engine.EdgeState{}, err
+			}
+			return engine.EvaluateEdge(obs), nil
+		}
+	}
+	return engine.EdgeState{}, fmt.Errorf("no promotion edge into backflow source %q", a.From)
+}
+
+// supersedeBackflow closes any still-open managed backflow request for the
+// same logical (source,target) whose encoded source head is STRICTLY OLDER
+// than the one just created (an ancestor of it). The deterministic branch
+// encodes the source head, so a newer hotfix yields a new branch and the prior
+// request is stale; it is closed with an explanatory comment, never deleted.
+//
+// The ancestry guard makes supersede monotonic under concurrency. Two
+// overlapping runs can observe divergent source heads and each create its own
+// branch; a plain "close every other-named request" would let the run that saw
+// the OLDER head close the NEWER run's request. Closing only requests whose
+// head is an ancestor of the current one — never a descendant or an
+// unresolvable/unknown head — ensures a run never closes work built on a newer
+// head than its own. A create that adopted an existing request (same branch)
+// leaves nothing to supersede.
+func (c *Coordinator) supersedeBackflow(ctx context.Context, a engine.Action, branch string) error {
+	open, err := c.Forge.ListManagedRequests(ctx, forge.RequestFilter{
+		Graph: c.Graph.Name,
+		Type:  engine.RequestTypeBackflow,
+	})
+	if err != nil {
+		return err
+	}
+	prefix := engine.BackflowBranchName(a.From, a.To, "")
+	curHead, err := c.Git.ResolveCommit(ctx, strings.TrimPrefix(branch, prefix))
+	if err != nil {
+		return fmt.Errorf("resolve current backflow head: %w", err)
+	}
+	for _, r := range open {
+		if r.Target != a.To || !strings.HasPrefix(r.Source, prefix) || r.Source == branch {
+			continue
+		}
+		// Resolve the stale request's encoded source head. An unknown or
+		// ambiguous object is left alone rather than closed.
+		staleHead, err := c.Git.ResolveCommit(ctx, strings.TrimPrefix(r.Source, prefix))
+		if err != nil {
+			continue
+		}
+		if staleHead == curHead {
+			continue
+		}
+		// Only supersede when the stale head is an ancestor of the current one.
+		anc, err := c.Git.IsAncestor(ctx, staleHead, curHead)
+		if err != nil {
+			return err
+		}
+		if !anc {
+			continue
+		}
+		reason := forge.Reason{Summary: fmt.Sprintf(
+			"Superseded by %s: a newer %s head advanced the backflow branch.", branch, a.From)}
+		if err := c.Forge.CloseRequest(ctx, forge.RequestID(r.ID), reason); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // log returns a usable logger even when none was injected, so Apply never
@@ -280,6 +646,15 @@ func toEngineCommits(cs []git.Commit) []engine.Commit {
 func promotionBody(a engine.Action) string {
 	return fmt.Sprintf(
 		"Oiax opened this request to promote %d commit(s) from `%s` into `%s`.\n\n"+
+			"This request is managed by Oiax. Do not edit the metadata block below.",
+		a.Unpromoted, a.From, a.To)
+}
+
+// backflowBody is the human body of a created backflow request; the provider
+// appends the machine-readable marker after it.
+func backflowBody(a engine.Action) string {
+	return fmt.Sprintf(
+		"Oiax opened this request to return %d downstream-only commit(s) from `%s` back to `%s` by cherry-pick.\n\n"+
 			"This request is managed by Oiax. Do not edit the metadata block below.",
 		a.Unpromoted, a.From, a.To)
 }

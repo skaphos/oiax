@@ -3,11 +3,13 @@ package github
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -542,15 +544,115 @@ func TestPushBranchNamespaceGuard(t *testing.T) {
 	t.Parallel()
 	p := &Provider{Owner: "acme", Repo: "widgets", Token: testToken}
 
-	err := p.PushBranch(context.Background(), forge.BranchPush{Name: "main", Force: true})
-	if err == nil || strings.Contains(err.Error(), "not implemented") {
-		t.Fatalf("push outside oiax/ must be refused, got %v", err)
+	// Any name outside oiax/ is refused before git is ever invoked, so no
+	// GitDir/GitRemote is needed to prove the guard holds.
+	for _, name := range []string{"main", "development", "feature/x", "oiax-not-namespaced"} {
+		err := p.PushBranch(context.Background(), forge.BranchPush{Name: name, SHA: "abc1234", Force: true})
+		if err == nil {
+			t.Fatalf("push to %q outside oiax/ must be refused, got nil", name)
+		}
+		if !strings.Contains(err.Error(), "oiax/ namespace") {
+			t.Fatalf("push to %q: error %q does not explain the namespace refusal", name, err)
+		}
+		assertNoToken(t, err.Error())
+	}
+}
+
+func TestPushBranchToLocalBareRepo(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	bare := filepath.Join(dir, "bare.git")
+	work := filepath.Join(dir, "work")
+	runGit(t, "", "init", "--bare", bare)
+	sha := seedRepo(t, work)
+
+	p := &Provider{Owner: "acme", Repo: "widgets", Token: testToken, GitDir: work, GitRemote: bare}
+	branch := "oiax/backflow/main-to-development/" + sha[:7]
+	if err := p.PushBranch(context.Background(), forge.BranchPush{Name: branch, SHA: sha, Force: true}); err != nil {
+		t.Fatalf("PushBranch: %v", err)
 	}
 
-	err = p.PushBranch(context.Background(), forge.BranchPush{Name: "oiax/backflow/test", SHA: "abc"})
-	if !errors.Is(err, forge.ErrNotImplemented) {
-		t.Fatalf("confined push should return ErrNotImplemented (v0.2), got %v", err)
+	// The ref now exists in the bare repo pointing at exactly the pushed SHA.
+	got := strings.TrimSpace(runGit(t, bare, "rev-parse", "refs/heads/"+branch))
+	if got != sha {
+		t.Fatalf("bare ref %s = %s, want %s", branch, got, sha)
 	}
+
+	// Determinism: re-pushing the same head to the same branch is idempotent.
+	if err := p.PushBranch(context.Background(), forge.BranchPush{Name: branch, SHA: sha, Force: true}); err != nil {
+		t.Fatalf("idempotent re-push: %v", err)
+	}
+}
+
+func TestPushBranchRejectsBadInputs(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	bare := filepath.Join(dir, "bare.git")
+	work := filepath.Join(dir, "work")
+	runGit(t, "", "init", "--bare", bare)
+	sha := seedRepo(t, work)
+	p := &Provider{Owner: "acme", Repo: "widgets", Token: testToken, GitDir: work, GitRemote: bare}
+
+	// A commit id that is not an object id is refused before git runs.
+	if err := p.PushBranch(context.Background(), forge.BranchPush{
+		Name: "oiax/backflow/a-to-b/x", SHA: "not-a-sha", Force: true}); err == nil ||
+		!strings.Contains(err.Error(), "invalid commit id") {
+		t.Fatalf("invalid SHA should be refused, got %v", err)
+	}
+
+	// A malformed branch name (double slash) is rejected by check-ref-format.
+	if err := p.PushBranch(context.Background(), forge.BranchPush{
+		Name: "oiax//bad", SHA: sha, Force: true}); err == nil ||
+		!strings.Contains(err.Error(), "invalid branch name") {
+		t.Fatalf("invalid branch name should be refused, got %v", err)
+	}
+}
+
+func TestPushBranchScrubsTokenOnError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	work := filepath.Join(dir, "work")
+	sha := seedRepo(t, work)
+
+	// A bogus local remote whose path embeds the token: git echoes the
+	// remote in its failure, so this exercises the scrubber on real git
+	// output — with no network call.
+	badRemote := filepath.Join(dir, "missing-"+testToken+".git")
+	p := &Provider{Owner: "acme", Repo: "widgets", Token: testToken, GitDir: work, GitRemote: badRemote}
+	err := p.PushBranch(context.Background(), forge.BranchPush{
+		Name: "oiax/backflow/main-to-development/x", SHA: sha, Force: true})
+	if err == nil {
+		t.Fatal("push to a missing local remote should fail")
+	}
+	assertNoToken(t, err.Error())
+}
+
+// seedRepo initializes a working repo at dir with one commit and returns its
+// full commit SHA.
+func seedRepo(t *testing.T, dir string) string {
+	t.Helper()
+	runGit(t, "", "init", dir)
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write seed file: %v", err)
+	}
+	runGit(t, dir, "add", "file.txt")
+	runGit(t, dir, "commit", "-m", "seed")
+	return strings.TrimSpace(runGit(t, dir, "rev-parse", "HEAD"))
+}
+
+// runGit runs a git command in dir (empty => current directory) and returns
+// stdout, failing the test on error.
+func runGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
 }
 
 func TestErrorsNeverLeakToken(t *testing.T) {
