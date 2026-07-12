@@ -12,7 +12,7 @@ import (
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
 	"github.com/skaphos/oiax/internal/git"
-	"github.com/skaphos/oiax/pkg/api/v1alpha1"
+	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
 // oidHex matches a full git object id, for asserting a pushed commit SHA.
@@ -67,9 +67,9 @@ func testGraph() *engine.Graph {
 	return &engine.Graph{
 		Name: "environments",
 		Branches: map[string]engine.Branch{
-			"development": {Role: v1alpha1.RoleSource, Drift: v1alpha1.DriftForbidden},
-			"test":        {Drift: v1alpha1.DriftForbidden},
-			"main":        {Role: v1alpha1.RoleTerminal, Drift: v1alpha1.DriftForbidden},
+			"development": {Role: v1.RoleSource, Drift: v1.DriftForbidden},
+			"test":        {Drift: v1.DriftForbidden},
+			"main":        {Role: v1.RoleTerminal, Drift: v1.DriftForbidden},
 		},
 		Promotions: []engine.Promotion{
 			{From: "development", To: "test"},
@@ -79,7 +79,7 @@ func testGraph() *engine.Graph {
 			Enabled:  true,
 			Sources:  []string{"main"},
 			Target:   "development",
-			Strategy: v1alpha1.BackflowStrategyCherryPick,
+			Strategy: v1.BackflowStrategyCherryPick,
 		},
 	}
 }
@@ -179,6 +179,35 @@ func TestPlanInSync(t *testing.T) {
 	}
 	if plan.PlanFormatVersion != engine.PlanFormatVersion || plan.Graph != "environments" {
 		t.Errorf("plan header = %+v", plan)
+	}
+}
+
+// TestPlanMultiBranchGraphWithOriginOnlyBranches reproduces the
+// actions/checkout condition end-to-end: only the triggering branch is a local
+// head; the other graph branches exist solely as refs/remotes/origin/<name>. A
+// fully in-sync multi-branch graph must observe cleanly and plan zero actions.
+// Before the git layer resolved origin-tracking refs, observe() failed on
+// Head() of a non-triggering branch and reconcile exited 1 on its first run.
+func TestPlanMultiBranchGraphWithOriginOnlyBranches(t *testing.T) {
+	r, _ := gitHarness(t)
+	dir := r.Dir
+
+	// development is the triggering branch (a local head); test and main exist
+	// only as remote-tracking refs, their local heads removed.
+	checkout(t, r, "development")
+	for _, b := range []string{"test", "main"} {
+		sha := gitExec(t, dir, "rev-parse", b)
+		gitExec(t, dir, "update-ref", "refs/remotes/origin/"+b, sha)
+		gitExec(t, dir, "branch", "-D", b)
+	}
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan over origin-only branches: %v", err)
+	}
+	if len(plan.Actions) != 0 {
+		t.Fatalf("in-sync plan has %d actions, want 0: %+v", len(plan.Actions), plan.Actions)
 	}
 }
 

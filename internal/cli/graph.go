@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/pkg/api/v1alpha1"
+	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
 func newGraphCommand(opts *options) *cobra.Command {
@@ -42,10 +42,10 @@ func printGraph(cmd *cobra.Command, g *engine.Graph) {
 	for _, name := range names {
 		b := g.Branches[name]
 		annotations := ""
-		if b.Role != v1alpha1.RoleNone {
+		if b.Role != v1.RoleNone {
 			annotations += string(b.Role)
 		}
-		if b.Drift == v1alpha1.DriftExpected {
+		if b.Drift == v1.DriftExpected {
 			if annotations != "" {
 				annotations += ", "
 			}

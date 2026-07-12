@@ -72,6 +72,21 @@ runs:
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
         }
 
+    # actions/checkout materializes only the triggering branch as a local
+    # head (refs/heads/<name>) and does not set origin/HEAD. Oiax needs every
+    # graph branch resolvable — as refs/remotes/origin/<name> — and the
+    # default branch known so the pinned config-ref default resolves. This
+    # step only prepares refs; no promotion logic lives in YAML. Full history
+    # (fetch-depth: 0 on actions/checkout) is recommended for the reachability
+    # and patch rungs but is tracked separately — this step does not
+    # --unshallow.
+    - name: Prepare git refs
+      shell: bash
+      run: |
+        set -euo pipefail
+        git fetch --no-tags --prune origin "+refs/heads/*:refs/remotes/origin/*"
+        git remote set-head origin --auto
+
     - name: Run oiax
       shell: bash
       env:

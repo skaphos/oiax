@@ -31,7 +31,7 @@ the point — the Greek οἴαξ is the tiller: a hand stays on it.)
 Declare the promotion graph at `.oiax.yaml` on the default branch:
 
 ```yaml
-apiVersion: oiax.skaphos.dev/v1alpha1
+apiVersion: oiax.skaphos.dev/v1
 kind: PromotionGraph
 
 metadata:

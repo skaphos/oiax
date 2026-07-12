@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/skaphos/oiax/pkg/api/v1alpha1"
+	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
 func edge(from, to string) EdgeState {
@@ -160,7 +160,7 @@ func TestBackflowBranchName(t *testing.T) {
 func TestBuildPlanRespectsExpectedDrift(t *testing.T) {
 	cfg := validGraph()
 	// Detach test from backflow concerns and mark its drift expected.
-	cfg.Spec.Branches["test"] = v1alpha1.Branch{Drift: v1alpha1.DriftExpected}
+	cfg.Spec.Branches["test"] = v1.Branch{Drift: v1.DriftExpected}
 	g := FromConfig(cfg)
 
 	e := edge("development", "test")
