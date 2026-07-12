@@ -12,9 +12,12 @@ import (
 // request per diverged edge, no duplicates, no stale leftovers.
 //
 // BuildPlan is pure: it makes no provider calls and produces an
-// equivalent plan for identical inputs. Backflow planning (returning
-// downstream-only commits to the backflow target) is v0.2 scope; until
-// then, downstream-only content on a backflow source is reported.
+// equivalent plan for identical inputs. Backflow planning is implemented:
+// downstream-only commits on a backflow source are returned to the backflow
+// target via ActionCreateBackflowRequest (planDownstream); downstream-only
+// content on a branch that is not a configured backflow source is surfaced
+// as ActionReportDivergence, unless the branch declares drift: expected, in
+// which case it is silently ignored (see planDownstream).
 func BuildPlan(g *Graph, edges []EdgeState) Plan {
 	plan := Plan{
 		PlanFormatVersion: PlanFormatVersion,

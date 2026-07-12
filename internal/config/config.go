@@ -26,12 +26,29 @@ import (
 // DefaultPath is the default repository-local configuration path.
 const DefaultPath = ".oiax.yaml"
 
-// Load reads and parses the configuration file at path.
+// maxConfigSize bounds the bytes Load will read from a configuration file,
+// so a pathological .oiax.yaml cannot exhaust memory. It is far larger than
+// any real promotion graph needs.
+const maxConfigSize = 4 << 20 // 4 MiB
+
+// Load reads and parses the configuration file at path. Reading is capped at
+// maxConfigSize; a file at or past the cap is rejected with a clear error
+// rather than read into memory in full.
 func Load(path string) (*v1.PromotionGraph, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("read configuration: %w", err)
 	}
+	defer func() { _ = f.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(f, maxConfigSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("read configuration: %w", err)
+	}
+	if len(data) > maxConfigSize {
+		return nil, fmt.Errorf("read configuration: %s exceeds the %d byte limit", path, maxConfigSize)
+	}
+
 	cfg, err := Parse(data)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -46,11 +63,21 @@ func Load(path string) (*v1.PromotionGraph, error) {
 // Multi-document YAML is rejected: v1 accepts exactly one PromotionGraph
 // per file (multiple graphs are reserved for a future version).
 //
+// Parse rejects data longer than maxConfigSize before decoding. This is the
+// authoritative size bound: Load's own pre-read cap only protects the
+// working-tree path, while the pinned-ref read (loadGraph's configRef
+// branch, via git.Runner.ShowFile) decodes bytes straight from `git show`
+// and calls Parse directly, so the guard has to live here to cover both.
+//
 // The canonical apiVersion is oiax.skaphos.dev/v1; the pre-1.0
 // oiax.skaphos.dev/v1alpha1 is accepted as a deprecated alias. Parse is a
 // pure byte->struct decoder and emits no I/O: callers detect the alias with
 // IsDeprecatedAPIVersion and warn.
 func Parse(data []byte) (*v1.PromotionGraph, error) {
+	if len(data) > maxConfigSize {
+		return nil, fmt.Errorf("configuration exceeds the %d byte limit", maxConfigSize)
+	}
+
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 

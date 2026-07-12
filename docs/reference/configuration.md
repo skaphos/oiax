@@ -51,7 +51,7 @@ warning to stderr. Migrate by changing the `apiVersion` string to
 | --- | --- | --- | --- |
 | `from` | string | yes | Source branch (must be declared in `spec.branches`). |
 | `to` | string | yes | Destination branch (must be declared; distinct from `from`; each `from`/`to` pair at most once). |
-| `expectations.mergeMethod` | string | no | `merge`, `squash`, or `rebase`. Reporting metadata only: Oiax warns when repository settings contradict it and never modifies settings. Recommended where possible: disable squash on promotion targets for cheaper, exact detection. |
+| `expectations.mergeMethod` | string | no | `merge`, `squash`, or `rebase`. Reporting metadata only: Oiax validates the value against this enum but does not check it against the repository's actual merge-button settings and never modifies them. Recommended where possible: disable squash on promotion targets for cheaper, exact detection. |
 
 ## `spec.backflow`
 
@@ -76,6 +76,7 @@ generated [CLI reference](cli.md) for per-command flags):
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `GITHUB_TOKEN` | none | **Required.** Token the GitHub provider authenticates with — creating, updating, closing, and listing managed requests, and pushing backflow branches. See [Architecture — Tokens](../architecture.md#tokens) for the token-type tradeoffs (`GITHUB_TOKEN` works out of the box but is degraded: created pull requests do not trigger other workflows). |
 | `OIAX_LOG_FORMAT` | `text` | Structured log format: `text` or `json`. |
 
 ## Exit codes

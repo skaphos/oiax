@@ -1,7 +1,6 @@
 package git_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -11,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/skaphos/oiax/internal/git"
+	"github.com/skaphos/oiax/internal/gittest"
 )
 
 // requireGit skips the test when the system git executable is unavailable.
@@ -21,37 +21,12 @@ func requireGit(t *testing.T) {
 	}
 }
 
-// gitEnv returns a hermetic environment for the setup commands: global and
-// system config are neutralized and a fixed identity is supplied so commits
-// succeed regardless of the developer's own git configuration.
-func gitEnv() []string {
-	return append(os.Environ(),
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_AUTHOR_NAME=Test",
-		"GIT_AUTHOR_EMAIL=test@example.com",
-		"GIT_COMMITTER_NAME=Test",
-		"GIT_COMMITTER_EMAIL=test@example.com",
-		"GIT_AUTHOR_DATE=2026-01-01T00:00:00Z",
-		"GIT_COMMITTER_DATE=2026-01-01T00:00:00Z",
-	)
-}
-
-// runGit runs a git command in dir, failing the test on error, and returns
-// trimmed stdout (stderr is surfaced only in the failure message).
+// runGit runs a git command in dir with the shared hermetic environment
+// (see internal/gittest), failing the test on error, and returns trimmed
+// stdout.
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.CommandContext(context.Background(), "git", args...)
-	cmd.Dir = dir
-	cmd.Env = gitEnv()
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, stderr.String())
-	}
-	return strings.TrimSpace(stdout.String())
+	return gittest.Run(t, dir, args...)
 }
 
 // writeCommit writes content to file, stages and commits it, and returns
@@ -67,24 +42,16 @@ func writeCommit(t *testing.T, dir, file, content, msg string) string {
 }
 
 // newRepo initializes an empty repository on branch main and returns a
-// Runner bound to it plus the working directory.
+// Runner bound to it plus the working directory. gittest.InitRepo pins the
+// local config (identity, core.autocrlf, commit.gpgsign, core.hooksPath) so
+// commits made through the production Runner -- which, unlike runGit, does
+// not inject GIT_AUTHOR_*/GIT_COMMITTER_* -- still succeed regardless of the
+// host's own git configuration. Worktrees share this common config.
 func newRepo(t *testing.T) (*git.Runner, string) {
 	t.Helper()
 	requireGit(t)
 	dir := t.TempDir()
-	runGit(t, dir, "init", "-q", "-b", "main")
-	// Repo-local identity so commits made through the production Runner
-	// (which, unlike runGit, does not inject GIT_AUTHOR_*/GIT_COMMITTER_*)
-	// still succeed regardless of the host's global git configuration.
-	// Worktrees share this common config.
-	runGit(t, dir, "config", "user.name", "Test")
-	runGit(t, dir, "config", "user.email", "test@example.com")
-	// Pin line-ending handling so cherry-pick replays and worktree
-	// checkouts round-trip bytes identically on every platform. Windows
-	// runners default to core.autocrlf=true, which rewrites LF->CRLF in the
-	// checked-out worktree and breaks byte-for-byte content assertions and
-	// `git status --porcelain` cleanliness checks.
-	runGit(t, dir, "config", "core.autocrlf", "false")
+	gittest.InitRepo(t, dir)
 	return &git.Runner{Dir: dir}, dir
 }
 
@@ -140,7 +107,7 @@ func TestDefaultBranchRef(t *testing.T) {
 		// query (git ls-remote --symref) can resolve the default branch.
 		del := exec.CommandContext(ctx, "git", "symbolic-ref", "-d", "refs/remotes/origin/HEAD")
 		del.Dir = dir
-		del.Env = gitEnv()
+		del.Env = gittest.Env()
 		_ = del.Run()
 
 		ref, ok := runner.DefaultBranchRef(ctx)
@@ -266,6 +233,28 @@ func TestHeadBranchNotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not found as a local head or origin-tracking ref") {
 		t.Fatalf("Head error = %v, want the not-found domain error", err)
+	}
+}
+
+// TestShowFile proves ShowFile reads a file's committed content at ref,
+// not the working tree — the mechanism the pinned-configuration-ref rule
+// (ADR-0003) relies on.
+func TestShowFile(t *testing.T) {
+	t.Parallel()
+	r, dir := newRepo(t)
+	writeCommit(t, dir, "config.yaml", "committed: true\n", "add config")
+
+	// Diverge the working tree from what was committed.
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("committed: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := r.ShowFile(context.Background(), "main", "config.yaml")
+	if err != nil {
+		t.Fatalf("ShowFile: %v", err)
+	}
+	if got := string(out); got != "committed: true" {
+		t.Errorf("ShowFile = %q, want the committed content, not the working tree", got)
 	}
 }
 

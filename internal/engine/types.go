@@ -101,7 +101,10 @@ const (
 	ActionUpdateManagedRequest   ActionType = "updateManagedRequest"
 	ActionCloseObsoleteRequest   ActionType = "closeObsoleteRequest"
 	ActionReportDivergence       ActionType = "reportDivergence"
-	ActionNoOp                   ActionType = "noOp"
+	// ActionNoOp is reserved: part of the frozen type enum (see
+	// docs/reference/plan-format.md) so consumers must accept it as a
+	// no-effect action, but BuildPlan never emits it today.
+	ActionNoOp ActionType = "noOp"
 )
 
 // Action is one planned step, with enough context to explain itself.

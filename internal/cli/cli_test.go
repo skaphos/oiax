@@ -3,10 +3,11 @@ package cli
 import (
 	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/skaphos/oiax/internal/gittest"
 )
 
 // run executes the command tree with args and returns stdout+stderr and
@@ -131,23 +132,13 @@ func TestValidateWithConfigRefReadsPinnedRef(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	gitCmd := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	gitCmd("init", "-q", "-b", "main")
-	gitCmd("config", "user.name", "test")
-	gitCmd("config", "user.email", "test@example.invalid")
+	gittest.InitRepo(t, dir)
 
 	if err := os.WriteFile(filepath.Join(dir, ".oiax.yaml"), []byte(exampleConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	gitCmd("add", ".oiax.yaml")
-	gitCmd("commit", "-q", "-m", "add config")
+	gittest.Run(t, dir, "add", ".oiax.yaml")
+	gittest.Run(t, dir, "commit", "-q", "-m", "add config")
 
 	// Break the working-tree copy: --config-ref must read the committed
 	// version and still validate, proving the pinned-ref boundary.

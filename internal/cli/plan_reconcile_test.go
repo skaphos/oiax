@@ -7,7 +7,6 @@ import (
 	"errors"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
+	"github.com/skaphos/oiax/internal/gittest"
 )
 
 // fakeForge is an in-memory forge for exercising plan/reconcile wiring.
@@ -75,20 +75,14 @@ func setupRepo(t *testing.T) func(args ...string) {
 	t.Chdir(dir)
 	run := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
+		gittest.Run(t, dir, args...)
 	}
 	writeFile := func(name, content string) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	run("init", "-q", "-b", "main")
-	run("config", "user.name", "test")
-	run("config", "user.email", "test@example.invalid")
+	gittest.InitRepo(t, dir)
 	writeFile("app.txt", "v0\n")
 	run("add", ".")
 	run("commit", "-q", "-m", "c0")
@@ -349,20 +343,14 @@ func TestPlanResolvesDefaultBranchConfig(t *testing.T) {
 	t.Chdir(dir)
 	gitCmd := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
+		gittest.Run(t, dir, args...)
 	}
 	writeFile := func(name, content string) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	gitCmd("init", "-q", "-b", "main")
-	gitCmd("config", "user.name", "test")
-	gitCmd("config", "user.email", "test@example.invalid")
+	gittest.InitRepo(t, dir)
 	writeFile("app.txt", "v0\n")
 	writeFile(".oiax.yaml", exampleConfig)
 	gitCmd("add", ".")
@@ -372,11 +360,7 @@ func TestPlanResolvesDefaultBranchConfig(t *testing.T) {
 
 	// Fabricate the remote-tracking default branch locally so
 	// DefaultBranchRef resolves without a network remote.
-	headOut, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	head := strings.TrimSpace(string(headOut))
+	head := gittest.Run(t, dir, "rev-parse", "HEAD")
 	gitCmd("update-ref", "refs/remotes/origin/main", head)
 	gitCmd("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 
@@ -404,15 +388,9 @@ func TestPlanRefusesUnresolvableDefaultBranchUnderActions(t *testing.T) {
 	t.Chdir(dir)
 	gitCmd := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
+		gittest.Run(t, dir, args...)
 	}
-	gitCmd("init", "-q", "-b", "main")
-	gitCmd("config", "user.name", "test")
-	gitCmd("config", "user.email", "test@example.invalid")
+	gittest.InitRepo(t, dir)
 	// origin exists but origin/HEAD is unset (the shallow-CI-checkout shape),
 	// so the default branch cannot be resolved. A working-tree .oiax.yaml is
 	// present; under Actions plan must refuse rather than read it.

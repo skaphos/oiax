@@ -3,7 +3,6 @@ package reconcile
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
 	"github.com/skaphos/oiax/internal/git"
+	"github.com/skaphos/oiax/internal/gittest"
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
@@ -89,34 +89,22 @@ func testGraph() *engine.Graph {
 func gitHarness(t *testing.T) (*git.Runner, func(file, content, msg string) string) {
 	t.Helper()
 	dir := t.TempDir()
-	runGit := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
-		return strings.TrimSpace(string(out))
-	}
-	runGit("init", "-q", "-b", "main")
-	runGit("config", "user.name", "test")
-	runGit("config", "user.email", "test@example.invalid")
+	gittest.InitRepo(t, dir)
 
 	commit := func(file, content, msg string) string {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		runGit("add", ".")
-		runGit("commit", "-q", "-m", msg)
-		return runGit("rev-parse", "HEAD")
+		gittest.Run(t, dir, "add", ".")
+		gittest.Run(t, dir, "commit", "-q", "-m", msg)
+		return gittest.Run(t, dir, "rev-parse", "HEAD")
 	}
 
 	// Base commit shared by all three branches.
 	commit("app.txt", "v0\n", "c0")
-	runGit("branch", "development")
-	runGit("branch", "test")
+	gittest.Run(t, dir, "branch", "development")
+	gittest.Run(t, dir, "branch", "test")
 
 	// Expose the raw runner over the same directory.
 	return &git.Runner{Dir: dir}, func(file, content, msg string) string {
@@ -128,42 +116,23 @@ func gitHarness(t *testing.T) (*git.Runner, func(file, content, msg string) stri
 // commitOn commits on the currently checked-out branch of dir.
 func commitOn(t *testing.T, dir, file, content, msg string) string {
 	t.Helper()
-	run := func(args ...string) string {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
-		return strings.TrimSpace(string(out))
-	}
 	if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run("add", ".")
-	run("commit", "-q", "-m", msg)
-	return run("rev-parse", "HEAD")
+	gittest.Run(t, dir, "add", ".")
+	gittest.Run(t, dir, "commit", "-q", "-m", msg)
+	return gittest.Run(t, dir, "rev-parse", "HEAD")
 }
 
 func checkout(t *testing.T, r *git.Runner, branch string) {
 	t.Helper()
-	cmd := exec.Command("git", "checkout", "-q", branch)
-	cmd.Dir = r.Dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("checkout %s: %v\n%s", branch, err, out)
-	}
+	gittest.Run(t, r.Dir, "checkout", "-q", branch)
 }
 
 // gitExec runs a raw git command in dir, failing the test on error.
 func gitExec(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-	}
-	return strings.TrimSpace(string(out))
+	return gittest.Run(t, dir, args...)
 }
 
 func TestPlanInSync(t *testing.T) {
