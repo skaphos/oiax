@@ -1659,4 +1659,36 @@ func TestDeleteBranch(t *testing.T) {
 			srv.Close()
 		}
 	})
+
+	t.Run("a 422 that is not a missing ref is a real failure", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Validation Failed"}`))
+		}))
+		defer srv.Close()
+		p := newProvider(t, srv)
+		if err := p.DeleteBranch(context.Background(), branch); err == nil {
+			t.Fatal("DeleteBranch on a 422 that is not 'does not exist' must fail, got nil")
+		}
+	})
+
+	t.Run("ref segments are percent-escaped", func(t *testing.T) {
+		t.Parallel()
+		var gotPath string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.EscapedPath()
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		defer srv.Close()
+		p := newProvider(t, srv)
+		// A validated ref whose segment carries "%" must reach the API escaped
+		// (%25), never as a raw "%" the URL path would misread; slashes stay.
+		if err := p.DeleteBranch(context.Background(), "oiax/backflow/a%b/c"); err != nil {
+			t.Fatalf("DeleteBranch: %v", err)
+		}
+		if want := "/repos/acme/widgets/git/refs/heads/oiax/backflow/a%25b/c"; gotPath != want {
+			t.Errorf("escaped path = %q, want %q", gotPath, want)
+		}
+	})
 }
