@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -437,6 +438,14 @@ func TestPlanRefusesUnresolvableDefaultBranchUnderActions(t *testing.T) {
 // buildCoordinator (after loadGraph), plan would surface the raw git error;
 // asserting the floor first yields the clear "or newer is required" refusal.
 func TestPlanAssertsGitFloorBeforeConfigRead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// The below-floor git is a POSIX shell script; Windows cannot exec an
+		// extension-less script as `git`. The ordering this proves (floor
+		// asserted before any other git subprocess) is platform-independent Go
+		// control flow, fully exercised on the linux and macos matrix legs.
+		t.Skip("fake-git harness is POSIX-only; floor-ordering logic is platform-independent")
+	}
+
 	setupRepo(t)
 	useForge(t, &fakeForge{})
 
