@@ -95,7 +95,9 @@ branches exist as refs).
 ## GitHub Action
 
 The initial execution model is a GitHub Action — a thin composite
-wrapper around the release binary:
+wrapper around the release binary. The Action supports Linux runners on
+x64 and ARM64; standalone release binaries remain available for the other
+published platforms.
 
 ```yaml
 - uses: actions/checkout@v7

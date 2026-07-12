@@ -1,8 +1,9 @@
 name: Oiax
 description: >-
-  Declarative Git branch promotion reconciler. Ensures the pull requests
-  required to move changes through a declared promotion graph exist —
-  exactly one active managed request per diverged edge.
+  Linux GitHub Actions runner for the Oiax declarative Git branch promotion
+  reconciler. Ensures the pull requests required to move changes through a
+  declared promotion graph exist — exactly one active managed request per
+  diverged edge.
 author: Skaphos
 
 branding:
@@ -79,8 +80,6 @@ runs:
         case "${RUNNER_OS}-${RUNNER_ARCH}" in
           Linux-X64)    asset="oiax_${OIAX_VERSION#v}_linux_amd64.tar.gz" ;;
           Linux-ARM64)  asset="oiax_${OIAX_VERSION#v}_linux_arm64.tar.gz" ;;
-          macOS-X64)    asset="oiax_${OIAX_VERSION#v}_darwin_amd64.tar.gz" ;;
-          macOS-ARM64)  asset="oiax_${OIAX_VERSION#v}_darwin_arm64.tar.gz" ;;
           *) echo "unsupported runner: ${RUNNER_OS}-${RUNNER_ARCH}" >&2; exit 1 ;;
         esac
         base="https://github.com/skaphos/oiax/releases/download/${OIAX_VERSION}"
