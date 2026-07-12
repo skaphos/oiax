@@ -118,6 +118,155 @@ func TestDefaultBranchRef(t *testing.T) {
 			t.Errorf("DefaultBranchRef resolved %q, want not resolved", ref)
 		}
 	})
+
+	t.Run("resolves via ls-remote fallback when origin/HEAD unset", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		// The "remote": a repository whose own HEAD points at its default
+		// branch main (init -b main). A second local repo stands in for a
+		// network remote, so the fallback is exercised without any network.
+		_, remoteDir := newRepo(t)
+		writeCommit(t, remoteDir, "app.txt", "v0\n", "c0")
+
+		// The working repo: `origin` points at that remote and is fetched, but
+		// origin/HEAD is deliberately unset — the actions/checkout condition
+		// where the primary symbolic-ref path yields nothing.
+		runner, dir := newRepo(t)
+		writeCommit(t, dir, "app.txt", "v0\n", "c0")
+		runGit(t, dir, "remote", "add", "origin", remoteDir)
+		runGit(t, dir, "fetch", "-q", "origin")
+		// `git fetch` may record origin/HEAD; delete it so only the remote
+		// query (git ls-remote --symref) can resolve the default branch.
+		del := exec.CommandContext(ctx, "git", "symbolic-ref", "-d", "refs/remotes/origin/HEAD")
+		del.Dir = dir
+		del.Env = gitEnv()
+		_ = del.Run()
+
+		ref, ok := runner.DefaultBranchRef(ctx)
+		if !ok {
+			t.Fatal("DefaultBranchRef not resolved; want origin/main via ls-remote fallback")
+		}
+		if ref != "origin/main" {
+			t.Errorf("DefaultBranchRef = %q, want origin/main", ref)
+		}
+	})
+
+	t.Run("not resolved when only a non-default branch is fetched", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		// The "remote": default branch main plus a non-default branch feature.
+		_, remoteDir := newRepo(t)
+		writeCommit(t, remoteDir, "app.txt", "v0\n", "c0")
+		runGit(t, remoteDir, "branch", "feature")
+
+		// The working repo fetches ONLY the non-default branch — the
+		// single-branch actions/checkout shape: refs/remotes/origin/feature
+		// exists, but refs/remotes/origin/main and origin/HEAD do not.
+		runner, dir := newRepo(t)
+		writeCommit(t, dir, "app.txt", "v0\n", "c0")
+		runGit(t, dir, "remote", "add", "origin", remoteDir)
+		runGit(t, dir, "fetch", "-q", "origin", "+refs/heads/feature:refs/remotes/origin/feature")
+
+		// ls-remote still names main as the remote default, but its tracking
+		// ref was never materialized, so `git show origin/main:<path>` would
+		// fail 128. DefaultBranchRef must report not-resolved rather than
+		// hand its sole consumer (config read) an unreadable ref.
+		if ref, ok := runner.DefaultBranchRef(ctx); ok {
+			t.Fatalf("DefaultBranchRef resolved %q, want not resolved (origin/main tracking ref absent)", ref)
+		}
+	})
+}
+
+// TestHeadResolvesOriginTrackingRef reproduces the actions/checkout condition:
+// a non-triggering branch exists only as refs/remotes/origin/<name>, its local
+// head never materialized. Head (and the range functions) must still resolve
+// it. Before the fix this failed with "refs/heads/feature not found" and a
+// multi-branch reconcile exited 1 on its first run.
+func TestHeadResolvesOriginTrackingRef(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+
+	base := writeCommit(t, dir, "base.txt", "1\n", "base")
+	runGit(t, dir, "branch", "feature")
+	runGit(t, dir, "switch", "-q", "feature")
+	feat := writeCommit(t, dir, "f.txt", "f\n", "feature work")
+	runGit(t, dir, "switch", "-q", "main")
+
+	// feature now exists ONLY as a remote-tracking ref; its local head is gone
+	// (main stays the triggering local head). The commit object survives GC
+	// because the remote-tracking ref keeps it reachable.
+	runGit(t, dir, "update-ref", "refs/remotes/origin/feature", feat)
+	runGit(t, dir, "branch", "-D", "feature")
+
+	got, err := r.Head(ctx, "feature")
+	if err != nil {
+		t.Fatalf("Head(feature) with only an origin-tracking ref: %v", err)
+	}
+	if got != feat {
+		t.Fatalf("Head(feature) = %q, want %q", got, feat)
+	}
+
+	// The range functions must resolve the origin-only branch on either side.
+	ahead, err := r.UniqueCommits(ctx, "main", "feature")
+	if err != nil {
+		t.Fatalf("UniqueCommits(main, feature): %v", err)
+	}
+	if len(ahead) != 1 || ahead[0].SHA != feat {
+		t.Fatalf("UniqueCommits(main, feature) = %+v, want the single commit %s", ahead, feat)
+	}
+	if mb, err := r.MergeBase(ctx, "main", "feature"); err != nil || mb != base {
+		t.Fatalf("MergeBase(main, feature) = %q, %v; want %q", mb, err, base)
+	}
+}
+
+// TestHeadPrefersLocalHeadOverOriginTracking asserts resolveBranchRef's
+// precedence: when a branch exists both as a local head and an
+// origin-tracking ref, the local head — the triggering branch's live state —
+// wins.
+func TestHeadPrefersLocalHeadOverOriginTracking(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+
+	base := writeCommit(t, dir, "base.txt", "1\n", "base")
+	runGit(t, dir, "branch", "feature")
+	runGit(t, dir, "switch", "-q", "feature")
+	localHead := writeCommit(t, dir, "local.txt", "local\n", "local head commit")
+	runGit(t, dir, "switch", "-q", "main")
+
+	// A divergent origin-tracking ref at an OLDER commit than the local head.
+	runGit(t, dir, "update-ref", "refs/remotes/origin/feature", base)
+
+	got, err := r.Head(ctx, "feature")
+	if err != nil {
+		t.Fatalf("Head(feature): %v", err)
+	}
+	if got != localHead {
+		t.Fatalf("Head(feature) = %q, want the local head %q (local must win over origin-tracking)", got, localHead)
+	}
+}
+
+// TestHeadBranchNotFound covers resolveBranchRef's terminal "not found" arm: a
+// well-formed name (it passes CheckRefFormat) that resolves to neither a local
+// head nor an origin-tracking ref — a .oiax.yaml branch typo, or a branch the
+// ref-prep step did not fetch. It must surface the clean domain error, not a
+// raw git failure, and is distinct from the invalid-name rejection every other
+// negative test exercises.
+func TestHeadBranchNotFound(t *testing.T) {
+	t.Parallel()
+	r, dir := newRepo(t)
+	writeCommit(t, dir, "base.txt", "1\n", "base")
+
+	_, err := r.Head(context.Background(), "ghost")
+	if err == nil {
+		t.Fatal("Head resolved a branch that exists as neither a local head nor an origin-tracking ref")
+	}
+	if !strings.Contains(err.Error(), "not found as a local head or origin-tracking ref") {
+		t.Fatalf("Head error = %v, want the not-found domain error", err)
+	}
 }
 
 func TestMergeBase(t *testing.T) {

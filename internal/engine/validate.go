@@ -5,7 +5,7 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/skaphos/oiax/pkg/api/v1alpha1"
+	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
 // Validate checks the semantic rules a promotion graph must satisfy
@@ -32,14 +32,14 @@ func (g *Graph) Validate() []error {
 	for _, name := range sortedBranchNames(g) {
 		b := g.Branches[name]
 		switch b.Role {
-		case v1alpha1.RoleNone, v1alpha1.RoleSource, v1alpha1.RoleTerminal:
+		case v1.RoleNone, v1.RoleSource, v1.RoleTerminal:
 		default:
-			report("branch %q: unknown role %q (want %q, %q, or unset)", name, b.Role, v1alpha1.RoleSource, v1alpha1.RoleTerminal)
+			report("branch %q: unknown role %q (want %q, %q, or unset)", name, b.Role, v1.RoleSource, v1.RoleTerminal)
 		}
 		switch b.Drift {
-		case v1alpha1.DriftForbidden, v1alpha1.DriftExpected:
+		case v1.DriftForbidden, v1.DriftExpected:
 		default:
-			report("branch %q: unknown drift policy %q (want %q or %q)", name, b.Drift, v1alpha1.DriftForbidden, v1alpha1.DriftExpected)
+			report("branch %q: unknown drift policy %q (want %q or %q)", name, b.Drift, v1.DriftForbidden, v1.DriftExpected)
 		}
 	}
 
@@ -65,18 +65,18 @@ func (g *Graph) Validate() []error {
 		seen[key] = true
 
 		switch p.Expectations.MergeMethod {
-		case "", v1alpha1.MergeMethodMerge, v1alpha1.MergeMethodSquash, v1alpha1.MergeMethodRebase:
+		case "", v1.MergeMethodMerge, v1.MergeMethodSquash, v1.MergeMethodRebase:
 		default:
 			report("promotion edge %s -> %s: unknown mergeMethod %q (want %q, %q, or %q)",
 				p.From, p.To, p.Expectations.MergeMethod,
-				v1alpha1.MergeMethodMerge, v1alpha1.MergeMethodSquash, v1alpha1.MergeMethodRebase)
+				v1.MergeMethodMerge, v1.MergeMethodSquash, v1.MergeMethodRebase)
 		}
 
-		if from, ok := g.Branches[p.From]; ok && from.Role == v1alpha1.RoleTerminal {
-			report("branch %q has role %q but is the source of promotion edge %s -> %s", p.From, v1alpha1.RoleTerminal, p.From, p.To)
+		if from, ok := g.Branches[p.From]; ok && from.Role == v1.RoleTerminal {
+			report("branch %q has role %q but is the source of promotion edge %s -> %s", p.From, v1.RoleTerminal, p.From, p.To)
 		}
-		if to, ok := g.Branches[p.To]; ok && to.Role == v1alpha1.RoleSource {
-			report("branch %q has role %q but is the destination of promotion edge %s -> %s", p.To, v1alpha1.RoleSource, p.From, p.To)
+		if to, ok := g.Branches[p.To]; ok && to.Role == v1.RoleSource {
+			report("branch %q has role %q but is the destination of promotion edge %s -> %s", p.To, v1.RoleSource, p.From, p.To)
 		}
 	}
 
@@ -98,15 +98,15 @@ func (g *Graph) validateBackflow() []error {
 	}
 
 	bf := g.Backflow
-	if bf.Strategy != v1alpha1.BackflowStrategyCherryPick {
-		report("backflow: unknown strategy %q (v1 supports only %q)", bf.Strategy, v1alpha1.BackflowStrategyCherryPick)
+	if bf.Strategy != v1.BackflowStrategyCherryPick {
+		report("backflow: unknown strategy %q (v1 supports only %q)", bf.Strategy, v1.BackflowStrategyCherryPick)
 	}
 	if bf.Target == "" {
 		report("backflow: target is required")
 	} else if target, ok := g.Branches[bf.Target]; !ok {
 		report("backflow: target %q is not declared in spec.branches", bf.Target)
-	} else if target.Role != v1alpha1.RoleSource {
-		report("backflow: target %q must have role %q", bf.Target, v1alpha1.RoleSource)
+	} else if target.Role != v1.RoleSource {
+		report("backflow: target %q must have role %q", bf.Target, v1.RoleSource)
 	}
 	if len(bf.Sources) == 0 {
 		report("backflow: at least one source is required")
@@ -128,8 +128,8 @@ func (g *Graph) validateBackflow() []error {
 			report("backflow: source %q is not declared in spec.branches", src)
 			continue
 		}
-		if b.Drift == v1alpha1.DriftExpected {
-			report("backflow: source %q declares drift %q; a backflow source's downstream-only content must be returned, not ignored", src, v1alpha1.DriftExpected)
+		if b.Drift == v1.DriftExpected {
+			report("backflow: source %q declares drift %q; a backflow source's downstream-only content must be returned, not ignored", src, v1.DriftExpected)
 		}
 	}
 	return errs

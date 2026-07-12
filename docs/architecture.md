@@ -250,6 +250,18 @@ jobs:
 The `on.push.branches` list must mirror the configured graph; workflow
 triggers cannot read `.oiax.yaml`.
 
+Under GitHub Actions the composite Action prepares Git refs before it runs
+Oiax. `actions/checkout` materializes only the triggering branch as a local
+head and does not set `origin/HEAD`, so the Action fetches every branch head
+into `refs/remotes/origin/*` and runs `git remote set-head origin --auto`.
+This makes every graph branch resolvable — Oiax resolves a branch name to its
+local head or, failing that, its origin-tracking ref — and the default
+config-ref (`origin/HEAD`) known, so a multi-branch graph reconciles on its
+first run and configuration resolves from the default branch without pinning
+`--config-ref`. Use `fetch-depth: 0` on `actions/checkout` (as above) so the
+full history the reachability and patch rungs rely on is present; a shallow
+checkout leaves divergence detection inaccurate.
+
 Events are hints to reconcile, not authoritative state. The model stays
 correct when events are duplicated, reordered, missed, or concurrent.
 Concurrency resolves without locks: the forge rejects duplicate

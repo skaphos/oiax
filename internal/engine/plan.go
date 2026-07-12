@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/skaphos/oiax/pkg/api/v1alpha1"
+	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
 // BuildPlan derives the actions required to converge the observed edge
@@ -101,7 +101,7 @@ func planDownstream(g *Graph, e EdgeState) []Action {
 	}
 	// A non-backflow-source destination with expected drift is intentionally
 	// ignored; otherwise its downstream content is a reported divergence.
-	if b, ok := g.Branches[e.To.Name]; ok && b.Drift == v1alpha1.DriftExpected {
+	if b, ok := g.Branches[e.To.Name]; ok && b.Drift == v1.DriftExpected {
 		return nil
 	}
 	return []Action{{

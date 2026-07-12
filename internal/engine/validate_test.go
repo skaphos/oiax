@@ -4,34 +4,34 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/pkg/api/v1alpha1"
+	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
 // validGraph returns the canonical five-branch example, which every
 // mutation test starts from.
-func validGraph() *v1alpha1.PromotionGraph {
-	return &v1alpha1.PromotionGraph{
-		APIVersion: v1alpha1.APIVersion,
-		Kind:       v1alpha1.KindPromotionGraph,
-		Metadata:   v1alpha1.Metadata{Name: "environments"},
-		Spec: v1alpha1.PromotionGraphSpec{
-			Branches: map[string]v1alpha1.Branch{
-				"development":        {Role: v1alpha1.RoleSource},
+func validGraph() *v1.PromotionGraph {
+	return &v1.PromotionGraph{
+		APIVersion: v1.APIVersion,
+		Kind:       v1.KindPromotionGraph,
+		Metadata:   v1.Metadata{Name: "environments"},
+		Spec: v1.PromotionGraphSpec{
+			Branches: map[string]v1.Branch{
+				"development":        {Role: v1.RoleSource},
 				"test":               {},
 				"qa":                 {},
 				"production-stage-1": {},
-				"main":               {Role: v1alpha1.RoleTerminal},
+				"main":               {Role: v1.RoleTerminal},
 			},
-			Promotions: []v1alpha1.Promotion{
+			Promotions: []v1.Promotion{
 				{From: "development", To: "test"},
 				{From: "test", To: "qa"},
 				{From: "qa", To: "production-stage-1"},
 				{From: "production-stage-1", To: "main"},
 			},
-			Backflow: &v1alpha1.Backflow{
+			Backflow: &v1.Backflow{
 				Sources:  []string{"production-stage-1", "main"},
 				Target:   "development",
-				Strategy: v1alpha1.BackflowStrategyCherryPick,
+				Strategy: v1.BackflowStrategyCherryPick,
 			},
 		},
 	}
@@ -42,25 +42,25 @@ func TestValidateAcceptsCanonicalGraph(t *testing.T) {
 	if errs := g.Validate(); len(errs) > 0 {
 		t.Fatalf("Validate = %v, want no errors", errs)
 	}
-	if g.Branches["test"].Drift != v1alpha1.DriftForbidden {
-		t.Errorf("default drift = %q, want %q", g.Branches["test"].Drift, v1alpha1.DriftForbidden)
+	if g.Branches["test"].Drift != v1.DriftForbidden {
+		t.Errorf("default drift = %q, want %q", g.Branches["test"].Drift, v1.DriftForbidden)
 	}
 }
 
 func TestValidateRejections(t *testing.T) {
 	tests := []struct {
 		name    string
-		mutate  func(*v1alpha1.PromotionGraph)
+		mutate  func(*v1.PromotionGraph)
 		wantErr string
 	}{
 		{
 			name:    "missing name",
-			mutate:  func(c *v1alpha1.PromotionGraph) { c.Metadata.Name = "" },
+			mutate:  func(c *v1.PromotionGraph) { c.Metadata.Name = "" },
 			wantErr: "metadata.name is required",
 		},
 		{
 			name: "no branches",
-			mutate: func(c *v1alpha1.PromotionGraph) {
+			mutate: func(c *v1.PromotionGraph) {
 				c.Spec.Branches = nil
 				c.Spec.Promotions = nil
 				c.Spec.Backflow = nil
@@ -69,113 +69,113 @@ func TestValidateRejections(t *testing.T) {
 		},
 		{
 			name: "cycle",
-			mutate: func(c *v1alpha1.PromotionGraph) {
-				c.Spec.Promotions = append(c.Spec.Promotions, v1alpha1.Promotion{From: "qa", To: "test"})
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Promotions = append(c.Spec.Promotions, v1.Promotion{From: "qa", To: "test"})
 			},
 			wantErr: "cycle",
 		},
 		{
 			name: "self edge",
-			mutate: func(c *v1alpha1.PromotionGraph) {
-				c.Spec.Promotions = append(c.Spec.Promotions, v1alpha1.Promotion{From: "qa", To: "qa"})
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Promotions = append(c.Spec.Promotions, v1.Promotion{From: "qa", To: "qa"})
 			},
 			wantErr: "two distinct branches",
 		},
 		{
 			name: "duplicate edge",
-			mutate: func(c *v1alpha1.PromotionGraph) {
-				c.Spec.Promotions = append(c.Spec.Promotions, v1alpha1.Promotion{From: "test", To: "qa"})
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Promotions = append(c.Spec.Promotions, v1.Promotion{From: "test", To: "qa"})
 			},
 			wantErr: "declared more than once",
 		},
 		{
 			name: "undeclared branch in edge",
-			mutate: func(c *v1alpha1.PromotionGraph) {
-				c.Spec.Promotions = append(c.Spec.Promotions, v1alpha1.Promotion{From: "qa", To: "staging"})
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Promotions = append(c.Spec.Promotions, v1.Promotion{From: "qa", To: "staging"})
 			},
 			wantErr: `"staging" is not declared`,
 		},
 		{
 			name: "source with incoming edge",
-			mutate: func(c *v1alpha1.PromotionGraph) {
-				c.Spec.Promotions = append(c.Spec.Promotions, v1alpha1.Promotion{From: "test", To: "development"})
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Promotions = append(c.Spec.Promotions, v1.Promotion{From: "test", To: "development"})
 			},
 			wantErr: "destination of promotion edge",
 		},
 		{
 			name: "terminal with outgoing edge",
-			mutate: func(c *v1alpha1.PromotionGraph) {
-				c.Spec.Branches["extra"] = v1alpha1.Branch{}
-				c.Spec.Promotions = append(c.Spec.Promotions, v1alpha1.Promotion{From: "main", To: "extra"})
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Branches["extra"] = v1.Branch{}
+				c.Spec.Promotions = append(c.Spec.Promotions, v1.Promotion{From: "main", To: "extra"})
 			},
 			wantErr: "source of promotion edge",
 		},
 		{
 			name: "unknown role",
-			mutate: func(c *v1alpha1.PromotionGraph) {
-				c.Spec.Branches["qa"] = v1alpha1.Branch{Role: "gateway"}
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Branches["qa"] = v1.Branch{Role: "gateway"}
 			},
 			wantErr: "unknown role",
 		},
 		{
 			name: "unknown drift",
-			mutate: func(c *v1alpha1.PromotionGraph) {
-				c.Spec.Branches["qa"] = v1alpha1.Branch{Drift: "tolerated"}
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Branches["qa"] = v1.Branch{Drift: "tolerated"}
 			},
 			wantErr: "unknown drift policy",
 		},
 		{
 			name: "unknown merge method",
-			mutate: func(c *v1alpha1.PromotionGraph) {
-				c.Spec.Promotions[0].Expectations = &v1alpha1.Expectations{MergeMethod: "fast-forward"}
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Promotions[0].Expectations = &v1.Expectations{MergeMethod: "fast-forward"}
 			},
 			wantErr: "unknown mergeMethod",
 		},
 		{
 			name: "backflow target without source role",
-			mutate: func(c *v1alpha1.PromotionGraph) {
-				c.Spec.Branches["development"] = v1alpha1.Branch{}
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Branches["development"] = v1.Branch{}
 			},
 			wantErr: `must have role "source"`,
 		},
 		{
 			name: "backflow target undeclared",
-			mutate: func(c *v1alpha1.PromotionGraph) {
+			mutate: func(c *v1.PromotionGraph) {
 				c.Spec.Backflow.Target = "trunk"
 			},
 			wantErr: `target "trunk" is not declared`,
 		},
 		{
 			name: "backflow source undeclared",
-			mutate: func(c *v1alpha1.PromotionGraph) {
+			mutate: func(c *v1.PromotionGraph) {
 				c.Spec.Backflow.Sources = append(c.Spec.Backflow.Sources, "hotfix")
 			},
 			wantErr: `source "hotfix" is not declared`,
 		},
 		{
 			name: "backflow source equals target",
-			mutate: func(c *v1alpha1.PromotionGraph) {
+			mutate: func(c *v1.PromotionGraph) {
 				c.Spec.Backflow.Sources = append(c.Spec.Backflow.Sources, "development")
 			},
 			wantErr: "both a backflow source and the backflow target",
 		},
 		{
 			name: "backflow source with expected drift",
-			mutate: func(c *v1alpha1.PromotionGraph) {
-				c.Spec.Branches["main"] = v1alpha1.Branch{Role: v1alpha1.RoleTerminal, Drift: v1alpha1.DriftExpected}
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Branches["main"] = v1.Branch{Role: v1.RoleTerminal, Drift: v1.DriftExpected}
 			},
 			wantErr: "must be returned, not ignored",
 		},
 		{
 			name: "backflow without sources",
-			mutate: func(c *v1alpha1.PromotionGraph) {
+			mutate: func(c *v1.PromotionGraph) {
 				c.Spec.Backflow.Sources = nil
 			},
 			wantErr: "at least one source",
 		},
 		{
 			name: "unsupported backflow strategy",
-			mutate: func(c *v1alpha1.PromotionGraph) {
+			mutate: func(c *v1.PromotionGraph) {
 				c.Spec.Backflow.Strategy = "merge"
 			},
 			wantErr: "unknown strategy",
@@ -202,9 +202,9 @@ func TestValidateRejections(t *testing.T) {
 
 func TestValidateDisconnectedComponentsAllowed(t *testing.T) {
 	cfg := validGraph()
-	cfg.Spec.Branches["docs-draft"] = v1alpha1.Branch{}
-	cfg.Spec.Branches["docs-live"] = v1alpha1.Branch{}
-	cfg.Spec.Promotions = append(cfg.Spec.Promotions, v1alpha1.Promotion{From: "docs-draft", To: "docs-live"})
+	cfg.Spec.Branches["docs-draft"] = v1.Branch{}
+	cfg.Spec.Branches["docs-live"] = v1.Branch{}
+	cfg.Spec.Promotions = append(cfg.Spec.Promotions, v1.Promotion{From: "docs-draft", To: "docs-live"})
 
 	if errs := FromConfig(cfg).Validate(); len(errs) > 0 {
 		t.Fatalf("Validate = %v, want no errors (disconnected components are allowed)", errs)

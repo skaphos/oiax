@@ -26,6 +26,8 @@ Architecture Decision Records live in [adr/](adr/):
 - [0001 — Adopt the name Oiax](adr/0001-adopt-the-name-oiax.md)
 - [0002 — Detect divergence by content, not ancestry](adr/0002-content-based-divergence-detection.md)
 - [0003 — Read configuration from a pinned ref](adr/0003-pinned-configuration-ref.md)
+- [0004 — Backflow execution](adr/0004-backflow-execution.md)
+- [0005 — Config API v1](adr/0005-config-api-v1.md)
 
 ## Process
 

@@ -12,16 +12,31 @@ ignored; see [ADR 0003](../adr/0003-pinned-configuration-ref.md). The
 inspection commands `validate` and `graph` read the working-tree file by
 default; pass `--config-ref` to inspect a pinned ref instead.
 
+Under GitHub Actions the composite Action fetches every branch head and runs
+`git remote set-head origin --auto`, so the default branch (`origin/HEAD`)
+resolves and the pinned-ref default works without setting `--config-ref`. Use
+`actions/checkout` with `fetch-depth: 0` so divergence detection sees full
+history.
+
 ## PromotionGraph
 
 | Key | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `apiVersion` | string | yes | Must be `oiax.skaphos.dev/v1alpha1`. |
+| `apiVersion` | string | yes | Must be `oiax.skaphos.dev/v1`. The pre-1.0 `oiax.skaphos.dev/v1alpha1` is accepted as a deprecated alias — see [Migration](#migration--deprecated-alias). |
 | `kind` | string | yes | Must be `PromotionGraph`. |
 | `metadata.name` | string | yes | Graph name, used in managed-request metadata, plans, and logs. |
 | `spec.branches` | map | yes | Long-lived branches by name. Every branch referenced by an edge or backflow must appear. Oiax never creates long-lived branches. |
 | `spec.promotions` | list | yes | Directed promotion edges. Must form a DAG; disconnected components are allowed. |
 | `spec.backflow` | object | no | Hotfix-return policy. |
+
+### Migration / deprecated alias
+
+The canonical apiVersion is `oiax.skaphos.dev/v1`. Configurations
+declaring the pre-1.0 `oiax.skaphos.dev/v1alpha1` still parse unchanged
+(the contract is identical), but every load emits a one-line deprecation
+warning to stderr. Migrate by changing the `apiVersion` string to
+`oiax.skaphos.dev/v1`; nothing else in the document changes. See
+[ADR 0005](../adr/0005-config-api-v1.md).
 
 ## `spec.branches.<name>`
 

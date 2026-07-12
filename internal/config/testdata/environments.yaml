@@ -1,4 +1,4 @@
-apiVersion: oiax.skaphos.dev/v1alpha1
+apiVersion: oiax.skaphos.dev/v1
 kind: PromotionGraph
 
 metadata:

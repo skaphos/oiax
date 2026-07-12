@@ -75,18 +75,54 @@ func (r *Runner) runStdin(ctx context.Context, stdin []byte, args ...string) (st
 }
 
 // validRev resolves a caller-supplied revision to a form safe to hand git
-// as data. A CheckRefFormat-valid branch name becomes refs/heads/<name>; a
-// bare object id passes through unchanged; anything else is rejected. This
-// lets range endpoints accept either a configured branch or an object id
-// produced by a prior git call (e.g. a merge base).
+// as data. A bare object id passes through unchanged; otherwise the value is
+// treated as a branch name and resolved (via resolveBranchRef) to its local
+// head or origin-tracking ref. This lets range endpoints accept either a
+// configured branch or an object id produced by a prior git call (e.g. a
+// merge base).
 func (r *Runner) validRev(ctx context.Context, s string) (string, error) {
 	if oidPattern.MatchString(s) {
 		return s, nil
 	}
-	if err := r.CheckRefFormat(ctx, s); err != nil {
-		return "", fmt.Errorf("invalid rev %q: %w", s, err)
+	return r.resolveBranchRef(ctx, s)
+}
+
+// resolveBranchRef validates a branch name and resolves it to the
+// fully-qualified ref that actually holds it, preferring the local head
+// (refs/heads/<name>) and falling back to the origin-tracking ref
+// (refs/remotes/origin/<name>).
+//
+// It exists because under actions/checkout only the branch that triggered
+// the workflow is materialized as a local head; every other branch in a
+// promotion graph exists solely as a remote-tracking ref, and origin/HEAD is
+// not set. The layer previously constructed 'refs/heads/'+name
+// unconditionally, so Head/UniqueCommits/etc. failed on any non-triggering
+// branch and a multi-branch reconcile exited 1 on its very first run.
+//
+// The local head wins when both refs exist: the triggering branch's
+// checked-out state is the authoritative live value. Only
+// refs/heads/<validated> or refs/remotes/origin/<validated> are ever
+// constructed — the name still passes CheckRefFormat first — so the no-shell
+// posture and ref-format guarantees are preserved. A name that resolves to
+// neither ref is a genuine "not found"; any operational git failure (a
+// show-ref exit other than 1) propagates as an error rather than being
+// misread as absence.
+func (r *Runner) resolveBranchRef(ctx context.Context, name string) (string, error) {
+	if err := r.CheckRefFormat(ctx, name); err != nil {
+		return "", err
 	}
-	return "refs/heads/" + s, nil
+	for _, ref := range []string{"refs/heads/" + name, "refs/remotes/origin/" + name} {
+		_, err := r.run(ctx, "show-ref", "--verify", "--quiet", ref)
+		if err == nil {
+			return ref, nil
+		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			continue
+		}
+		return "", err
+	}
+	return "", fmt.Errorf("branch %q not found as a local head or origin-tracking ref", name)
 }
 
 // Version reports the system git version, primarily for diagnostics.
@@ -104,7 +140,10 @@ func (r *Runner) CheckRefFormat(ctx context.Context, name string) error {
 	return nil
 }
 
-// BranchExists reports whether a local branch ref exists.
+// BranchExists reports whether a local branch ref exists. It is deliberately
+// local-only (unlike resolveBranchRef, which also considers origin-tracking
+// refs); it has no callers today and its strictly-local semantics are kept
+// for the case a caller needs exactly "is this a materialized local head".
 func (r *Runner) BranchExists(ctx context.Context, name string) (bool, error) {
 	if err := r.CheckRefFormat(ctx, name); err != nil {
 		return false, err
@@ -120,12 +159,15 @@ func (r *Runner) BranchExists(ctx context.Context, name string) (bool, error) {
 	return false, err
 }
 
-// Head resolves a branch name to its commit SHA.
+// Head resolves a branch name to its commit SHA. The name is resolved to its
+// local head or origin-tracking ref (resolveBranchRef), so a branch that
+// actions/checkout left only as refs/remotes/origin/<name> still resolves.
 func (r *Runner) Head(ctx context.Context, name string) (string, error) {
-	if err := r.CheckRefFormat(ctx, name); err != nil {
+	ref, err := r.resolveBranchRef(ctx, name)
+	if err != nil {
 		return "", err
 	}
-	return r.run(ctx, "rev-parse", "--verify", "refs/heads/"+name)
+	return r.run(ctx, "rev-parse", "--verify", ref)
 }
 
 // ShowFile returns the contents of path as committed at ref
@@ -147,33 +189,73 @@ func (r *Runner) ShowFile(ctx context.Context, ref, path string) ([]byte, error)
 }
 
 // DefaultBranchRef resolves the repository's default branch to its
-// remote-tracking ref (for example "origin/main") by reading origin/HEAD,
-// the symbolic ref git records for the remote's default branch. The second
-// return is false when origin/HEAD is not set — a remote-less repository or
-// a shallow checkout that never ran `git remote set-head` — leaving the
-// choice of fallback to the caller. A remote-tracking ref (not the local
-// branch of the same name) is returned deliberately: it is the
+// remote-tracking ref (for example "origin/main"). It first reads
+// origin/HEAD, the symbolic ref git records locally for the remote's default
+// branch. When that is unset — a checkout that never ran `git remote
+// set-head`, as under actions/checkout — it falls back to asking the remote
+// directly with `git ls-remote --symref origin HEAD`, whose "ref:
+// refs/heads/<name>\tHEAD" line names the default branch without depending on
+// any local ref. The second return is false when both the local symref and the
+// remote query fail (a remote-less repository), leaving the choice of fallback
+// to the caller. It is also false when the remote query names a branch whose
+// local tracking ref was never fetched: the resolved ref is only useful if
+// `git show origin/<name>:<path>` can read it, and ls-remote confirms the
+// remote's default without materializing refs/remotes/origin/<name> — so a
+// single-branch checkout of a non-default branch would otherwise report a ref
+// the sole consumer (config read) cannot open. A remote-tracking ref (not the
+// local branch of the same name) is returned deliberately: it is the
 // authoritative committed state of the default branch, independent of any
 // stale local branch.
 func (r *Runner) DefaultBranchRef(ctx context.Context) (string, bool) {
-	out, err := r.run(ctx, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-	if err != nil || out == "" {
+	if out, err := r.run(ctx, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil && out != "" {
+		// symbolic-ref does not guarantee the target tracking ref exists.
+		if _, err := r.run(ctx, "show-ref", "--verify", "--quiet", "refs/remotes/"+out); err == nil {
+			return out, true
+		}
+	}
+	// origin/HEAD is not recorded locally; ask the remote which branch its
+	// HEAD points at. The symref line looks like "ref: refs/heads/main\tHEAD".
+	out, err := r.run(ctx, "ls-remote", "--symref", "origin", "HEAD")
+	if err != nil {
 		return "", false
 	}
-	return out, true
+	for _, line := range strings.Split(out, "\n") {
+		rest, ok := strings.CutPrefix(line, "ref:")
+		if !ok {
+			continue
+		}
+		fields := strings.Fields(rest)
+		if len(fields) != 2 || fields[1] != "HEAD" {
+			continue
+		}
+		name, ok := strings.CutPrefix(fields[0], "refs/heads/")
+		if !ok {
+			continue
+		}
+		// ls-remote resolved the remote's default without touching local
+		// refs. Report resolved only if the tracking ref was actually
+		// fetched, so the returned ref is readable via `git show`.
+		if _, err := r.run(ctx, "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+name); err != nil {
+			return "", false
+		}
+		return "origin/" + name, true
+	}
+	return "", false
 }
 
 // MergeBase returns the best common ancestor of two branches. It returns
 // ("", nil) when the branches share no common ancestor (git exit code 1),
 // mirroring BranchExists; any other failure is an error.
 func (r *Runner) MergeBase(ctx context.Context, a, b string) (string, error) {
-	if err := r.CheckRefFormat(ctx, a); err != nil {
+	aRef, err := r.resolveBranchRef(ctx, a)
+	if err != nil {
 		return "", err
 	}
-	if err := r.CheckRefFormat(ctx, b); err != nil {
+	bRef, err := r.resolveBranchRef(ctx, b)
+	if err != nil {
 		return "", err
 	}
-	out, err := r.run(ctx, "merge-base", "refs/heads/"+a, "refs/heads/"+b)
+	out, err := r.run(ctx, "merge-base", aRef, bRef)
 	if err == nil {
 		return out, nil
 	}
@@ -188,15 +270,17 @@ func (r *Runner) MergeBase(ctx context.Context, a, b string) (string, error) {
 // (git range base..branch), newest first, with subjects. A nil slice
 // means the range is empty — the reachability rung's "in sync" signal.
 func (r *Runner) UniqueCommits(ctx context.Context, base, branch string) ([]Commit, error) {
-	if err := r.CheckRefFormat(ctx, base); err != nil {
+	baseRef, err := r.resolveBranchRef(ctx, base)
+	if err != nil {
 		return nil, err
 	}
-	if err := r.CheckRefFormat(ctx, branch); err != nil {
+	branchRef, err := r.resolveBranchRef(ctx, branch)
+	if err != nil {
 		return nil, err
 	}
 	// %x1f is the ASCII unit separator: subjects contain spaces, so a
 	// plain space would be an ambiguous field delimiter.
-	rng := fmt.Sprintf("refs/heads/%s..refs/heads/%s", base, branch)
+	rng := fmt.Sprintf("%s..%s", baseRef, branchRef)
 	out, err := r.run(ctx, "log", "--no-color", "--format=%H%x1f%s", rng)
 	if err != nil {
 		return nil, err
@@ -222,7 +306,8 @@ func (r *Runner) UniqueCommits(ctx context.Context, base, branch string) ([]Comm
 // (e.g. a merge base). The patch-id is content-based, so it survives a
 // rebase that rewrites commit SHAs without changing the diff.
 func (r *Runner) PatchIDs(ctx context.Context, base, tip string) (map[string]string, error) {
-	if err := r.CheckRefFormat(ctx, tip); err != nil {
+	tipRef, err := r.resolveBranchRef(ctx, tip)
+	if err != nil {
 		return nil, err
 	}
 	baseRev, err := r.validRev(ctx, base)
@@ -231,7 +316,7 @@ func (r *Runner) PatchIDs(ctx context.Context, base, tip string) (map[string]str
 	}
 	// Two steps, no shell pipe: capture the diff, then feed it to
 	// `git patch-id` on stdin.
-	rng := fmt.Sprintf("%s..refs/heads/%s", baseRev, tip)
+	rng := fmt.Sprintf("%s..%s", baseRev, tipRef)
 	diff, err := r.run(ctx, "log", "-p", "--no-color", rng)
 	if err != nil {
 		return nil, err
@@ -262,10 +347,11 @@ func (r *Runner) PatchIDs(ctx context.Context, base, tip string) (map[string]str
 // branches mean identical content even when the commits differ (the
 // head-tree rung, which detects a squash at the moment of merge).
 func (r *Runner) TreeSHA(ctx context.Context, branch string) (string, error) {
-	if err := r.CheckRefFormat(ctx, branch); err != nil {
+	ref, err := r.resolveBranchRef(ctx, branch)
+	if err != nil {
 		return "", err
 	}
-	return r.run(ctx, "rev-parse", "--verify", "refs/heads/"+branch+"^{tree}")
+	return r.run(ctx, "rev-parse", "--verify", ref+"^{tree}")
 }
 
 // IsAncestor reports whether ancestor is reachable from descendant
@@ -308,10 +394,11 @@ const shortSHALen = 12
 // The branch name is validated through CheckRefFormat and passed as a
 // fully-qualified ref.
 func (r *Runner) ShortSHA(ctx context.Context, branch string) (string, error) {
-	if err := r.CheckRefFormat(ctx, branch); err != nil {
+	ref, err := r.resolveBranchRef(ctx, branch)
+	if err != nil {
 		return "", err
 	}
-	return r.run(ctx, "rev-parse", fmt.Sprintf("--short=%d", shortSHALen), "refs/heads/"+branch)
+	return r.run(ctx, "rev-parse", fmt.Sprintf("--short=%d", shortSHALen), ref)
 }
 
 // ResolveCommit resolves an object id (or an unambiguous abbreviation of one)

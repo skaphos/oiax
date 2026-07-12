@@ -4,12 +4,14 @@ A package-by-package tour for new contributors. The layering rule to
 keep in mind everywhere: entrypoint → engine → git layer / forge
 provider, and the engine never reaches down (depguard enforces it).
 
-## `pkg/api/v1alpha1`
+## `pkg/api/v1`
 
 The public configuration API — the only package external consumers may
 import. Defines `PromotionGraph` and its spec types for
-`apiVersion: oiax.skaphos.dev/v1alpha1`, plus the enums (roles, drift
-policies, merge methods, backflow strategies). Field doc comments are
+`apiVersion: oiax.skaphos.dev/v1` (the pre-1.0
+`oiax.skaphos.dev/v1alpha1` is accepted as a deprecated alias), plus the
+enums (roles, drift policies, merge methods, backflow strategies). Field
+doc comments are
 the configuration documentation. Everything else in the module is
 `internal` until external consumers demonstrate a real need.
 
@@ -79,6 +81,10 @@ Build metadata injected by GoReleaser ldflags.
 ## Not Go
 
 - `action.yml` — the composite GitHub Action: downloads a
-  checksum-verified release binary and runs it. No promotion logic.
+  checksum-verified release binary and runs it. It also prepares Git refs
+  first — fetching every branch head into `refs/remotes/origin/*` and running
+  `git remote set-head origin --auto` — so a multi-branch graph is resolvable
+  and the default config-ref (`origin/HEAD`) is known under
+  `actions/checkout`. Still no promotion logic.
 - `Taskfile.yml` — the task runner (`go -C tools tool task --list`).
 - `tools/` — pinned tool dependencies (task).

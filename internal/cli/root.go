@@ -13,7 +13,7 @@ import (
 	"github.com/skaphos/oiax/internal/config"
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/git"
-	"github.com/skaphos/oiax/pkg/api/v1alpha1"
+	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
 // exitCodeError lets a command request a specific process exit code
@@ -93,7 +93,7 @@ no duplicates, no stale leftovers. It never merges, approves, or deploys.`,
 // the pinned-configuration-ref rule; an empty configRef reads the
 // working-tree file at configPath.
 func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Graph, error) {
-	var cfg *v1alpha1.PromotionGraph
+	var cfg *v1.PromotionGraph
 	var err error
 	if configRef != "" {
 		runner := &git.Runner{}
@@ -111,6 +111,9 @@ func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Gra
 	}
 	if err != nil {
 		return nil, err
+	}
+	if config.IsDeprecatedAPIVersion(cfg.APIVersion) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: apiVersion %q is deprecated; migrate to %q\n", v1.APIVersionV1Alpha1, v1.APIVersion)
 	}
 	g := engine.FromConfig(cfg)
 	if violations := g.Validate(); len(violations) > 0 {

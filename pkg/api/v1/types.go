@@ -1,14 +1,22 @@
-// Package v1alpha1 defines the public configuration types for Oiax.
+// Package v1 defines the public configuration types for Oiax.
 //
 // A repository configures Oiax with a single PromotionGraph document,
 // by default at `.oiax.yaml`, read from a pinned ref (the repository's
 // default branch unless overridden with --config-ref). Everything outside
 // this package is internal; these types are the compatibility surface for
-// `apiVersion: oiax.skaphos.dev/v1alpha1`.
-package v1alpha1
+// `apiVersion: oiax.skaphos.dev/v1`. The pre-1.0 literal
+// `apiVersion: oiax.skaphos.dev/v1alpha1` is accepted as a deprecated
+// alias for backward compatibility.
+package v1
 
-// APIVersion is the only configuration API version this module accepts.
-const APIVersion = "oiax.skaphos.dev/v1alpha1"
+// APIVersion is the canonical configuration API version this module accepts.
+const APIVersion = "oiax.skaphos.dev/v1"
+
+// APIVersionV1Alpha1 is the deprecated pre-1.0 alias, still accepted for
+// backward compatibility. Configuration declaring it parses identically to
+// APIVersion but is warned once on load; migrate the apiVersion string to
+// APIVersion.
+const APIVersionV1Alpha1 = "oiax.skaphos.dev/v1alpha1"
 
 // KindPromotionGraph is the only configuration kind this module accepts.
 const KindPromotionGraph = "PromotionGraph"
@@ -67,7 +75,8 @@ const BackflowStrategyCherryPick BackflowStrategy = "cherry-pick"
 // one PromotionGraph per configuration file; multi-document YAML is
 // reserved for a future version.
 type PromotionGraph struct {
-	// APIVersion must be "oiax.skaphos.dev/v1alpha1".
+	// APIVersion must be "oiax.skaphos.dev/v1" ("oiax.skaphos.dev/v1alpha1"
+	// accepted, deprecated).
 	APIVersion string `yaml:"apiVersion"`
 	// Kind must be "PromotionGraph".
 	Kind string `yaml:"kind"`

@@ -200,6 +200,50 @@ func TestPlanJSONShape(t *testing.T) {
 	}
 }
 
+// TestPlanJSONWarnsOnStderrNotStdout guards the load-bearing combination the
+// shared helpers cannot see: a deprecated v1alpha1 config with --output json.
+// ADR 0005 places the deprecation warning on stderr precisely so stdout stays
+// machine-clean JSON; runCode merges the two streams, so this test wires
+// distinct stdout/stderr buffers to prove the warning never reaches stdout.
+func TestPlanJSONWarnsOnStderrNotStdout(t *testing.T) {
+	git := setupRepo(t)
+	git("checkout", "-q", "development")
+	git("write", "app.txt", "v1\n")
+	git("add", ".")
+	git("commit", "-q", "-m", "c1")
+	// Swap the canonical v1 config for the deprecated v1alpha1 alias in the
+	// working tree (the ref plan reads when no default branch resolves).
+	git("write", ".oiax.yaml", strings.Replace(exampleConfig, "oiax.skaphos.dev/v1", "oiax.skaphos.dev/v1alpha1", 1))
+	useForge(t, &fakeForge{})
+
+	root := NewRootCommand()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"plan", "--output", "json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("plan --output json: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	// The deprecation warning lands on stderr, never stdout.
+	if !strings.Contains(stderr.String(), "is deprecated") {
+		t.Errorf("stderr missing deprecation warning:\n%s", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "warning:") {
+		t.Errorf("warning leaked onto stdout, corrupting JSON:\n%s", stdout.String())
+	}
+	// stdout alone must parse as valid JSON.
+	var plan struct {
+		PlanFormatVersion int `json:"planFormatVersion"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, stdout.String())
+	}
+	if plan.PlanFormatVersion != 1 {
+		t.Errorf("planFormatVersion = %d, want 1", plan.PlanFormatVersion)
+	}
+}
+
 func TestReconcileConvergedExitsZero(t *testing.T) {
 	git := setupRepo(t)
 	git("checkout", "-q", "development")

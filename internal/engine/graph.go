@@ -15,7 +15,7 @@ package engine
 import (
 	"slices"
 
-	"github.com/skaphos/oiax/pkg/api/v1alpha1"
+	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
 // Graph is the engine's view of a promotion graph.
@@ -29,8 +29,8 @@ type Graph struct {
 // Branch is the engine's view of per-branch settings, with defaults
 // applied (an unset drift policy is DriftForbidden).
 type Branch struct {
-	Role  v1alpha1.Role
-	Drift v1alpha1.DriftPolicy
+	Role  v1.Role
+	Drift v1.DriftPolicy
 }
 
 // Promotion is one directed promotion edge.
@@ -43,7 +43,7 @@ type Promotion struct {
 // Expectations are reporting-only edge expectations.
 type Expectations struct {
 	// MergeMethod is empty when the edge declares no expectation.
-	MergeMethod v1alpha1.MergeMethod
+	MergeMethod v1.MergeMethod
 }
 
 // BackflowPolicy is the engine's view of the backflow configuration,
@@ -53,13 +53,13 @@ type BackflowPolicy struct {
 	Enabled  bool
 	Sources  []string
 	Target   string
-	Strategy v1alpha1.BackflowStrategy
+	Strategy v1.BackflowStrategy
 }
 
 // FromConfig converts a parsed configuration document into the engine
 // model, applying defaults. It does not validate; call Validate on the
 // result.
-func FromConfig(cfg *v1alpha1.PromotionGraph) *Graph {
+func FromConfig(cfg *v1.PromotionGraph) *Graph {
 	g := &Graph{
 		Name:     cfg.Metadata.Name,
 		Branches: make(map[string]Branch, len(cfg.Spec.Branches)),
@@ -67,7 +67,7 @@ func FromConfig(cfg *v1alpha1.PromotionGraph) *Graph {
 	for name, b := range cfg.Spec.Branches {
 		drift := b.Drift
 		if drift == "" {
-			drift = v1alpha1.DriftForbidden
+			drift = v1.DriftForbidden
 		}
 		g.Branches[name] = Branch{Role: b.Role, Drift: drift}
 	}
@@ -81,7 +81,7 @@ func FromConfig(cfg *v1alpha1.PromotionGraph) *Graph {
 	if bf := cfg.Spec.Backflow; bf != nil {
 		strategy := bf.Strategy
 		if strategy == "" {
-			strategy = v1alpha1.BackflowStrategyCherryPick
+			strategy = v1.BackflowStrategyCherryPick
 		}
 		g.Backflow = BackflowPolicy{
 			Enabled:  true,

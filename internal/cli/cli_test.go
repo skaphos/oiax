@@ -31,7 +31,7 @@ func writeConfig(t *testing.T, content string) string {
 	return path
 }
 
-const exampleConfig = `apiVersion: oiax.skaphos.dev/v1alpha1
+const exampleConfig = `apiVersion: oiax.skaphos.dev/v1
 kind: PromotionGraph
 metadata:
   name: environments
@@ -61,6 +61,36 @@ func TestValidateCommand(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestDeprecatedAPIVersionWarns(t *testing.T) {
+	// The canonical v1 config loads without any deprecation warning.
+	out, err := run(t, "validate", "--config", writeConfig(t, exampleConfig))
+	if err != nil {
+		t.Fatalf("validate: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "deprecated") {
+		t.Errorf("canonical v1 config warned about deprecation:\n%s", out)
+	}
+
+	// The deprecated v1alpha1 alias still validates but emits exactly one
+	// warning naming both the deprecated string and the canonical target.
+	alias := strings.Replace(exampleConfig, "oiax.skaphos.dev/v1", "oiax.skaphos.dev/v1alpha1", 1)
+	out, err = run(t, "validate", "--config", writeConfig(t, alias))
+	if err != nil {
+		t.Fatalf("validate alias: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		`warning: apiVersion "oiax.skaphos.dev/v1alpha1" is deprecated`,
+		`migrate to "oiax.skaphos.dev/v1"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	if got := strings.Count(out, "warning:"); got != 1 {
+		t.Errorf("want exactly one warning line, got %d:\n%s", got, out)
 	}
 }
 
