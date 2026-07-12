@@ -54,6 +54,10 @@ func (f *fakeForge) PushBranch(_ context.Context, push forge.BranchPush) error {
 	return nil
 }
 
+func (f *fakeForge) RepoMergeMethods(context.Context) (forge.MergeMethods, error) {
+	return forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, nil
+}
+
 // useForge substitutes the package forge factory for the duration of a test.
 func useForge(t *testing.T, f forge.Forge) {
 	t.Helper()

@@ -51,7 +51,7 @@ warning to stderr. Migrate by changing the `apiVersion` string to
 | --- | --- | --- | --- |
 | `from` | string | yes | Source branch (must be declared in `spec.branches`). |
 | `to` | string | yes | Destination branch (must be declared; distinct from `from`; each `from`/`to` pair at most once). |
-| `expectations.mergeMethod` | string | no | `merge`, `squash`, or `rebase`. Reporting metadata only: Oiax validates the value against this enum but does not check it against the repository's actual merge-button settings and never modifies them. Recommended where possible: disable squash on promotion targets for cheaper, exact detection. |
+| `expectations.mergeMethod` | string | no | `merge`, `squash`, or `rebase`. Reporting metadata: Oiax warns (on stderr) when the repository's merge-button settings do not permit the configured method, and never modifies settings. Recommended where possible: disable squash on promotion targets for cheaper, exact detection. |
 
 ## `spec.backflow`
 

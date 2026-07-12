@@ -94,4 +94,35 @@ type Forge interface {
 	UpdateRequest(ctx context.Context, req UpdateRequest) error
 	CloseRequest(ctx context.Context, id RequestID, reason Reason) error
 	PushBranch(ctx context.Context, push BranchPush) error
+
+	// RepoMergeMethods reports which merge methods the repository currently
+	// permits, so the coordinator can warn when a configured mergeMethod
+	// contradicts it. It reads settings only and never modifies them.
+	RepoMergeMethods(ctx context.Context) (MergeMethods, error)
+}
+
+// MergeMethods reports which merge methods a repository permits, mirroring
+// GitHub's allow_merge_commit / allow_squash_merge / allow_rebase_merge
+// repository settings. Oiax reads it only to warn on a contradicting
+// mergeMethod expectation; it never changes settings.
+type MergeMethods struct {
+	Merge  bool
+	Squash bool
+	Rebase bool
+}
+
+// Allows reports whether the repository permits the named merge method
+// ("merge", "squash", or "rebase"). An empty or unrecognized method is treated
+// as allowed, so an edge that declares no mergeMethod expectation never warns.
+func (m MergeMethods) Allows(method string) bool {
+	switch method {
+	case "merge":
+		return m.Merge
+	case "squash":
+		return m.Squash
+	case "rebase":
+		return m.Rebase
+	default:
+		return true
+	}
 }

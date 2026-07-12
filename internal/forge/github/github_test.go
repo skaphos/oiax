@@ -95,6 +95,30 @@ func writeJSON(t *testing.T, w http.ResponseWriter, status int, v any) {
 	}
 }
 
+func TestRepoMergeMethods(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/repos/acme/widgets" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		writeJSON(t, w, http.StatusOK, map[string]any{
+			"allow_merge_commit": true,
+			"allow_squash_merge": false,
+			"allow_rebase_merge": true,
+		})
+	}))
+	defer srv.Close()
+
+	got, err := newProvider(t, srv).RepoMergeMethods(context.Background())
+	if err != nil {
+		t.Fatalf("RepoMergeMethods: %v", err)
+	}
+	want := forge.MergeMethods{Merge: true, Squash: false, Rebase: true}
+	if got != want {
+		t.Errorf("RepoMergeMethods = %+v, want %+v", got, want)
+	}
+}
+
 // assertAuth verifies every request carries the expected headers.
 func assertAuth(t *testing.T, r *http.Request) {
 	t.Helper()

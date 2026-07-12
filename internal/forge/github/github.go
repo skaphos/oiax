@@ -420,6 +420,27 @@ func (p *Provider) addLabels(ctx context.Context, number int, labels ...string) 
 }
 
 // getPull fetches a single pull request by number.
+// RepoMergeMethods reads the repository's merge-button settings
+// (allow_merge_commit / allow_squash_merge / allow_rebase_merge) so the
+// coordinator can warn when a configured mergeMethod contradicts them. It is
+// read-only and never changes repository settings.
+func (p *Provider) RepoMergeMethods(ctx context.Context) (forge.MergeMethods, error) {
+	var repo struct {
+		AllowMergeCommit bool `json:"allow_merge_commit"`
+		AllowSquashMerge bool `json:"allow_squash_merge"`
+		AllowRebaseMerge bool `json:"allow_rebase_merge"`
+	}
+	u := p.url(fmt.Sprintf("/repos/%s/%s", url.PathEscape(p.Owner), url.PathEscape(p.Repo)))
+	if _, err := p.do(ctx, http.MethodGet, u, nil, &repo); err != nil {
+		return forge.MergeMethods{}, fmt.Errorf("read repository merge settings: %w", err)
+	}
+	return forge.MergeMethods{
+		Merge:  repo.AllowMergeCommit,
+		Squash: repo.AllowSquashMerge,
+		Rebase: repo.AllowRebaseMerge,
+	}, nil
+}
+
 func (p *Provider) getPull(ctx context.Context, number int) (ghPull, error) {
 	var pr ghPull
 	if _, err := p.do(ctx, http.MethodGet, p.pullURL(number), nil, &pr); err != nil {

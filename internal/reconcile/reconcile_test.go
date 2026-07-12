@@ -1,7 +1,10 @@
 package reconcile
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +33,21 @@ type fakeForge struct {
 
 	createResult engine.ChangeRequest
 	createErr    error
+
+	mergeMethods      *forge.MergeMethods
+	mergeMethodsErr   error
+	mergeMethodsCalls int
+}
+
+func (f *fakeForge) RepoMergeMethods(context.Context) (forge.MergeMethods, error) {
+	f.mergeMethodsCalls++
+	if f.mergeMethodsErr != nil {
+		return forge.MergeMethods{}, f.mergeMethodsErr
+	}
+	if f.mergeMethods != nil {
+		return *f.mergeMethods, nil
+	}
+	return forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, nil
 }
 
 func (f *fakeForge) ListManagedRequests(_ context.Context, filter forge.RequestFilter) ([]engine.ChangeRequest, error) {
@@ -932,5 +950,50 @@ func TestPlanBackflowProvenanceRequiresStandaloneLine(t *testing.T) {
 	}
 	if len(st.ToReturn) != 1 || st.ToReturn[0].SHA != hProse {
 		t.Fatalf("ToReturn = %+v, want exactly [%s] (embedded mention ignored)", st.ToReturn, hProse)
+	}
+}
+
+func TestWarnMergeMethodMismatch(t *testing.T) {
+	cases := []struct {
+		name    string
+		method  v1.MergeMethod
+		allowed *forge.MergeMethods
+		err     error
+		warn    bool
+		called  bool
+	}{
+		{
+			name: "disallowed method warns", method: v1.MergeMethodSquash,
+			allowed: &forge.MergeMethods{Merge: true, Rebase: true}, warn: true, called: true,
+		},
+		{
+			name: "allowed method is quiet", method: v1.MergeMethodSquash,
+			allowed: &forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, warn: false, called: true,
+		},
+		{name: "no expectation skips the forge call", method: "", warn: false, called: false},
+		{
+			name: "fetch error is advisory, not fatal", method: v1.MergeMethodSquash,
+			err: errors.New("boom"), warn: false, called: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			f := &fakeForge{mergeMethods: tc.allowed, mergeMethodsErr: tc.err}
+			c := &Coordinator{
+				Forge: f,
+				Graph: &engine.Graph{Name: "environments", Promotions: []engine.Promotion{
+					{From: "development", To: "test", Expectations: engine.Expectations{MergeMethod: tc.method}},
+				}},
+				Log: slog.New(slog.NewTextHandler(&buf, nil)),
+			}
+			c.warnMergeMethodMismatch(context.Background())
+			if warned := strings.Contains(buf.String(), "does not allow"); warned != tc.warn {
+				t.Errorf("warned = %v, want %v (log: %q)", warned, tc.warn, buf.String())
+			}
+			if called := f.mergeMethodsCalls > 0; called != tc.called {
+				t.Errorf("RepoMergeMethods called = %v, want %v", called, tc.called)
+			}
+		})
 	}
 }
