@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"testing"
 
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
@@ -225,4 +226,57 @@ func TestBuildPlanDedupsBackflowAcrossIncomingEdges(t *testing.T) {
 	if surviving.Unpromoted != 2 {
 		t.Errorf("Unpromoted = %d, want 2 (union of both incoming edges)", surviving.Unpromoted)
 	}
+}
+
+func TestBuildPlanActionsJSONShape(t *testing.T) {
+	g := FromConfig(validGraph())
+
+	t.Run("in sync serializes actions as an empty array, not null", func(t *testing.T) {
+		plan := BuildPlan(g, []EdgeState{edge("development", "test")})
+		if plan.Actions == nil {
+			t.Fatalf("Actions = nil, want non-nil empty slice")
+		}
+		got, err := json.Marshal(plan)
+		if err != nil {
+			t.Fatalf("Marshal() error = %v", err)
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(got, &raw); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		actionsRaw, ok := raw["actions"]
+		if !ok {
+			t.Fatal(`marshaled plan has no "actions" key; the frozen contract requires it always present`)
+		}
+		if actions := string(actionsRaw); actions != "[]" {
+			t.Fatalf(`"actions" = %s, want "[]" (strict typed consumers of the frozen contract reject null)`, actions)
+		}
+	})
+
+	t.Run("populated plan serializes actions as an array of objects", func(t *testing.T) {
+		e := edge("development", "test")
+		e.Unpromoted = []Commit{{SHA: "d"}, {SHA: "e"}}
+		e.Equivalence = EquivalenceReachability
+
+		plan := BuildPlan(g, []EdgeState{e})
+		got, err := json.Marshal(plan)
+		if err != nil {
+			t.Fatalf("Marshal() error = %v", err)
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(got, &raw); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		actionsRaw, ok := raw["actions"]
+		if !ok {
+			t.Fatal(`marshaled plan has no "actions" key; the frozen contract requires it always present`)
+		}
+		var actions []json.RawMessage
+		if err := json.Unmarshal(actionsRaw, &actions); err != nil {
+			t.Fatalf(`"actions" did not unmarshal as a JSON array: %v`, err)
+		}
+		if len(actions) != 1 {
+			t.Fatalf("len(actions) = %d, want 1", len(actions))
+		}
+	})
 }
