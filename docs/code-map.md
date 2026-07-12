@@ -37,16 +37,25 @@ the pure planner (`BuildPlan` → `Plan` of `Action`s).
 
 Purity rules: no provider API calls, no imports of `internal/git` or
 `internal/forge`, equivalent plans for identical inputs. Edge evaluation
-(the equivalence ladder) will live here, consuming observations produced
-by the git layer and forge provider.
+(`EvaluateEdge`) implements the equivalence ladder over observations
+assembled outside the engine. `BuildPlan` turns evaluated edge states
+into promotion, backflow, close, or report actions.
 
 ## `internal/git`
 
 The git layer: shells out to the system `git` executable (`Runner`).
 Owns ref validation (`CheckRefFormat` — branch names are data, never
-shell), ref existence and resolution, and eventually merge bases,
-reachability, stable patch-ids, tree comparison, and backflow branch
-construction.
+shell), ref existence and resolution, merge bases, reachability, stable
+patch-ids, tree comparison, git-version enforcement, shallow-clone
+detection, and isolated cherry-pick replay in ephemeral worktrees.
+
+## `internal/reconcile`
+
+The impure coordination layer between the pure engine and external
+systems. `Coordinator.Plan` observes Git and forge state and feeds the
+engine; `Coordinator.Apply` executes the resulting actions. It owns
+backflow replay and lifecycle, merge-method warnings, plan rendering,
+GitHub Actions annotations, and step-summary output.
 
 ## `internal/forge`
 
@@ -57,10 +66,11 @@ the engine never sees credentials.
 
 ## `internal/forge/github`
 
-The GitHub provider (first supported forge; currently a compile-checked
-stub). Will identify managed requests by body metadata + branch
-relationship, adopt HTTP 422 duplicate-create rejections as success, and
-warn on degraded `GITHUB_TOKEN` configurations.
+The implemented GitHub provider. It discovers managed requests by body
+metadata plus branch relationship, creates/updates/comments/closes pull
+requests, manages labels and `oiax/` refs, adopts safe HTTP 422 duplicate
+creates, paginates and bounds merged-request discovery, and applies
+bounded retries where replay is safe.
 
 ## `internal/cli`
 

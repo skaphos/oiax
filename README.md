@@ -3,10 +3,13 @@
 Declarative Git branch promotion reconciler for branch-per-environment
 GitOps repositories.
 
-> **Status: pre-release scaffold.** The configuration API, graph
-> validation, and CLI skeleton exist; edge evaluation, the GitHub forge
-> provider, and backflow are in progress (see the
-> [roadmap](docs/architecture.md#roadmap)). Nothing is released yet.
+> **Status: pre-release.** The core reconciler is implemented — edge
+> evaluation through the full equivalence ladder, the GitHub forge
+> provider, managed promotion requests, and backflow (see the
+> [roadmap](docs/architecture.md#roadmap)). No release is cut yet; the
+> first is 1.0.0, in progress, so install from source (see
+> [Quickstart](#quickstart)) until then. New here? Start with the
+> [getting-started guide](docs/guides/getting-started.md).
 
 Branch-based GitOps repositories model environments as long-lived
 branches — `development → test → qa → production-stage-1 → main` — and
@@ -16,7 +19,8 @@ downstream. Oiax treats them as reconciled resources instead: given a
 promotion graph declared in `.oiax.yaml`, it observes branch and forge
 state and ensures the pull requests required to move changes through the
 graph exist — exactly one active managed request per diverged edge, no
-duplicates, no stale leftovers. It is
+duplicates. Requests for edges removed from the graph are deliberately
+left for a human to close. It is
 [release-please](https://github.com/googleapis/release-please)'s posture
 applied to environment promotion.
 
@@ -82,8 +86,11 @@ requires **git 2.45 or newer** (backflow uses `git cherry-pick
 on older git, `plan` and `reconcile` fail fast with a clear message naming
 the required floor and the detected version.
 
-`plan` and `reconcile` currently validate configuration and stop; edge
-evaluation is the next roadmap milestone.
+`plan` evaluates every promotion edge and prints the actions
+`reconcile` would apply; `reconcile` then creates, updates, and closes
+managed pull requests, including backflow. The one piece not yet
+implemented is `validate`'s repository-state check (confirming configured
+branches exist as refs).
 
 ## GitHub Action
 
@@ -91,15 +98,18 @@ The initial execution model is a GitHub Action — a thin composite
 wrapper around the release binary:
 
 ```yaml
-- uses: actions/checkout@v4
+- uses: actions/checkout@v7
   with:
     fetch-depth: 0         # required: full history for correct equivalence detection
 - uses: skaphos/oiax@v1
   with:
     config: .oiax.yaml
     mode: reconcile        # validate | plan | reconcile
-    version: v0.1.0
 ```
+
+Release automation advances `@v1` only after publishing a successful
+`v1.x.y` release. The Action reads that release's manifest and downloads
+the matching binary, so wrapper and binary update together within v1.
 
 `fetch-depth: 0` is not optional: `actions/checkout`'s default shallow
 clone (`fetch-depth: 1`) has no merge base, which silently degrades
@@ -107,15 +117,20 @@ equivalence detection and yields spurious promotion requests. Oiax warns
 when it detects a shallow clone.
 
 One trap worth knowing before anything else: pull requests created with
-the default `GITHUB_TOKEN` do not trigger `on: pull_request` workflows,
-so managed requests get no CI and can never merge under branch
-protection. Use a GitHub App installation token in production. See
+the default `GITHUB_TOKEN` do not start `on: pull_request` checks
+automatically. GitHub queues `opened`, `synchronize`, and `reopened` runs
+for approval by a user with write access, so unattended promotion stalls
+when those checks are required. See GitHub's
+[workflow-trigger documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow).
+Use a GitHub App installation token in production. See
 [architecture](docs/architecture.md#execution-model) for the full
 workflow example and token guidance.
 
 ## Documentation
 
 - [Documentation index](docs/README.md)
+- [Guides](docs/guides/README.md) — getting started, GitHub Action setup,
+  tokens, backflow, day-two operations, troubleshooting
 - [Architecture](docs/architecture.md) — the design: promotion graph,
   equivalence ladder, backflow, execution model, security posture
 - [Configuration reference](docs/reference/configuration.md)

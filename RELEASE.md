@@ -12,19 +12,30 @@ tags, and publishes.
    request that aggregates conventional commits into `CHANGELOG.md` and
    bumps `.release-please-manifest.json`. GitHub-release creation is
    skipped (`skip-github-release: true`) — GoReleaser owns that step.
-2. **Tag**: after the release PR merges, the same workflow pushes the
-   corresponding `v*` annotated tag (as `skaphos-release-bot[bot]`) and
-   reconciles the `autorelease: pending`/`autorelease: tagged` labels.
+2. **Immutable tag**: after the release PR merges, the same workflow
+   pushes the corresponding full `vMAJOR.MINOR.PATCH` annotated tag (as
+   `skaphos-release-bot[bot]`) and reconciles the
+   `autorelease: pending`/`autorelease: tagged` labels.
 3. **Publish** (`.github/workflows/release.yml`): the tag triggers
    GoReleaser, which builds the platform binaries (`.goreleaser.yaml`;
    version metadata injected into `internal/version` via ldflags),
    generates `checksums.txt`, and creates the GitHub release, linking
-   to `CHANGELOG.md` for the full notes.
+   to `CHANGELOG.md` for the full notes. Only after publication succeeds,
+   the workflow force-advances the floating `vMAJOR` Action tag to the
+   release commit. A monotonicity guard prevents a rerun of an older
+   release from moving the major tag backward. This follows GitHub's
+   [recommended Action release-management
+   model](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/release-and-maintain-actions),
+   where immutable semantic-version releases coexist with a current
+   floating major tag.
 
 The composite Action (`action.yml`) consumes those release artifacts: it
-downloads the binary for the runner platform and verifies it against
-`checksums.txt`. Cutting a release is therefore also what makes a new
-version available to `skaphos/oiax@...` users.
+reads the version from `.release-please-manifest.json` at the Action ref,
+downloads that binary for the runner platform, and verifies it against
+`checksums.txt`. Consumers using `skaphos/oiax@v1` therefore receive the
+newest published `v1.x.y` wrapper and binary together; consumers can set
+the Action's `version` input to a full tag when they need an exact binary
+within the same major. The Action rejects a cross-major override.
 
 ## Required credentials
 
@@ -32,12 +43,13 @@ Release automation does not run on the default `GITHUB_TOKEN`:
 
 | Input | Where | Purpose |
 | --- | --- | --- |
-| `vars.RELEASE_BOT_APP_ID` | org/repo variable | GitHub App ID used to mint the release bot token (`skaphos-release-bot`). |
+| `vars.RELEASE_BOT_CLIENT_ID` | org/repo variable | GitHub App Client ID used to mint the release bot token (`skaphos-release-bot`). |
 | `secrets.RELEASE_BOT_PRIVATE_KEY` | org/repo secret | Private key for that App. |
 
 Both must be provisioned in GitHub before treating release automation as
-operational — the release-please workflow fails without them. The
-publish workflow uses the default `GITHUB_TOKEN` (`contents: write`).
+operational — both release workflows fail without them. The release bot
+must be allowed to create immutable `vMAJOR.MINOR.PATCH` tags and
+force-update only the floating `vMAJOR` tags (for example `v1`).
 
 ## Governance
 

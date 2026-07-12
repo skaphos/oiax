@@ -3,21 +3,30 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      # Only immutable release tags publish artifacts. Floating Action tags
+      # such as v1 are advanced after publication and must not re-run GoReleaser.
+      - "v*.*.*"
 
 permissions:
-  contents: write
-  attestations: write
-  id-token: write
+  contents: read
 
 jobs:
   release:
     name: GoReleaser
     runs-on: ubuntu-latest
     steps:
+      - name: Mint release bot token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -26,4 +35,40 @@ jobs:
           version: "~> v2"
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+      - name: Advance floating major Action tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${RELEASE_TAG}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "release tag must be a stable semantic version (got ${RELEASE_TAG})" >&2
+            exit 1
+          fi
+          major="${BASH_REMATCH[1]}"
+          major_tag="v${major}"
+
+          # A manual rerun of an older release must never roll the floating
+          # major tag backward. Move it only when this is the newest immutable
+          # stable tag in the major line.
+          git fetch --force --tags origin
+          latest=""
+          while IFS= read -r candidate; do
+            if [[ "${candidate}" =~ ^v${major}\.[0-9]+\.[0-9]+$ ]]; then
+              latest="${candidate}"
+              break
+            fi
+          done < <(git tag --list "${major_tag}.*.*" --sort=-version:refname)
+
+          if [ "${latest}" != "${RELEASE_TAG}" ]; then
+            echo "${RELEASE_TAG} is not the latest ${major_tag} release (${latest}); leaving ${major_tag} unchanged."
+            exit 0
+          fi
+
+          release_commit="$(git rev-list -n 1 "${RELEASE_TAG}")"
+          git config user.name "skaphos-release-bot[bot]"
+          git config user.email "261675299+skaphos-release-bot[bot]@users.noreply.github.com"
+          git tag --force --annotate "${major_tag}" "${release_commit}" --message "${major_tag}"
+          git push --force origin "refs/tags/${major_tag}"
+          echo "Advanced ${major_tag} to ${RELEASE_TAG} (${release_commit})."

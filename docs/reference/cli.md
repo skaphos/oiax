@@ -14,7 +14,8 @@ branch-per-environment GitOps repositories.
 Given a promotion graph declared in .oiax.yaml, Oiax observes branch and
 forge state and ensures the pull requests required to move changes through
 that graph exist — exactly one active managed request per diverged edge,
-no duplicates, no stale leftovers. It never merges, approves, or deploys.
+with no duplicates. Requests for edges removed from the graph are left for a
+human to close. Oiax never merges, approves, or deploys.
 
 ```
 oiax [flags]

@@ -16,8 +16,8 @@ second hotfix arriving while a return is open is handled.
 
 Two constraints shape every answer. Oiax keeps **no private state
 database** — Git and the forge are the only sources of truth
-([ADR 0002](adr/0002-content-based-divergence-detection.md),
-[ADR 0003](adr/0003-pinned-configuration-ref.md)). And reconciliation is
+([ADR 0002](0002-content-based-divergence-detection.md),
+[ADR 0003](0003-pinned-configuration-ref.md)). And reconciliation is
 **event-driven and concurrent**: the same edge may be evaluated by
 overlapping runs, in any order, with duplicated or missed events, so
 correctness cannot depend on locks or run ordering.
