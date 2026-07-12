@@ -74,6 +74,20 @@ type Result struct {
 func (c *Coordinator) Plan(ctx context.Context) (engine.Plan, error) {
 	c.warnMergeMethodMismatch(ctx)
 
+	// A shallow clone (actions/checkout's default fetch-depth: 1) has no merge
+	// base for fork points that predate the fetch depth, so the patch-identity
+	// and baseline rungs silently switch off and already-promoted content looks
+	// unpromoted — spurious promotion PRs. Surface a clear warning rather than
+	// proceed with silently degraded equivalence detection.
+	if shallow, err := c.Git.IsShallowRepository(ctx); err != nil {
+		return engine.Plan{}, fmt.Errorf("detect shallow repository: %w", err)
+	} else if shallow {
+		c.log().Warn("shallow clone detected: equivalence detection is degraded " +
+			"(merge-base, patch-identity and baseline rungs are unreliable), which can " +
+			"produce spurious promotion requests; set fetch-depth: 0 on actions/checkout " +
+			"for correct results")
+	}
+
 	filter := forge.RequestFilter{Graph: c.Graph.Name, Type: engine.RequestTypePromotion}
 
 	open, err := c.Forge.ListManagedRequests(ctx, filter)
@@ -541,12 +555,35 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 		return nil
 	}
 
-	// Force-push the deterministic branch (confined to oiax/ by the provider).
-	// The branch name is a pure function of the source head, and the replayed
-	// HEAD is deterministic too (CherryPick pins the committer), so a repeated
-	// run at the same source head re-pushes an identical SHA — a genuine no-op.
-	if err := c.Forge.PushBranch(ctx, forge.BranchPush{Name: branch, SHA: head, Force: true}); err != nil {
+	// Churn reduction (M6): if the deterministic branch already points at this
+	// exact replayed head, a prior run already pushed it, so re-pushing the
+	// identical SHA is redundant. Compare against the branch's last-fetched
+	// head and skip ONLY the force-push of an unchanged replay, sparing
+	// whatever request references it a re-trigger of CI. This is deliberately
+	// narrower than skipping the whole block: RemoteTrackingHead only proves
+	// the branch was pushed with this content at some point, never that an
+	// open request currently references it — a prior run's CreateRequest can
+	// have failed after its PushBranch succeeded, or a human can have closed
+	// the request without merging, and in both cases the branch head still
+	// matches while no request exists. So CreateRequest below always still
+	// runs; it is safely idempotent (422 duplicate -> adoptDuplicate) when a
+	// matching open request does exist, and creates the missing one when it
+	// doesn't. This does NOT stabilize the replay parent, so when the (busy)
+	// target advances between runs the head genuinely changes and the
+	// force-push still churns until the hotfix merges (bounded/self-healing).
+	cur, ok, err := c.Git.RemoteTrackingHead(ctx, branch)
+	if err != nil {
 		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+	}
+	if !ok || cur != head {
+		// Force-push the deterministic branch (confined to oiax/ by the
+		// provider). The branch name is a pure function of the source head,
+		// and the replayed HEAD is deterministic too (CherryPick pins the
+		// committer), so a repeated run at the same source head re-pushes an
+		// identical SHA — a genuine no-op.
+		if err := c.Forge.PushBranch(ctx, forge.BranchPush{Name: branch, SHA: head, Force: true}); err != nil {
+			return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+		}
 	}
 
 	// Open (or adopt) the managed backflow request. The head branch is the
@@ -639,16 +676,38 @@ func (c *Coordinator) backflowActionState(ctx context.Context, a engine.Action) 
 // same logical (source,target) whose encoded source head is STRICTLY OLDER
 // than the one just created (an ancestor of it). The deterministic branch
 // encodes the source head, so a newer hotfix yields a new branch and the prior
-// request is stale; it is closed with an explanatory comment, never deleted.
+// request is stale; its oiax/ head branch is deleted and then the request is
+// closed with an explanatory comment (delete-before-close, so a failed delete
+// leaves the request open to retry rather than leaking the ref — L11),
+// preventing orphan-ref accumulation.
 //
 // The ancestry guard makes supersede monotonic under concurrency. Two
 // overlapping runs can observe divergent source heads and each create its own
 // branch; a plain "close every other-named request" would let the run that saw
 // the OLDER head close the NEWER run's request. Closing only requests whose
-// head is an ancestor of the current one — never a descendant or an
-// unresolvable/unknown head — ensures a run never closes work built on a newer
-// head than its own. A create that adopted an existing request (same branch)
-// leaves nothing to supersede.
+// head is an ancestor of the current one — never a descendant, nor a head whose
+// lookup merely failed transiently — ensures a run never closes work built on a
+// newer head than its own. A create that adopted an existing request (same
+// branch) leaves nothing to supersede.
+//
+// Beyond the ancestry-guarded supersede it also cleans up an ORPHAN (L3): a
+// still-open managed request whose encoded source head no longer resolves to
+// any commit at all (a definitive not-found — the source branch's history was
+// rewritten out from under it) can never converge, so its head branch is
+// deleted and then it is closed with an explanation (same delete-before-close
+// ordering, for the same retry-safety reason). A merely transient/unavailable
+// lookup is never treated as an orphan; only git's clean "no such object"
+// signal is.
+//
+// That "no such object" signal is ambiguous on a shallow clone (actions/
+// checkout's default fetch-depth: 1): a depth-limited fetch only brings down
+// each ref's tip, so an older, genuinely non-rewritten ancestor commit — the
+// ordinary case for a stale-but-valid backflow request — resolves to the exact
+// same "not found" as a real rewrite. The orphan path is therefore gated on
+// IsShallowRepository: on a shallow clone it never closes, falling back to the
+// same conservative "leave it alone" default as an operational CommitExists
+// error, exactly as M5's Plan warning already flags this condition as
+// unreliable.
 func (c *Coordinator) supersedeBackflow(ctx context.Context, a engine.Action, branch string) error {
 	open, err := c.Forge.ListManagedRequests(ctx, forge.RequestFilter{
 		Graph: c.Graph.Name,
@@ -662,13 +721,59 @@ func (c *Coordinator) supersedeBackflow(ctx context.Context, a engine.Action, br
 	if err != nil {
 		return fmt.Errorf("resolve current backflow head: %w", err)
 	}
+	shallow, err := c.Git.IsShallowRepository(ctx)
+	if err != nil {
+		return fmt.Errorf("detect shallow repository: %w", err)
+	}
 	for _, r := range open {
 		if r.Target != a.To || !strings.HasPrefix(r.Source, prefix) || r.Source == branch {
 			continue
 		}
-		// Resolve the stale request's encoded source head. An unknown or
-		// ambiguous object is left alone rather than closed.
-		staleHead, err := c.Git.ResolveCommit(ctx, strings.TrimPrefix(r.Source, prefix))
+		encoded := strings.TrimPrefix(r.Source, prefix)
+
+		// Classify the stale request's encoded head. CommitExists reports a
+		// DEFINITIVE not-found (the object is absent) apart from a malformed or
+		// transient lookup, which surfaces as an error and is left strictly
+		// alone.
+		exists, err := c.Git.CommitExists(ctx, encoded)
+		if err != nil {
+			continue
+		}
+		if !exists {
+			if shallow {
+				// A shallow clone cannot tell "rewritten" apart from "never
+				// fetched" (see the doc comment above): treat this exactly like
+				// an operational CommitExists error and leave the request alone
+				// rather than risk closing a legitimately stale-but-ancestor
+				// request on a false "history was rewritten" claim.
+				continue
+			}
+			// Orphan (L3): the encoded source head resolves to nothing, so this
+			// request can never converge. Delete the leftover head branch (L11)
+			// FIRST, then close. DeleteBranch is idempotent (an already-deleted
+			// branch is treated as success), so ordering it first costs nothing on
+			// the success path but makes the failure path self-healing: on a
+			// genuine delete error we return before closing, so the request stays
+			// open and in the next run's open set to retry the delete-then-close
+			// pair. Closing first would drop the request from ListManagedRequests
+			// on every later run, permanently leaking the oiax/ branch a failed
+			// delete left behind.
+			if err := c.deleteBackflowBranch(ctx, r.Source); err != nil {
+				return err
+			}
+			reason := forge.Reason{Summary: fmt.Sprintf(
+				"Closed by Oiax: this backflow request's encoded source head (%s) no longer resolves to any "+
+					"commit — the %s branch history was rewritten — so it can never converge. Cleaning up the "+
+					"orphaned request.", encoded, a.From)}
+			if err := c.Forge.CloseRequest(ctx, forge.RequestID(r.ID), reason); err != nil {
+				return err
+			}
+			continue
+		}
+
+		// Resolve the encoded head for the ancestry test. An unexpected resolve
+		// failure (it existed a moment ago) is left alone rather than closed.
+		staleHead, err := c.Git.ResolveCommit(ctx, encoded)
 		if err != nil {
 			continue
 		}
@@ -683,11 +788,36 @@ func (c *Coordinator) supersedeBackflow(ctx context.Context, a engine.Action, br
 		if !anc {
 			continue
 		}
+		// Delete the superseded head branch (L11) FIRST, then close: confined to
+		// oiax/, so removing the ref is in-contract, and DeleteBranch is
+		// idempotent, so a genuine delete failure returns before the close —
+		// leaving the request open for the next run to retry the delete-then-close
+		// pair rather than closing it, dropping it from ListManagedRequests, and
+		// permanently leaking the orphaned ref.
+		if err := c.deleteBackflowBranch(ctx, r.Source); err != nil {
+			return err
+		}
 		reason := forge.Reason{Summary: fmt.Sprintf(
 			"Superseded by %s: a newer %s head advanced the backflow branch.", branch, a.From)}
 		if err := c.Forge.CloseRequest(ctx, forge.RequestID(r.ID), reason); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// deleteBackflowBranch removes a superseded, closed, or orphaned managed
+// backflow request's head branch. Deletion is confined to the oiax/ namespace:
+// the branch is a pure-oiax artifact, so removing it is in-contract, and a name
+// outside oiax/ is never touched (defense in depth over the provider's own
+// namespace guard). The forge treats an already-deleted branch as success, so a
+// repeated reconcile stays idempotent.
+func (c *Coordinator) deleteBackflowBranch(ctx context.Context, branch string) error {
+	if !strings.HasPrefix(branch, "oiax/") {
+		return nil
+	}
+	if err := c.Forge.DeleteBranch(ctx, branch); err != nil {
+		return fmt.Errorf("delete backflow branch %q: %w", branch, err)
 	}
 	return nil
 }

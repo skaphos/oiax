@@ -1600,3 +1600,63 @@ func TestDefaultClientHasTimeout(t *testing.T) {
 		t.Errorf("default http client timeout = %v, want a positive backstop", got)
 	}
 }
+
+func TestDeleteBranchNamespaceGuard(t *testing.T) {
+	t.Parallel()
+	p := &Provider{Owner: "acme", Repo: "widgets", Token: testToken}
+
+	// Any name outside oiax/ is refused before the API is touched, so no server
+	// is needed to prove the guard holds.
+	for _, name := range []string{"main", "development", "feature/x", "oiax-not-namespaced"} {
+		err := p.DeleteBranch(context.Background(), name)
+		if err == nil {
+			t.Fatalf("delete of %q outside oiax/ must be refused, got nil", name)
+		}
+		if !strings.Contains(err.Error(), "oiax/ namespace") {
+			t.Fatalf("delete of %q: error %q does not explain the namespace refusal", name, err)
+		}
+		assertNoToken(t, err.Error())
+	}
+}
+
+func TestDeleteBranch(t *testing.T) {
+	t.Parallel()
+	const branch = "oiax/backflow/main-to-development/abc123def456"
+
+	t.Run("deletes an existing ref", func(t *testing.T) {
+		t.Parallel()
+		var gotMethod, gotPath string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotMethod, gotPath = r.Method, r.URL.Path
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		defer srv.Close()
+
+		p := newProvider(t, srv)
+		if err := p.DeleteBranch(context.Background(), branch); err != nil {
+			t.Fatalf("DeleteBranch: %v", err)
+		}
+		if gotMethod != http.MethodDelete {
+			t.Errorf("method = %q, want DELETE", gotMethod)
+		}
+		// The multi-segment ref must reach the refs API with its slashes intact.
+		if want := "/repos/acme/widgets/git/refs/heads/" + branch; gotPath != want {
+			t.Errorf("path = %q, want %q", gotPath, want)
+		}
+	})
+
+	t.Run("already-deleted ref is idempotent success", func(t *testing.T) {
+		t.Parallel()
+		for _, code := range []int{http.StatusNotFound, http.StatusUnprocessableEntity} {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(code)
+				_, _ = w.Write([]byte(`{"message":"Reference does not exist"}`))
+			}))
+			p := newProvider(t, srv)
+			if err := p.DeleteBranch(context.Background(), branch); err != nil {
+				t.Errorf("DeleteBranch on HTTP %d must be idempotent success, got %v", code, err)
+			}
+			srv.Close()
+		}
+	})
+}

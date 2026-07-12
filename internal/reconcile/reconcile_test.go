@@ -30,9 +30,11 @@ type fakeForge struct {
 	updated []forge.UpdateRequest
 	closed  []forge.RequestID
 	pushed  []forge.BranchPush
+	deleted []string
 
 	createResult engine.ChangeRequest
 	createErr    error
+	deleteErr    error
 
 	mergeMethods      *forge.MergeMethods
 	mergeMethodsErr   error
@@ -78,6 +80,11 @@ func (f *fakeForge) CloseRequest(_ context.Context, id forge.RequestID, _ forge.
 func (f *fakeForge) PushBranch(_ context.Context, push forge.BranchPush) error {
 	f.pushed = append(f.pushed, push)
 	return nil
+}
+
+func (f *fakeForge) DeleteBranch(_ context.Context, name string) error {
+	f.deleted = append(f.deleted, name)
+	return f.deleteErr
 }
 
 // testGraph is the three-branch graph the tests plan against.
@@ -701,6 +708,56 @@ func TestApplyBackflowSupersedesOnlyStrictlyOlderRequest(t *testing.T) {
 	if len(f.closed) != 1 || f.closed[0] != forge.RequestID("older") {
 		t.Fatalf("closed = %v, want only the strictly-older request %q", f.closed, "older")
 	}
+	// L11: superseding the older request also deletes its oiax/ head branch, so
+	// orphan refs do not accumulate. The unrelated (non-ancestor) request is left
+	// alone, so its branch is not deleted.
+	if len(f.deleted) != 1 || f.deleted[0] != olderBranch {
+		t.Fatalf("deleted = %v, want only the superseded head branch %q", f.deleted, olderBranch)
+	}
+}
+
+// TestApplyBackflowSupersedeLeavesRequestOpenWhenBranchDeleteFails covers the
+// L11 cleanup ordering: supersede deletes the stale head branch BEFORE closing
+// the request. A genuine (non-idempotent) DeleteBranch failure must therefore
+// return before the close, leaving the stale request OPEN so the next run
+// re-observes it and retries the delete-then-close pair. Were the order
+// reversed, a delete failure right after a successful close would drop the
+// request from ListManagedRequests' open set forever, permanently leaking its
+// oiax/ head branch.
+func TestApplyBackflowSupersedeLeavesRequestOpenWhenBranchDeleteFails(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	h1 := commit("hotfix1.txt", "one\n", "first hotfix")
+	commit("hotfix2.txt", "two\n", "second hotfix")
+
+	short := func(sha string) string { return gitExec(t, r.Dir, "rev-parse", "--short=12", sha) }
+	olderBranch := engine.BackflowBranchName("main", "development", short(h1))
+
+	// DeleteBranch fails transiently; the stale "older" request is a real
+	// ancestor of main's current head, so supersede reaches its delete-then-close
+	// pair for it.
+	f := &fakeForge{
+		createResult: engine.ChangeRequest{ID: "new", Type: engine.RequestTypeBackflow},
+		deleteErr:    errors.New("500 branch delete failed"),
+		open: []engine.ChangeRequest{
+			{ID: "older", Type: engine.RequestTypeBackflow, Source: olderBranch, Target: "development"},
+		},
+	}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	// Apply surfaces the delete failure...
+	if _, err := c.Apply(context.Background(), plan); err == nil {
+		t.Fatal("apply: want error from failing DeleteBranch, got nil")
+	}
+	// ...and because the delete runs first, the stale request was never closed:
+	// it stays open for a later run to retry, rather than being lost with its
+	// branch leaked.
+	if len(f.closed) != 0 {
+		t.Fatalf("closed = %v, want no close when the branch delete failed first", f.closed)
+	}
 }
 
 // diamondGraph is a diamond promotion graph in which the backflow source
@@ -995,5 +1052,280 @@ func TestWarnMergeMethodMismatch(t *testing.T) {
 				t.Errorf("RepoMergeMethods called = %v, want %v", called, tc.called)
 			}
 		})
+	}
+}
+
+// TestPlanShallowCloneWarns reproduces the actions/checkout default
+// (fetch-depth: 1): a shallow clone silently disables the patch-identity and
+// baseline rungs, so Plan must surface a clear warning naming fetch-depth: 0
+// rather than proceed with degraded equivalence detection.
+func TestPlanShallowCloneWarns(t *testing.T) {
+	r, _ := gitHarness(t)
+	head := gitExec(t, r.Dir, "rev-parse", "HEAD")
+	// Write the grafts file a depth-limited fetch leaves behind.
+	if err := os.WriteFile(filepath.Join(r.Dir, ".git", "shallow"), []byte(head+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var logBuf bytes.Buffer
+	c := &Coordinator{
+		Git:   r,
+		Forge: &fakeForge{},
+		Graph: testGraph(),
+		Log:   NewLogger("text", nil, &logBuf),
+	}
+	if _, err := c.Plan(context.Background()); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	log := logBuf.String()
+	if !strings.Contains(log, "shallow clone") || !strings.Contains(log, "fetch-depth: 0") {
+		t.Fatalf("Plan did not warn about the shallow clone: %q", log)
+	}
+}
+
+// TestApplyBackflowSkipsUnchangedRepush covers the M6 churn guard: when the
+// deterministic branch already carries the exact head this run replays, the
+// run must skip the force-push so an unchanged replay does not re-trigger CI
+// on the open request. CreateRequest is still called on every run — it is
+// idempotent (adopts the existing open request) — because the branch head
+// matching is not proof that a request currently references it; see
+// TestApplyBackflowRecreatesRequestAfterCreateFailure for the case where it
+// isn't.
+func TestApplyBackflowSkipsUnchangedRepush(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	f := &fakeForge{createResult: engine.ChangeRequest{ID: "1", Type: engine.RequestTypeBackflow}}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	// First apply pushes the branch and opens the request.
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+	if len(f.pushed) != 1 {
+		t.Fatalf("first apply pushed %d, want 1", len(f.pushed))
+	}
+	branch, pushedSHA := f.pushed[0].Name, f.pushed[0].SHA
+
+	// Record the pushed head as the branch's remote-tracking ref: the state the
+	// next run's ref-prep fetch would observe.
+	gitExec(t, r.Dir, "update-ref", "refs/remotes/origin/"+branch, pushedSHA)
+
+	// Second apply over unchanged state: the deterministic replay yields the
+	// same head, already on the branch, so the force-push is skipped. The
+	// create call still happens (and is a safe no-op/adopt in the real forge).
+	f.pushed = nil
+	f.created = nil
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if len(f.pushed) != 0 {
+		t.Errorf("unchanged replay re-pushed: %+v", f.pushed)
+	}
+	if len(f.created) != 1 {
+		t.Errorf("unchanged replay did not re-issue CreateRequest: %+v", f.created)
+	}
+}
+
+// TestApplyBackflowRecreatesRequestAfterCreateFailure reproduces the gap the
+// M6 guard used to leave open: a run whose PushBranch succeeds but whose
+// CreateRequest then fails (e.g. a transient forge error) must not be
+// mistaken, on the next run, for a run that already has an open request.
+// RemoteTrackingHead only proves the branch carries this content — not that a
+// request references it — so CreateRequest must still fire on the retry even
+// though the deterministic replay reproduces the identical head.
+func TestApplyBackflowRecreatesRequestAfterCreateFailure(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	f := &fakeForge{
+		createResult: engine.ChangeRequest{ID: "1", Type: engine.RequestTypeBackflow},
+		createErr:    errors.New("503 service unavailable"),
+	}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	// First apply: PushBranch succeeds, then CreateRequest fails transiently.
+	// Apply surfaces the error; nothing else in the plan runs.
+	if _, err := c.Apply(context.Background(), plan); err == nil {
+		t.Fatal("first apply: want error from failing CreateRequest, got nil")
+	}
+	if len(f.pushed) != 1 {
+		t.Fatalf("first apply pushed %d, want 1", len(f.pushed))
+	}
+	branch, pushedSHA := f.pushed[0].Name, f.pushed[0].SHA
+
+	// The pushed branch persists on the forge regardless of the later
+	// CreateRequest failure, and the next run's ref-prep fetch observes it.
+	gitExec(t, r.Dir, "update-ref", "refs/remotes/origin/"+branch, pushedSHA)
+
+	// Second apply, forge healthy again, nothing else changed: CherryPick
+	// deterministically reproduces the same head, so the branch's
+	// remote-tracking head still matches. The hotfix must not be stranded —
+	// CreateRequest must still be attempted and this time succeed.
+	f.pushed = nil
+	f.created = nil
+	f.createErr = nil
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if len(f.created) != 1 {
+		t.Fatalf("second apply did not retry CreateRequest: created=%+v", f.created)
+	}
+	if len(f.pushed) != 0 {
+		t.Errorf("second apply re-pushed an unchanged head: %+v", f.pushed)
+	}
+}
+
+// TestApplyBackflowClosesOrphanedRequest covers L3: a still-open managed
+// backflow request whose encoded source head no longer resolves to any commit
+// (its source branch was history-rewritten) is a permanent orphan. Supersede
+// closes it with an explanation and deletes its leftover oiax/ head branch —
+// unlike a resolvable non-ancestor head, which is left strictly alone.
+func TestApplyBackflowClosesOrphanedRequest(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	// A well-formed but nonexistent 12-hex head encoded into a managed branch:
+	// definitively unresolvable in this repository.
+	orphanBranch := engine.BackflowBranchName("main", "development", "0123456789ab")
+	f := &fakeForge{
+		createResult: engine.ChangeRequest{ID: "new", Type: engine.RequestTypeBackflow},
+		open: []engine.ChangeRequest{
+			{ID: "orphan", Type: engine.RequestTypeBackflow, Source: orphanBranch, Target: "development"},
+		},
+	}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.closed) != 1 || f.closed[0] != forge.RequestID("orphan") {
+		t.Fatalf("closed = %v, want the orphaned request %q closed", f.closed, "orphan")
+	}
+	if len(f.deleted) != 1 || f.deleted[0] != orphanBranch {
+		t.Fatalf("deleted = %v, want the orphan head branch %q deleted", f.deleted, orphanBranch)
+	}
+}
+
+// TestApplyBackflowLeavesMalformedEncodedHeadAlone covers the other half of
+// L3's classification: a still-open managed request whose branch-encoded
+// segment is not a well-formed object id at all (e.g. a branch an external
+// actor created sharing the oiax/backflow/ prefix) makes CommitExists fail
+// its oidPattern guard and return an error, not a definitive not-found. The
+// doc comment on supersedeBackflow promises this is left "strictly alone" --
+// unlike TestApplyBackflowClosesOrphanedRequest's well-formed-but-absent head,
+// this request must be neither closed nor have its branch deleted.
+func TestApplyBackflowLeavesMalformedEncodedHeadAlone(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	// Not a valid object id: fails oidPattern before any git lookup runs, so
+	// CommitExists returns an error rather than exists=false.
+	malformedBranch := engine.BackflowBranchName("main", "development", "not-a-real-sha")
+	f := &fakeForge{
+		createResult: engine.ChangeRequest{ID: "new", Type: engine.RequestTypeBackflow},
+		open: []engine.ChangeRequest{
+			{ID: "malformed", Type: engine.RequestTypeBackflow, Source: malformedBranch, Target: "development"},
+		},
+	}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.closed) != 0 {
+		t.Fatalf("closed = %v, want the malformed-head request left strictly alone", f.closed)
+	}
+	if len(f.deleted) != 0 {
+		t.Fatalf("deleted = %v, want no branch deleted for the malformed-head request", f.deleted)
+	}
+}
+
+// TestApplyBackflowShallowCloneLeavesAmbiguousOrphanAlone reproduces the exact
+// actions/checkout default (fetch-depth: 1) condition M5's Plan warning flags:
+// two sequential hotfixes land on main, and a genuine depth-1 clone plus
+// action.yml's own ref-prep fetch (`git fetch ... refs/heads/*:refs/remotes/
+// origin/*`, which does not deepen anything) leaves the FIRST hotfix's commit
+// object genuinely absent locally — not because main's history was rewritten,
+// but because a shallow fetch only ever brings down each ref's tip. That is the
+// exact same "not found" CommitExists reports for a real rewrite, so the older,
+// still-genuinely-ancestor request must be left alone (as an operational
+// CommitExists error already is), never closed with a false "history was
+// rewritten" claim. Unlike TestApplyBackflowClosesOrphanedRequest, this uses a
+// REAL shallow clone (git clone --depth=1), not a fake .git/shallow graft, so
+// the encoded head is truly missing from the object database.
+func TestApplyBackflowShallowCloneLeavesAmbiguousOrphanAlone(t *testing.T) {
+	origin, commit := gitHarness(t)
+	checkout(t, origin, "main")
+	h1 := commit("hotfix1.txt", "one\n", "first hotfix")
+	commit("hotfix2.txt", "two\n", "second hotfix")
+	h1Short := gitExec(t, origin.Dir, "rev-parse", "--short=12", h1)
+
+	// A genuine depth-1 clone of origin, mirroring actions/checkout's default,
+	// plus action.yml's own ref-prep fetch. Neither step deepens history: h1
+	// (main's earlier hotfix, not any ref's tip) is never fetched.
+	parent := t.TempDir()
+	shallowDir := filepath.Join(parent, "shallow")
+	gitExec(t, parent, "clone", "-q", "--depth=1", "file://"+origin.Dir, shallowDir)
+	gitExec(t, shallowDir, "fetch", "--no-tags", "--prune", "origin",
+		"+refs/heads/*:refs/remotes/origin/*")
+	// The reconcile layer's O6 skip-trailer lookup reads a raw refs/heads/<name>
+	// range rather than falling back to origin-tracking refs (a separate,
+	// pre-existing gap outside this test's scope), so give development and test
+	// local heads mirroring their origin-tracking refs -- main alone stays a
+	// true single-commit shallow head, which is what this test exercises.
+	gitExec(t, shallowDir, "branch", "development", "origin/development")
+	gitExec(t, shallowDir, "branch", "test", "origin/test")
+	shallowRunner := &git.Runner{Dir: shallowDir}
+
+	// Confirm the premise directly: h1 is a genuine ancestor of main's current
+	// (shallow) tip that origin still has in full, yet it does not resolve at
+	// all in the shallow clone.
+	if exists, err := shallowRunner.CommitExists(context.Background(), h1); err != nil {
+		t.Fatalf("CommitExists(h1) in shallow clone: %v", err)
+	} else if exists {
+		t.Fatalf("premise violated: h1 (%s) resolves in the shallow clone; test no longer reproduces the ambiguity", h1)
+	}
+
+	// An open managed backflow request encoding h1 — stale relative to the new
+	// hotfix but a REAL, non-rewritten ancestor, not an orphan.
+	olderBranch := engine.BackflowBranchName("main", "development", h1Short)
+	f := &fakeForge{
+		createResult: engine.ChangeRequest{ID: "new", Type: engine.RequestTypeBackflow},
+		open: []engine.ChangeRequest{
+			{ID: "older", Type: engine.RequestTypeBackflow, Source: olderBranch, Target: "development"},
+		},
+	}
+	c := &Coordinator{Git: shallowRunner, Forge: f, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.closed) != 0 {
+		t.Fatalf("closed = %v, want the ambiguous (shallow, not actually rewritten) request left alone", f.closed)
+	}
+	if len(f.deleted) != 0 {
+		t.Fatalf("deleted = %v, want no branch deleted for the ambiguous request", f.deleted)
 	}
 }

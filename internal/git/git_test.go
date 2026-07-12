@@ -815,3 +815,84 @@ func oidLike(s string) bool {
 	}
 	return true
 }
+
+// TestIsShallowRepository covers shallow-clone detection: a full clone reports
+// false, and a repository carrying the grafts file a depth-limited fetch writes
+// reports true. It backs the coordinator's warning that equivalence detection
+// is degraded under actions/checkout's default fetch-depth: 1.
+func TestIsShallowRepository(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+	head := writeCommit(t, dir, "a.txt", "a\n", "A")
+
+	shallow, err := r.IsShallowRepository(ctx)
+	if err != nil {
+		t.Fatalf("IsShallowRepository: %v", err)
+	}
+	if shallow {
+		t.Fatal("a full clone reported shallow")
+	}
+
+	// Mark the repo shallow exactly as a depth-limited fetch does: write the
+	// grafts file git consults for --is-shallow-repository.
+	if err := os.WriteFile(filepath.Join(dir, ".git", "shallow"), []byte(head+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shallow, err = r.IsShallowRepository(ctx)
+	if err != nil {
+		t.Fatalf("IsShallowRepository after graft: %v", err)
+	}
+	if !shallow {
+		t.Fatal("a shallow clone reported full")
+	}
+}
+
+// TestRemoteTrackingHead covers the backflow push guard's lookup: an absent
+// origin-tracking ref reports ok=false with no error, a present one resolves to
+// its SHA, and a malformed name is rejected before any ref lookup.
+func TestRemoteTrackingHead(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+	sha := writeCommit(t, dir, "a.txt", "a\n", "A")
+
+	const branch = "oiax/backflow/main-to-development/abc123def456"
+	if _, ok, err := r.RemoteTrackingHead(ctx, branch); err != nil || ok {
+		t.Fatalf("RemoteTrackingHead(absent) = ok %v, err %v; want ok=false, err=nil", ok, err)
+	}
+
+	runGit(t, dir, "update-ref", "refs/remotes/origin/"+branch, sha)
+	got, ok, err := r.RemoteTrackingHead(ctx, branch)
+	if err != nil || !ok {
+		t.Fatalf("RemoteTrackingHead(present) = ok %v, err %v; want ok=true, err=nil", ok, err)
+	}
+	if got != sha {
+		t.Fatalf("RemoteTrackingHead = %q, want %q", got, sha)
+	}
+
+	if _, _, err := r.RemoteTrackingHead(ctx, "bad..name"); err == nil {
+		t.Fatal("RemoteTrackingHead accepted an invalid branch name")
+	}
+}
+
+// TestCommitExists covers the orphan-detection primitive: a present object is
+// true, a well-formed but absent object id is a DEFINITIVE not-found (false, no
+// error — never mistaken for a transient failure), and a non-oid input is
+// rejected outright.
+func TestCommitExists(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+	sha := writeCommit(t, dir, "a.txt", "a\n", "A")
+
+	if ok, err := r.CommitExists(ctx, sha); err != nil || !ok {
+		t.Fatalf("CommitExists(present) = %v, %v; want true, nil", ok, err)
+	}
+	if ok, err := r.CommitExists(ctx, "0123456789ab"); err != nil || ok {
+		t.Fatalf("CommitExists(absent) = %v, %v; want false, nil", ok, err)
+	}
+	if _, err := r.CommitExists(ctx, "main"); err == nil {
+		t.Fatal("CommitExists accepted a non-oid input")
+	}
+}

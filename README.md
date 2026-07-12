@@ -91,12 +91,20 @@ The initial execution model is a GitHub Action — a thin composite
 wrapper around the release binary:
 
 ```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0         # required: full history for correct equivalence detection
 - uses: skaphos/oiax@v1
   with:
     config: .oiax.yaml
     mode: reconcile        # validate | plan | reconcile
     version: v0.1.0
 ```
+
+`fetch-depth: 0` is not optional: `actions/checkout`'s default shallow
+clone (`fetch-depth: 1`) has no merge base, which silently degrades
+equivalence detection and yields spurious promotion requests. Oiax warns
+when it detects a shallow clone.
 
 One trap worth knowing before anything else: pull requests created with
 the default `GITHUB_TOKEN` do not trigger `on: pull_request` workflows,

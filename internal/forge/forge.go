@@ -99,6 +99,13 @@ type Forge interface {
 	// permits, so the coordinator can warn when a configured mergeMethod
 	// contradicts it. It reads settings only and never modifies them.
 	RepoMergeMethods(ctx context.Context) (MergeMethods, error)
+
+	// DeleteBranch removes a branch in the oiax/ namespace (a superseded or
+	// closed backflow request's head branch). Deletion is confined to that
+	// namespace — Oiax owns it, so removing an orphaned ref is in-contract;
+	// providers must refuse any name outside oiax/. Deleting an
+	// already-absent branch is not an error (the reconcile is idempotent).
+	DeleteBranch(ctx context.Context, name string) error
 }
 
 // MergeMethods reports which merge methods a repository permits, mirroring
