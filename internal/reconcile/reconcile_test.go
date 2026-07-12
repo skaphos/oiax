@@ -1,9 +1,11 @@
 package reconcile
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
 	"github.com/skaphos/oiax/internal/git"
+	"github.com/skaphos/oiax/internal/gittest"
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
@@ -30,6 +33,21 @@ type fakeForge struct {
 
 	createResult engine.ChangeRequest
 	createErr    error
+
+	mergeMethods      *forge.MergeMethods
+	mergeMethodsErr   error
+	mergeMethodsCalls int
+}
+
+func (f *fakeForge) RepoMergeMethods(context.Context) (forge.MergeMethods, error) {
+	f.mergeMethodsCalls++
+	if f.mergeMethodsErr != nil {
+		return forge.MergeMethods{}, f.mergeMethodsErr
+	}
+	if f.mergeMethods != nil {
+		return *f.mergeMethods, nil
+	}
+	return forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, nil
 }
 
 func (f *fakeForge) ListManagedRequests(_ context.Context, filter forge.RequestFilter) ([]engine.ChangeRequest, error) {
@@ -89,34 +107,22 @@ func testGraph() *engine.Graph {
 func gitHarness(t *testing.T) (*git.Runner, func(file, content, msg string) string) {
 	t.Helper()
 	dir := t.TempDir()
-	runGit := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
-		return strings.TrimSpace(string(out))
-	}
-	runGit("init", "-q", "-b", "main")
-	runGit("config", "user.name", "test")
-	runGit("config", "user.email", "test@example.invalid")
+	gittest.InitRepo(t, dir)
 
 	commit := func(file, content, msg string) string {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		runGit("add", ".")
-		runGit("commit", "-q", "-m", msg)
-		return runGit("rev-parse", "HEAD")
+		gittest.Run(t, dir, "add", ".")
+		gittest.Run(t, dir, "commit", "-q", "-m", msg)
+		return gittest.Run(t, dir, "rev-parse", "HEAD")
 	}
 
 	// Base commit shared by all three branches.
 	commit("app.txt", "v0\n", "c0")
-	runGit("branch", "development")
-	runGit("branch", "test")
+	gittest.Run(t, dir, "branch", "development")
+	gittest.Run(t, dir, "branch", "test")
 
 	// Expose the raw runner over the same directory.
 	return &git.Runner{Dir: dir}, func(file, content, msg string) string {
@@ -128,42 +134,23 @@ func gitHarness(t *testing.T) (*git.Runner, func(file, content, msg string) stri
 // commitOn commits on the currently checked-out branch of dir.
 func commitOn(t *testing.T, dir, file, content, msg string) string {
 	t.Helper()
-	run := func(args ...string) string {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
-		return strings.TrimSpace(string(out))
-	}
 	if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run("add", ".")
-	run("commit", "-q", "-m", msg)
-	return run("rev-parse", "HEAD")
+	gittest.Run(t, dir, "add", ".")
+	gittest.Run(t, dir, "commit", "-q", "-m", msg)
+	return gittest.Run(t, dir, "rev-parse", "HEAD")
 }
 
 func checkout(t *testing.T, r *git.Runner, branch string) {
 	t.Helper()
-	cmd := exec.Command("git", "checkout", "-q", branch)
-	cmd.Dir = r.Dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("checkout %s: %v\n%s", branch, err, out)
-	}
+	gittest.Run(t, r.Dir, "checkout", "-q", branch)
 }
 
 // gitExec runs a raw git command in dir, failing the test on error.
 func gitExec(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-	}
-	return strings.TrimSpace(string(out))
+	return gittest.Run(t, dir, args...)
 }
 
 func TestPlanInSync(t *testing.T) {
@@ -963,5 +950,50 @@ func TestPlanBackflowProvenanceRequiresStandaloneLine(t *testing.T) {
 	}
 	if len(st.ToReturn) != 1 || st.ToReturn[0].SHA != hProse {
 		t.Fatalf("ToReturn = %+v, want exactly [%s] (embedded mention ignored)", st.ToReturn, hProse)
+	}
+}
+
+func TestWarnMergeMethodMismatch(t *testing.T) {
+	cases := []struct {
+		name    string
+		method  v1.MergeMethod
+		allowed *forge.MergeMethods
+		err     error
+		warn    bool
+		called  bool
+	}{
+		{
+			name: "disallowed method warns", method: v1.MergeMethodSquash,
+			allowed: &forge.MergeMethods{Merge: true, Rebase: true}, warn: true, called: true,
+		},
+		{
+			name: "allowed method is quiet", method: v1.MergeMethodSquash,
+			allowed: &forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, warn: false, called: true,
+		},
+		{name: "no expectation skips the forge call", method: "", warn: false, called: false},
+		{
+			name: "fetch error is advisory, not fatal", method: v1.MergeMethodSquash,
+			err: errors.New("boom"), warn: false, called: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			f := &fakeForge{mergeMethods: tc.allowed, mergeMethodsErr: tc.err}
+			c := &Coordinator{
+				Forge: f,
+				Graph: &engine.Graph{Name: "environments", Promotions: []engine.Promotion{
+					{From: "development", To: "test", Expectations: engine.Expectations{MergeMethod: tc.method}},
+				}},
+				Log: slog.New(slog.NewTextHandler(&buf, nil)),
+			}
+			c.warnMergeMethodMismatch(context.Background())
+			if warned := strings.Contains(buf.String(), "does not allow"); warned != tc.warn {
+				t.Errorf("warned = %v, want %v (log: %q)", warned, tc.warn, buf.String())
+			}
+			if called := f.mergeMethodsCalls > 0; called != tc.called {
+				t.Errorf("RepoMergeMethods called = %v, want %v", called, tc.called)
+			}
+		})
 	}
 }

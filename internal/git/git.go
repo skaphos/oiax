@@ -27,6 +27,14 @@ import (
 // never masquerade as a revision or vice versa.
 var oidPattern = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 
+// maxShowFileSize bounds the bytes ShowFile will buffer from `git show`, so
+// a pathological blob committed at the pinned configuration ref cannot
+// exhaust memory before config.Parse's own size check ever runs. This
+// package must not import internal/config (engine/git never reaches
+// upward), so the value is duplicated here rather than shared; keep it in
+// sync with config.maxConfigSize.
+const maxShowFileSize = 4 << 20 // 4 MiB, matching config.maxConfigSize
+
 // Runner executes git commands in one repository working directory.
 type Runner struct {
 	// Dir is the repository working directory. Empty means the current
@@ -73,6 +81,43 @@ func (r *Runner) runStdin(ctx context.Context, stdin []byte, args ...string) (st
 		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
 	}
 	return strings.TrimSpace(stdout.String()), nil
+}
+
+// capWriter is an io.Writer that fails once more than limit bytes have been
+// written to it, so a subprocess's stdout can be rejected as it streams in
+// rather than after it has already been buffered into memory in full.
+type capWriter struct {
+	limit int
+	buf   bytes.Buffer
+}
+
+func (w *capWriter) Write(p []byte) (int, error) {
+	if w.buf.Len()+len(p) > w.limit {
+		return 0, fmt.Errorf("output exceeds %d byte limit", w.limit)
+	}
+	return w.buf.Write(p)
+}
+
+// runCapped executes git with args directly (no shell), like run, but caps
+// stdout at maxBytes so a subcommand whose output size is determined by
+// repository content (ShowFile's `git show <ref>:<path>`, unlike run's
+// normally-small metadata output) cannot be fully buffered into memory
+// before its size is known. Returned bytes are trimmed of surrounding
+// whitespace, matching run/runStdin.
+func (r *Runner) runCapped(ctx context.Context, maxBytes int, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = r.Dir
+	if len(r.Env) > 0 {
+		cmd.Env = append(os.Environ(), r.Env...)
+	}
+	stdout := capWriter{limit: maxBytes}
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
+	}
+	return bytes.TrimSpace(stdout.buf.Bytes()), nil
 }
 
 // validRev resolves a caller-supplied revision to a form safe to hand git
@@ -251,11 +296,11 @@ func (r *Runner) ShowFile(ctx context.Context, ref, path string) ([]byte, error)
 	if ref == "" || strings.HasPrefix(ref, "-") {
 		return nil, fmt.Errorf("invalid ref %q", ref)
 	}
-	out, err := r.run(ctx, "show", "--end-of-options", ref+":"+path)
+	out, err := r.runCapped(ctx, maxShowFileSize, "show", "--end-of-options", ref+":"+path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s at ref %s: %w", path, ref, err)
 	}
-	return []byte(out), nil
+	return out, nil
 }
 
 // DefaultBranchRef resolves the repository's default branch to its

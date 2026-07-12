@@ -72,6 +72,8 @@ type Result struct {
 // mutation. Managed requests are listed once (open and merged) and matched
 // to each edge, so discovery cost is independent of edge count.
 func (c *Coordinator) Plan(ctx context.Context) (engine.Plan, error) {
+	c.warnMergeMethodMismatch(ctx)
+
 	filter := forge.RequestFilter{Graph: c.Graph.Name, Type: engine.RequestTypePromotion}
 
 	open, err := c.Forge.ListManagedRequests(ctx, filter)
@@ -692,6 +694,39 @@ func (c *Coordinator) supersedeBackflow(ctx context.Context, a engine.Action, br
 
 // log returns a usable logger even when none was injected, so Apply never
 // panics on a nil Log.
+// warnMergeMethodMismatch warns, in graph-declaration order, for every
+// promotion edge whose configured mergeMethod the repository does not currently
+// permit — so a human notices a merge-button setting that contradicts the
+// config before a promotion request cannot be merged the expected way. It is
+// advisory: the repository's permitted methods are fetched only when at least
+// one edge declares a mergeMethod, and a fetch failure is logged at debug and
+// never fails planning. Oiax never modifies repository settings.
+func (c *Coordinator) warnMergeMethodMismatch(ctx context.Context) {
+	type want struct{ edge, method string }
+	var wants []want
+	for _, p := range c.Graph.Promotions {
+		if m := string(p.Expectations.MergeMethod); m != "" {
+			wants = append(wants, want{edge: p.From + " -> " + p.To, method: m})
+		}
+	}
+	if len(wants) == 0 {
+		return
+	}
+	allowed, err := c.Forge.RepoMergeMethods(ctx)
+	if err != nil {
+		c.log().Debug("skipping mergeMethod repository-settings check: " + err.Error())
+		return
+	}
+	for _, w := range wants {
+		if !allowed.Allows(w.method) {
+			c.log().Warn(fmt.Sprintf(
+				"config expects %q merges on %s, but the repository does not allow %q merges; "+
+					"enable it in the repository's merge settings or change mergeMethod",
+				w.method, w.edge, w.method))
+		}
+	}
+}
+
 func (c *Coordinator) log() *slog.Logger {
 	if c.Log != nil {
 		return c.Log

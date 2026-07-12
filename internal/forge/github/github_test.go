@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
+	"github.com/skaphos/oiax/internal/gittest"
 )
 
 const testToken = "super-secret-token-value"
@@ -92,6 +92,30 @@ func writeJSON(t *testing.T, w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		t.Fatalf("encode response: %v", err)
+	}
+}
+
+func TestRepoMergeMethods(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/repos/acme/widgets" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		writeJSON(t, w, http.StatusOK, map[string]any{
+			"allow_merge_commit": true,
+			"allow_squash_merge": false,
+			"allow_rebase_merge": true,
+		})
+	}))
+	defer srv.Close()
+
+	got, err := newProvider(t, srv).RepoMergeMethods(context.Background())
+	if err != nil {
+		t.Fatalf("RepoMergeMethods: %v", err)
+	}
+	want := forge.MergeMethods{Merge: true, Squash: false, Rebase: true}
+	if got != want {
+		t.Errorf("RepoMergeMethods = %+v, want %+v", got, want)
 	}
 }
 
@@ -783,9 +807,7 @@ func TestPushBranchScrubsTokenOnError(t *testing.T) {
 // full commit SHA.
 func seedRepo(t *testing.T, dir string) string {
 	t.Helper()
-	runGit(t, "", "init", dir)
-	runGit(t, dir, "config", "user.email", "test@example.com")
-	runGit(t, dir, "config", "user.name", "Test")
+	gittest.InitRepo(t, dir)
 	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatalf("write seed file: %v", err)
 	}
@@ -794,17 +816,12 @@ func seedRepo(t *testing.T, dir string) string {
 	return strings.TrimSpace(runGit(t, dir, "rev-parse", "HEAD"))
 }
 
-// runGit runs a git command in dir (empty => current directory) and returns
-// stdout, failing the test on error.
+// runGit runs a git command in dir (empty => current directory) with the
+// shared hermetic environment (see internal/gittest) and returns stdout,
+// failing the test on error.
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, out)
-	}
-	return string(out)
+	return gittest.Run(t, dir, args...)
 }
 
 func TestErrorsNeverLeakToken(t *testing.T) {

@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -33,6 +35,69 @@ func TestLoadExample(t *testing.T) {
 	}
 	if cfg.Spec.Branches["development"].Role != v1.RoleSource {
 		t.Errorf("development role = %q, want %q", cfg.Spec.Branches["development"].Role, v1.RoleSource)
+	}
+}
+
+// TestLoadRejectsOversizedFile proves Load caps the bytes it reads: a file
+// at maxConfigSize+1 is rejected with a clear error rather than read into
+// memory in full, so a pathological .oiax.yaml cannot exhaust memory.
+func TestLoadRejectsOversizedFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "huge.yaml")
+	if err := os.WriteFile(path, make([]byte, maxConfigSize+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load succeeded on an oversized file, want a size-limit error")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("error = %v, want it to explain the size limit", err)
+	}
+}
+
+// TestLoadAcceptsFileAtLimit proves the cap is inclusive of exactly
+// maxConfigSize bytes (only maxConfigSize+1 and above are rejected).
+func TestLoadAcceptsFileAtLimit(t *testing.T) {
+	valid, err := os.ReadFile("testdata/environments.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(valid) >= maxConfigSize {
+		t.Fatalf("fixture is %d bytes, too large to pad up to maxConfigSize %d", len(valid), maxConfigSize)
+	}
+	// Pad exactly to maxConfigSize with trailing comment-only lines, which
+	// YAML ignores.
+	padded := append([]byte{}, valid...)
+	for len(padded) < maxConfigSize {
+		padded = append(padded, '#', '\n')
+	}
+	padded = padded[:maxConfigSize]
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "at-limit.yaml")
+	if err := os.WriteFile(path, padded, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(path); err != nil {
+		t.Fatalf("Load(file at exactly maxConfigSize) = %v, want nil", err)
+	}
+}
+
+// TestParseRejectsOversizedData proves the size cap is enforced by Parse
+// itself, not just by Load's pre-read: the pinned-ref path (loadGraph's
+// configRef branch, via git.Runner.ShowFile) decodes bytes straight from
+// `git show` and never goes through Load, so Parse has to be the
+// authoritative guard.
+func TestParseRejectsOversizedData(t *testing.T) {
+	_, err := Parse(make([]byte, maxConfigSize+1))
+	if err == nil {
+		t.Fatal("Parse succeeded on oversized data, want a size-limit error")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("error = %v, want it to explain the size limit", err)
 	}
 }
 
