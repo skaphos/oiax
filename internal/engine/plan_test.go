@@ -186,3 +186,43 @@ func TestBuildPlanIsDeterministic(t *testing.T) {
 		t.Fatalf("plan header = %+v, want format %d graph %q", a, PlanFormatVersion, "environments")
 	}
 }
+
+func TestBuildPlanDedupsBackflowAcrossIncomingEdges(t *testing.T) {
+	// A backflow source with two incoming promotion edges yields two EdgeStates
+	// with the same To, each proposing a backflow for the same (source, target)
+	// pair and the same branch name. Exactly one action must be emitted — two
+	// would double-push the branch and open two identical requests.
+	g := FromConfig(validGraph())
+
+	e1 := edge("qa", "main")
+	e1.DownstreamOnly = []Commit{{SHA: "h1", Subject: "hotfix a"}}
+	e1.ToReturn = []Commit{{SHA: "h1", Subject: "hotfix a"}}
+	e1.SourceHeadShort = "abc1234"
+
+	e2 := edge("production-stage-1", "main")
+	e2.DownstreamOnly = []Commit{{SHA: "h1", Subject: "hotfix a"}, {SHA: "h2", Subject: "hotfix b"}}
+	e2.ToReturn = []Commit{{SHA: "h1", Subject: "hotfix a"}, {SHA: "h2", Subject: "hotfix b"}}
+	e2.SourceHeadShort = "abc1234"
+
+	plan := BuildPlan(g, []EdgeState{e1, e2})
+	var backflow int
+	var surviving Action
+	for _, a := range plan.Actions {
+		if a.Type == ActionCreateBackflowRequest {
+			backflow++
+			surviving = a
+			if a.From != "main" || a.To != "development" {
+				t.Errorf("backflow action = %q->%q, want main->development", a.From, a.To)
+			}
+		}
+	}
+	if backflow != 1 {
+		t.Fatalf("planned %d backflow actions, want exactly 1", backflow)
+	}
+	// The surviving action must report the UNION across both edges (h1 via qa,
+	// h1+h2 via production-stage-1), not just the first edge's partial count —
+	// apply cherry-picks and pushes the full union.
+	if surviving.Unpromoted != 2 {
+		t.Errorf("Unpromoted = %d, want 2 (union of both incoming edges)", surviving.Unpromoted)
+	}
+}

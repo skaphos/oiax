@@ -715,3 +715,253 @@ func TestApplyBackflowSupersedesOnlyStrictlyOlderRequest(t *testing.T) {
 		t.Fatalf("closed = %v, want only the strictly-older request %q", f.closed, "older")
 	}
 }
+
+// diamondGraph is a diamond promotion graph in which the backflow source
+// (main) has TWO incoming promotion edges (test->main and qa->main). It drives
+// the multiple-incoming-edge backflow tests.
+func diamondGraph() *engine.Graph {
+	return &engine.Graph{
+		Name: "environments",
+		Branches: map[string]engine.Branch{
+			"development": {Role: v1.RoleSource, Drift: v1.DriftForbidden},
+			"test":        {Drift: v1.DriftForbidden},
+			"qa":          {Drift: v1.DriftForbidden},
+			"main":        {Role: v1.RoleTerminal, Drift: v1.DriftForbidden},
+		},
+		Promotions: []engine.Promotion{
+			{From: "development", To: "test"},
+			{From: "development", To: "qa"},
+			{From: "test", To: "main"},
+			{From: "qa", To: "main"},
+		},
+		Backflow: engine.BackflowPolicy{
+			Enabled:  true,
+			Sources:  []string{"main"},
+			Target:   "development",
+			Strategy: v1.BackflowStrategyCherryPick,
+		},
+	}
+}
+
+func TestApplyBackflowAllCommitsDropConverges(t *testing.T) {
+	// A hotfix on main (a backflow source) whose content already reached
+	// development, but as part of a commit with a DIFFERENT patch-id (it also
+	// touches another file), so the plan's patch-identity rung does not mark it
+	// already-returned. Cherry-picking it onto development therefore drops every
+	// commit as empty and returns the target head unchanged: the edge has
+	// converged. Apply must push nothing, create nothing, and clobber no existing
+	// backflow request (the pre-fix code force-pushed the target head over the
+	// real backflow commit and 422-adopted the stale request, losing the hotfix).
+	r, commit := gitHarness(t)
+
+	// development carries the hotfix content plus an unrelated file in ONE commit,
+	// giving that commit a patch-id distinct from main's single-file hotfix.
+	checkout(t, r, "development")
+	if err := os.WriteFile(filepath.Join(r.Dir, "other.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commit("hotfix.txt", "urgent\n", "development already carries the hotfix content")
+
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	short, err := r.ShortSHA(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An existing open backflow request encoding an ANCESTOR head (the base
+	// commit): the pre-fix supersede path would close it. The converged path must
+	// leave it untouched.
+	c0short := gitExec(t, r.Dir, "rev-parse", "--short=12", "main~1")
+	f := &fakeForge{
+		open: []engine.ChangeRequest{{
+			ID: "existing", Type: engine.RequestTypeBackflow,
+			Source: engine.BackflowBranchName("main", "development", c0short), Target: "development",
+		}},
+	}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	a := engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+		Unpromoted: 1, Branch: engine.BackflowBranchName("main", "development", short),
+	}
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.Applied != 0 || res.Divergence {
+		t.Errorf("result = %+v, want Applied=0 Divergence=false (converged)", res)
+	}
+	if len(f.pushed) != 0 || len(f.created) != 0 {
+		t.Errorf("converged backflow must push nothing and create nothing: pushed=%d created=%d", len(f.pushed), len(f.created))
+	}
+	if len(f.closed) != 0 {
+		t.Errorf("converged backflow must not clobber the existing request: closed=%v", f.closed)
+	}
+}
+
+func TestBackflowMultipleIncomingEdgesReturnsCompleteSet(t *testing.T) {
+	// A backflow source (main) with two incoming promotion edges. H1 lands
+	// directly on main (downstream-only via both edges); H2 lands on test and
+	// reaches main by merge (downstream-only via qa->main only, since test..main
+	// hides it). The complete return set is {H1, H2}; deriving it from the first
+	// incoming edge (test->main) alone yields only {H1}. Exactly one backflow
+	// action must be planned across the two edges.
+	g := diamondGraph()
+	if errs := g.Validate(); len(errs) > 0 {
+		t.Fatalf("diamond graph must be valid: %v", errs)
+	}
+
+	r, commit := gitHarness(t)
+	gitExec(t, r.Dir, "branch", "qa") // gitHarness creates development and test, not qa
+
+	checkout(t, r, "main")
+	h1 := commit("f1.txt", "one\n", "H1 direct hotfix on main")
+	checkout(t, r, "test")
+	h2 := commit("f2.txt", "two\n", "H2 on test")
+	checkout(t, r, "main")
+	gitExec(t, r.Dir, "merge", "--no-ff", "-q", "-m", "Merge test", "test")
+
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: g}
+
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	var backflow int
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			backflow++
+			if a.From != "main" || a.To != "development" {
+				t.Errorf("backflow action = %q->%q, want main->development", a.From, a.To)
+			}
+		}
+	}
+	if backflow != 1 {
+		t.Fatalf("planned %d backflow actions, want exactly 1 (deduped across incoming edges): %+v", backflow, plan.Actions)
+	}
+
+	// The complete return set spans both incoming edges.
+	st, err := c.backflowActionState(context.Background(), engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+	})
+	if err != nil {
+		t.Fatalf("backflowActionState: %v", err)
+	}
+	if len(st.ToReturn) != 2 {
+		t.Fatalf("ToReturn has %d commits, want 2 (H1 via both edges, H2 via qa->main only): %+v", len(st.ToReturn), st.ToReturn)
+	}
+	got := map[string]bool{}
+	for _, cm := range st.ToReturn {
+		got[cm.SHA] = true
+	}
+	if !got[h1] || !got[h2] {
+		t.Errorf("ToReturn = %+v, want both H1 (%s) and H2 (%s)", st.ToReturn, h1, h2)
+	}
+
+	// A full Plan+Apply round trip must report the COMPLETE union in the created
+	// request body, not the first incoming edge's partial count.
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.created) != 1 {
+		t.Fatalf("created %d backflow requests, want 1: %+v", len(f.created), f.created)
+	}
+	if !strings.Contains(f.created[0].Body, "2 downstream-only commit(s)") {
+		t.Errorf("created body = %q, want it to report 2 downstream-only commit(s)", f.created[0].Body)
+	}
+}
+
+func TestPlanBackflowProvenanceMatchesTrailerNotProse(t *testing.T) {
+	// Cherry-pick -x provenance lives in the message's LAST paragraph. A target
+	// commit that genuinely records "(cherry picked from commit <sha>)" there
+	// suppresses that source commit's backflow; a target commit that merely
+	// mentions the same phrase in an EARLIER prose paragraph must not. Otherwise a
+	// stray prose mention silently drops a legitimate hotfix.
+	r, commit := gitHarness(t)
+
+	checkout(t, r, "main")
+	hProse := commit("prose.txt", "p\n", "hotfix referenced only in prose")
+	hProv := commit("prov.txt", "v\n", "hotfix recorded by real provenance")
+
+	checkout(t, r, "development")
+	// A prose paragraph (NOT the last) quoting the provenance phrase for hProse,
+	// followed by another paragraph so it is not the trailer block.
+	commit("doc.txt", "d\n",
+		"Document the backport policy\n\nExample: cherry picked from commit "+hProse+"\n\nThis paragraph is prose, not a trailer.")
+	// A genuine trailer-block provenance line for hProv, with unrelated content so
+	// only the identity path (not patch-id) can suppress it.
+	commit("note.txt", "u\n", "backport note\n\n(cherry picked from commit "+hProv+")")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	var backflow int
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			backflow++
+		}
+	}
+	if backflow != 1 {
+		t.Fatalf("planned %d backflow actions, want 1 (the prose-mentioned hotfix still returns)", backflow)
+	}
+
+	// The complete return set contains hProse (prose mention ignored) and not
+	// hProv (genuine trailer provenance honored).
+	st, err := c.backflowActionState(context.Background(), engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+	})
+	if err != nil {
+		t.Fatalf("backflowActionState: %v", err)
+	}
+	if len(st.ToReturn) != 1 || st.ToReturn[0].SHA != hProse {
+		t.Fatalf("ToReturn = %+v, want exactly [%s] (hProse returns, hProv suppressed by provenance)", st.ToReturn, hProse)
+	}
+}
+
+func TestPlanBackflowProvenanceRequiresStandaloneLine(t *testing.T) {
+	// `git cherry-pick -x` writes provenance as its OWN standalone line. A target
+	// commit that merely embeds the phrase inside a sentence — even in the same
+	// last paragraph as a genuine trailer, with no blank line separating them — is
+	// not real provenance and must not suppress a live hotfix's backflow.
+	r, commit := gitHarness(t)
+
+	checkout(t, r, "main")
+	hProse := commit("prose.txt", "p\n", "live hotfix mentioned only inside a sentence")
+
+	checkout(t, r, "development")
+	// The fake mention sits in the SAME last paragraph as a genuine Signed-off-by
+	// trailer, with no blank line separating them, embedded mid-sentence.
+	commit("doc.txt", "d\n",
+		"Restore prior work\n\nThis also restores work previously (cherry picked from commit "+hProse+") done in production.\nSigned-off-by: Dev <dev@example.invalid>")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	var backflow int
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			backflow++
+		}
+	}
+	if backflow != 1 {
+		t.Fatalf("planned %d backflow actions, want 1 (the embedded mention is not provenance)", backflow)
+	}
+
+	st, err := c.backflowActionState(context.Background(), engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+	})
+	if err != nil {
+		t.Fatalf("backflowActionState: %v", err)
+	}
+	if len(st.ToReturn) != 1 || st.ToReturn[0].SHA != hProse {
+		t.Fatalf("ToReturn = %+v, want exactly [%s] (embedded mention ignored)", st.ToReturn, hProse)
+	}
+}
