@@ -31,6 +31,9 @@ func (g *Graph) Validate() []error {
 
 	for _, name := range sortedBranchNames(g) {
 		b := g.Branches[name]
+		if err := validateRefName(name); err != nil {
+			report("branch %q: invalid branch name: %v", name, err)
+		}
 		switch b.Role {
 		case v1.RoleNone, v1.RoleSource, v1.RoleTerminal:
 		default:

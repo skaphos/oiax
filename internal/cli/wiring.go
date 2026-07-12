@@ -72,13 +72,17 @@ func buildCoordinator(cmd *cobra.Command, g *engine.Graph, runner *git.Runner) (
 }
 
 // buildLogger builds the structured logger from OIAX_LOG_FORMAT. Structured
-// lines go to stderr; GitHub Actions annotations go to stdout, but only when
-// running under Actions (GITHUB_ACTIONS=true) — otherwise annotations are
-// disabled so they never pollute machine output.
+// lines and GitHub Actions annotations both go to stderr, but annotations
+// are only emitted when running under Actions (GITHUB_ACTIONS=true) —
+// otherwise they are disabled entirely. Annotations must never land on
+// stdout: `plan`/`reconcile -o json` write only the JSON plan document
+// there, and the Actions runner scans both stdout and stderr for
+// `::warning::`/`::error::` workflow commands, so stderr still surfaces
+// them in the job UI without corrupting a machine consumer reading stdout.
 func buildLogger(cmd *cobra.Command) *slog.Logger {
 	var annOut io.Writer
 	if os.Getenv("GITHUB_ACTIONS") == "true" {
-		annOut = cmd.OutOrStdout()
+		annOut = cmd.ErrOrStderr()
 	}
 	return reconcile.NewLogger(os.Getenv("OIAX_LOG_FORMAT"), annOut, cmd.ErrOrStderr())
 }

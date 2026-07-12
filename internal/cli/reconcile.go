@@ -16,7 +16,13 @@ long-lived branches, or touches unmanaged requests.
 Exit codes (the compatibility contract):
   0  converged (including "applied actions successfully")
   1  error
-  3  converged with reported divergence requiring human attention`,
+  3  converged with reported divergence requiring human attention
+
+Exit 3 matches "oiax plan --detailed-exitcode"'s exit 3 for the same state:
+both mean a report-only divergence needs a human. Plan's exit 2 (applyable
+changes, no divergence) predicts this command applies them and exits 0 —
+with one exception plan cannot foresee: a backflow whose commits only
+conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Assert the git version floor before any other git subprocess

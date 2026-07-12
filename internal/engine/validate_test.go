@@ -180,6 +180,27 @@ func TestValidateRejections(t *testing.T) {
 			},
 			wantErr: "unknown strategy",
 		},
+		{
+			name: "branch name contains a space",
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Branches["foo bar"] = v1.Branch{}
+			},
+			wantErr: "invalid branch name",
+		},
+		{
+			name: "branch name contains '..'",
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Branches["foo..bar"] = v1.Branch{}
+			},
+			wantErr: "invalid branch name",
+		},
+		{
+			name: "branch name begins with '-'",
+			mutate: func(c *v1.PromotionGraph) {
+				c.Spec.Branches["-foo"] = v1.Branch{}
+			},
+			wantErr: "invalid branch name",
+		},
 	}
 
 	for _, tt := range tests {
@@ -197,6 +218,20 @@ func TestValidateRejections(t *testing.T) {
 			}
 			t.Errorf("no validation error contains %q; got %v", tt.wantErr, errs)
 		})
+	}
+}
+
+func TestValidateAcceptsAtSignBranchName(t *testing.T) {
+	// "@" is accepted by the real git binary (`git check-ref-format --branch
+	// @` exits 0), so the engine's pure-Go validator must accept it too:
+	// the doc comment on validateRefName promises the two checks agree by
+	// construction.
+	cfg := validGraph()
+	cfg.Spec.Branches["@"] = v1.Branch{}
+	cfg.Spec.Promotions = append(cfg.Spec.Promotions, v1.Promotion{From: "qa", To: "@"})
+
+	if errs := FromConfig(cfg).Validate(); len(errs) > 0 {
+		t.Fatalf("Validate = %v, want no errors", errs)
 	}
 }
 

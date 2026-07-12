@@ -16,6 +16,10 @@ forge state and ensures the pull requests required to move changes through
 that graph exist — exactly one active managed request per diverged edge,
 no duplicates, no stale leftovers. It never merges, approves, or deploys.
 
+```
+oiax [flags]
+```
+
 ### Options
 
 ```
@@ -23,6 +27,7 @@ no duplicates, no stale leftovers. It never merges, approves, or deploys.
       --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -h, --help                help for oiax
   -o, --output string       output format: text or json (default "text")
+      --version             print version information and exit
 ```
 
 ### SEE ALSO
@@ -298,7 +303,18 @@ separate dry-run flag.
 Exit codes (the compatibility contract, following terraform plan):
   0  fully in sync (or, without --detailed-exitcode, any successful plan)
   1  error
-  2  valid plan with pending actions (only with --detailed-exitcode)
+  2  applyable changes pending (only with --detailed-exitcode)
+  3  a report-only divergence is present (only with --detailed-exitcode)
+
+With --detailed-exitcode the exit code predicts what "oiax reconcile" does
+for the same state: 2 means reconcile applies the pending changes and
+converges to its exit 0; 3 means the plan already contains a report-only
+divergence that reconcile will surface and exit 3 on, matching reconcile's
+own exit 3. A gate may therefore treat plan's 2 as "safe to reconcile" and
+3 as "needs a human." One residual reconcile alone can see: a backflow
+whose commits only conflict when cherry-picked shows here as an applyable
+change (exit 2) — plan cannot foresee the conflict — so reconcile can still
+exit 3 after a plan of 2 in that single case.
 
 ```
 oiax plan [flags]
@@ -307,7 +323,7 @@ oiax plan [flags]
 ### Options
 
 ```
-      --detailed-exitcode   exit 2 when the plan contains pending actions
+      --detailed-exitcode   exit 2 for applyable changes, 3 for a report-only divergence
   -h, --help                help for plan
 ```
 
@@ -338,6 +354,12 @@ Exit codes (the compatibility contract):
   0  converged (including "applied actions successfully")
   1  error
   3  converged with reported divergence requiring human attention
+
+Exit 3 matches "oiax plan --detailed-exitcode"'s exit 3 for the same state:
+both mean a report-only divergence needs a human. Plan's exit 2 (applyable
+changes, no divergence) predicts this command applies them and exits 0 —
+with one exception plan cannot foresee: a backflow whose commits only
+conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.
 
 ```
 oiax reconcile [flags]

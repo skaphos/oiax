@@ -89,8 +89,26 @@ Oiax without parsing output.
 | --- | --- | --- |
 | `plan` | 0 | Fully in sync (without `--detailed-exitcode`: any successful plan). |
 | `plan` | 1 | Error. |
-| `plan` | 2 | Valid plan with pending actions (only with `--detailed-exitcode`). |
+| `plan` | 2 | Applyable changes pending, no divergence (only with `--detailed-exitcode`). |
+| `plan` | 3 | A report-only divergence is present (only with `--detailed-exitcode`). |
 | `reconcile` | 0 | Converged, including "applied actions successfully". |
 | `reconcile` | 1 | Error. |
 | `reconcile` | 3 | Converged with reported divergence requiring human attention (unresolvable diverged edges, backflow conflicts). |
 | all others | 0/1 | Success/error. |
+
+With `--detailed-exitcode`, `plan`'s exit code predicts what `reconcile`
+does for the same state, so a CI gate can rely on it:
+
+- `plan` exit **2** means the plan has applyable changes (create / update /
+  close a promotion request, or open a backflow) and no divergence —
+  `reconcile` applies them and converges to exit 0.
+- `plan` exit **3** means the plan already contains a report-only
+  divergence — `reconcile` surfaces it and also exits 3. It is the same
+  code, with the same meaning, in both commands.
+
+So a gate may treat `plan` exit 2 as "safe to reconcile" and exit 3 as
+"needs a human," and expect `reconcile` to agree. The one state `plan`
+cannot foresee is a backflow whose commits conflict only when cherry-picked
+at apply time: it shows as an applyable change (`plan` exit 2), but
+`reconcile` hits the conflict and exits 3. `reconcile` never returns 2.
+These codes are frozen for 1.0.
