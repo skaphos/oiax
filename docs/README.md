@@ -4,7 +4,24 @@ Oiax is a declarative Git branch promotion reconciler for
 branch-per-environment GitOps repositories. Start with the repository
 [README](../README.md) for installation and a quickstart.
 
-## Contents
+## Guides
+
+Task-oriented walkthroughs — see the [guides index](guides/README.md):
+
+- [Getting started](guides/getting-started.md) — install, write your
+  first graph, inspect it locally.
+- [Modeling your promotion graph](guides/promotion-graphs.md) — branches,
+  roles, drift, merge methods, and common topologies.
+- [Deploy Oiax as a GitHub Action](guides/github-action.md) — the
+  workflow, triggers, permissions, `fetch-depth: 0`.
+- [Setting up a token that triggers CI](guides/tokens.md) — the GitHub
+  App token setup that keeps managed PRs from stalling.
+- [Backflow: returning hotfixes](guides/backflow.md).
+- [Operating Oiax day to day](guides/operating.md) — reading plans,
+  reviewing managed PRs, handling divergence.
+- [Troubleshooting](guides/troubleshooting.md) — symptom → cause → fix.
+
+## Design and internals
 
 - [Architecture](architecture.md) — what Oiax is and is not; the
   promotion graph model; the equivalence ladder; managed change requests;

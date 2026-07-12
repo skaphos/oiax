@@ -293,8 +293,10 @@ protection such requests can never merge. In order of recommendation:
 
 ## Failure handling and observability
 
-- Merge conflict on an edge: create/preserve the request, label
-  `oiax/conflict`, report — never auto-resolve, never close.
+- Merge conflict on an edge: create/preserve the request and report it —
+  never auto-resolve, never close. (Managed requests carry the `oiax`
+  label plus `oiax/promotion` or `oiax/backflow`; a dedicated conflict
+  label is not applied today.)
 - Backflow conflict: stop, push nothing, diagnose.
 - Provider failure: non-zero exit; the plan is emitted before
   application, so partial runs stay explainable; the next reconcile

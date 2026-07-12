@@ -3,10 +3,13 @@
 Declarative Git branch promotion reconciler for branch-per-environment
 GitOps repositories.
 
-> **Status: pre-release scaffold.** The configuration API, graph
-> validation, and CLI skeleton exist; edge evaluation, the GitHub forge
-> provider, and backflow are in progress (see the
-> [roadmap](docs/architecture.md#roadmap)). Nothing is released yet.
+> **Status: pre-release.** The core reconciler is implemented — edge
+> evaluation through the full equivalence ladder, the GitHub forge
+> provider, managed promotion requests, and backflow (see the
+> [roadmap](docs/architecture.md#roadmap)). No release is cut yet; the
+> first is 1.0.0, in progress, so install from source (see
+> [Quickstart](#quickstart)) until then. New here? Start with the
+> [getting-started guide](docs/guides/getting-started.md).
 
 Branch-based GitOps repositories model environments as long-lived
 branches — `development → test → qa → production-stage-1 → main` — and
@@ -82,8 +85,11 @@ requires **git 2.45 or newer** (backflow uses `git cherry-pick
 on older git, `plan` and `reconcile` fail fast with a clear message naming
 the required floor and the detected version.
 
-`plan` and `reconcile` currently validate configuration and stop; edge
-evaluation is the next roadmap milestone.
+`plan` evaluates every promotion edge and prints the actions
+`reconcile` would apply; `reconcile` then creates, updates, and closes
+managed pull requests, including backflow. The one piece not yet
+implemented is `validate`'s repository-state check (confirming configured
+branches exist as refs).
 
 ## GitHub Action
 
@@ -116,6 +122,8 @@ workflow example and token guidance.
 ## Documentation
 
 - [Documentation index](docs/README.md)
+- [Guides](docs/guides/README.md) — getting started, GitHub Action setup,
+  tokens, backflow, day-two operations, troubleshooting
 - [Architecture](docs/architecture.md) — the design: promotion graph,
   equivalence ladder, backflow, execution model, security posture
 - [Configuration reference](docs/reference/configuration.md)
