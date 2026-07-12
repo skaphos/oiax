@@ -29,10 +29,12 @@ package github
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -41,6 +43,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
@@ -65,6 +68,31 @@ const (
 	degradationWarning = "created pull request is authored by " + botLogin +
 		"; on: pull_request workflows will not run for it. Configure a GitHub App " +
 		"installation token so managed requests get CI."
+
+	// requestTimeout bounds a single HTTP attempt so a stalled connection
+	// cannot hang a reconcile. The request context still cancels the call
+	// (http.NewRequestWithContext); this is the backstop when nothing upstream
+	// set a deadline.
+	requestTimeout = 30 * time.Second
+	// defaultRetryMax caps the number of retries for a safe request (attempts =
+	// the initial call plus up to this many retries).
+	defaultRetryMax = 4
+	// defaultRetryBackoff is the base of the exponential backoff between
+	// retries; the actual wait grows to maxRetryBackoff and carries jitter.
+	defaultRetryBackoff = 500 * time.Millisecond
+	// maxRetryBackoff caps a single computed backoff interval.
+	maxRetryBackoff = 30 * time.Second
+	// maxServerBackoff caps how long a server-provided Retry-After /
+	// X-RateLimit-Reset can make us wait, so a hostile or absurd header cannot
+	// stall a reconcile indefinitely (context cancellation still wins).
+	maxServerBackoff = 2 * time.Minute
+	// mergedLookback bounds how far back merged-request discovery pages closed
+	// history; see ListManagedRequests.
+	mergedLookback = 180 * 24 * time.Hour
+	// defaultMaxRespBytes caps a success-path response body so a compromised or
+	// malfunctioning API cannot OOM the process. Generous: a full page of 100
+	// pull requests with long bodies is a few MB.
+	defaultMaxRespBytes = 32 << 20
 )
 
 // oidPattern matches a git object id (or an unambiguous abbreviation). A
@@ -84,19 +112,19 @@ type Provider struct {
 	// BaseURL overrides the API root (default https://api.github.com);
 	// tests point it at an httptest.Server. Never logged.
 	BaseURL string
-	// HTTP is the client used for requests (default http.DefaultClient);
-	// injectable for tests.
+	// HTTP is the client used for requests (default: a shared client carrying a
+	// request timeout, defaultHTTPClient); injectable for tests.
 	HTTP *http.Client
 	// GitDir is the working directory PushBranch runs git from. It must
 	// share an object database with the commit being pushed (the ephemeral
 	// cherry-pick worktree's repository). Empty means the current directory.
 	// It is a path, not a credential — safe to log.
 	GitDir string
-	// GitRemote overrides the push remote (default: the authenticated GitHub
-	// https URL built from Owner/Repo and an x-access-token credential).
-	// Tests point it at a local bare repository so the push touches no
-	// network and carries no token. When it embeds a credential it is never
-	// logged.
+	// GitRemote overrides the push remote (default: the GitHub https URL built
+	// from Owner/Repo; the credential is supplied via http.extraHeader in the
+	// environment, not the URL). Tests point it at a local bare repository so
+	// the push touches no network and carries no token. When it embeds a
+	// credential it is never logged.
 	GitRemote string
 	// Warn, when set, receives a one-time degradation warning if a created
 	// request will not trigger CI. The coordination layer wires this to
@@ -104,6 +132,13 @@ type Provider struct {
 	Warn func(msg string)
 
 	warnOnce sync.Once
+
+	// Resilience tunables. Zero values use the production defaults above; they
+	// exist only so tests can shrink backoff and the response cap without a
+	// process-global. They are not part of the public contract.
+	retryMax     int
+	retryBackoff time.Duration
+	maxRespBytes int64
 }
 
 var _ forge.Forge = (*Provider)(nil)
@@ -115,6 +150,7 @@ type ghPull struct {
 	Title     string    `json:"title"`
 	Body      string    `json:"body"`
 	MergedAt  *string   `json:"merged_at"`
+	CreatedAt string    `json:"created_at"`
 	Mergeable *bool     `json:"mergeable"`
 	Head      ghRef     `json:"head"`
 	Base      ghRef     `json:"base"`
@@ -153,8 +189,25 @@ func (p *Provider) ListManagedRequests(ctx context.Context, filter forge.Request
 	if filter.State == forge.RequestStateMerged {
 		state = "closed"
 	}
-	next := p.url(fmt.Sprintf("/repos/%s/%s/pulls?state=%s&per_page=100",
-		url.PathEscape(p.Owner), url.PathEscape(p.Repo), state))
+	// Sort and direction are explicit rather than relying on GitHub's default
+	// (M13). The baseline rung consumes the NEWEST merged managed request per
+	// edge, and the reconcile layer's matchRequest takes the first match in list
+	// order — so discovery must return newest-first. Open discovery sorts by
+	// created&desc (harmless: oiax allows at most one open request per edge, so
+	// order cannot matter there). Merged discovery sorts by updated&desc instead
+	// of created&desc: GitHub cannot sort by merged_at directly, but a merged
+	// PR's updated_at is set at merge time (and only moves later, from further
+	// activity), which stays close to merge recency even when created_at does
+	// not — a promotion that sat through a long review keeps an old created_at
+	// long after it merges. created&desc would rank that survivor by when review
+	// started rather than when it landed, which is exactly what pageOlderThan's
+	// cutoff below must not do.
+	sortField := "created"
+	if filter.State == forge.RequestStateMerged {
+		sortField = "updated"
+	}
+	next := p.url(fmt.Sprintf("/repos/%s/%s/pulls?state=%s&per_page=100&sort=%s&direction=desc",
+		url.PathEscape(p.Owner), url.PathEscape(p.Repo), state, sortField))
 
 	var out []engine.ChangeRequest
 	for next != "" {
@@ -181,9 +234,70 @@ func (p *Provider) ListManagedRequests(ctx context.Context, filter forge.Request
 			}
 			out = append(out, changeRequest(pr, m))
 		}
+		// Bound merged discovery so it does not page the entire closed-PR
+		// history every run (M4). Results are newest-updated-first, which tracks
+		// merge recency (see the sort rationale above); once a page's oldest
+		// entry's own merged_at predates the lookback window, every request on
+		// any later page was updated even longer ago, so no more-recently-merged
+		// baseline for any edge can be hiding there — stop. Gating on merged_at
+		// here (not created_at) is what makes that true: a request created long
+		// ago but merged recently — a long review cycle — sorts near the front by
+		// updated_at and is seen well before this cutoff fires. DECISION: an edge
+		// whose last promotion actually merged longer ago than mergedLookback
+		// loses its recorded baseline optimization; the other equivalence rungs
+		// still detect the promotion, and the window is generous, so this trades
+		// a dormant-edge shortcut for a bounded scan.
+		if filter.State == forge.RequestStateMerged && pageOlderThan(pulls, mergedLookback) {
+			break
+		}
 		next = nextLink(hdr.Get("Link"))
+		// The bearer token rides on every request, including the one that
+		// follows the next-page link. Never follow pagination to a host the API
+		// base did not vouch for, or the token would be sent to a redirected
+		// origin (L2).
+		if next != "" && !p.sameOrigin(next) {
+			return nil, fmt.Errorf("list managed requests: refusing cross-origin pagination to %q", next)
+		}
 	}
 	return out, nil
+}
+
+// pageOlderThan reports whether every request on a newest-updated-first page
+// predates the window — true when the oldest (last) entry's merged_at is
+// beyond it. Gating on merged_at (not created_at) is required for
+// correctness: a request opened long ago but merged recently — a long review
+// cycle — must not be mistaken for stale just because it is old by creation.
+// An entry that has not merged, or whose timestamp is unparseable, is treated
+// as recent (do not early-exit), so a missing field can never truncate
+// discovery.
+func pageOlderThan(pulls []ghPull, window time.Duration) bool {
+	if len(pulls) == 0 {
+		return false
+	}
+	oldest := pulls[len(pulls)-1].MergedAt
+	if oldest == nil {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339, *oldest)
+	if err != nil {
+		return false
+	}
+	return time.Since(t) > window
+}
+
+// sameOrigin reports whether rawURL has the same scheme and host as the API
+// base. Pagination links are server-controlled, so a followed link is confined
+// to the API origin before the credential-bearing request goes out (L2).
+func (p *Provider) sameOrigin(rawURL string) bool {
+	base, err := url.Parse(p.baseURL())
+	if err != nil {
+		return false
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == base.Scheme && u.Host == base.Host
 }
 
 // CreateRequest opens a managed request with the marker appended to the
@@ -199,6 +313,11 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 		Destination: req.Target,
 		SourceHead:  req.SourceHead,
 	}
+	// Reject a marker value that could forge marker lines or break out of the
+	// HTML comment before it is ever written to the forge (M14).
+	if err := validateMarker(m); err != nil {
+		return engine.ChangeRequest{}, fmt.Errorf("create request: %w", err)
+	}
 	body := req.Body + "\n\n" + serializeMarker(m)
 
 	payload := map[string]string{
@@ -208,9 +327,14 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 		"body":  body,
 	}
 	var created ghPull
-	_, err := p.do(ctx, http.MethodPost,
+	// The create POST is retried on transient failures (M3): it is safely
+	// idempotent because GitHub rejects a duplicate head/base pair with 422,
+	// which the adopt path below turns into success — so a retry that races a
+	// first attempt that actually landed re-lists and adopts rather than
+	// double-opening.
+	_, err := p.send(ctx, http.MethodPost,
 		p.url(fmt.Sprintf("/repos/%s/%s/pulls", url.PathEscape(p.Owner), url.PathEscape(p.Repo))),
-		payload, &created)
+		payload, &created, true)
 	if err != nil {
 		var ae *apiError
 		if errors.As(err, &ae) && ae.StatusCode == http.StatusUnprocessableEntity {
@@ -266,6 +390,11 @@ func (p *Provider) UpdateRequest(ctx context.Context, req forge.UpdateRequest) e
 		return fmt.Errorf("update request %s: marker version %q is not supported by this build; upgrade oiax", req.ID, m.Version)
 	}
 	m.SourceHead = req.SourceHead
+	// The rewritten sourceHead must not be able to forge marker lines or close
+	// the comment (M14); reject before the marker is re-serialized.
+	if err := validateMarker(m); err != nil {
+		return fmt.Errorf("update request %s: %w", req.ID, err)
+	}
 	newBody, ok := replaceMarker(pr.Body, m)
 	if !ok {
 		return fmt.Errorf("update request %s: marker not found in body", req.ID)
@@ -320,11 +449,13 @@ func (p *Provider) CloseRequest(ctx context.Context, id forge.RequestID, reason 
 // which must share an object database with the commit.
 //
 // The remote is GitRemote when set (tests point it at a local bare repo),
-// otherwise the authenticated GitHub https URL carrying an x-access-token
-// credential built from Owner/Repo/Token. The credential never appears in a
-// returned error: git's output is scrubbed of the token before it is
-// surfaced. push.Force selects a force push (the determinism strategy: the
-// same source head yields the same branch, so re-pushing is idempotent).
+// otherwise the GitHub https URL built from Owner/Repo. The credential is NOT
+// in the URL: it is supplied via http.extraHeader in the environment
+// (pushAuthEnv) so the token never reaches argv or the process table. The
+// credential never appears in a returned error either: git's output is scrubbed
+// of the token before it is surfaced. push.Force selects a force push (the
+// determinism strategy: the same source head yields the same branch, so
+// re-pushing is idempotent).
 func (p *Provider) PushBranch(ctx context.Context, push forge.BranchPush) error {
 	if !strings.HasPrefix(push.Name, "oiax/") {
 		return fmt.Errorf("push branch %q: refused outside the oiax/ namespace", push.Name)
@@ -350,6 +481,10 @@ func (p *Provider) PushBranch(ctx context.Context, push forge.BranchPush) error 
 	// Never block on an interactive credential prompt (e.g. a bad token):
 	// fail fast instead of hanging.
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	// The credential travels via git config in the environment (http.extraHeader),
+	// never in argv, so the token is not visible in the process table
+	// (/proc/<pid>/cmdline) during the push (M1).
+	cmd.Env = append(cmd.Env, p.pushAuthEnv()...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -374,14 +509,41 @@ func (p *Provider) checkRefFormat(ctx context.Context, name string) error {
 	return nil
 }
 
-// gitRemote returns the push remote: GitRemote verbatim when injected, else
-// the authenticated GitHub https URL with an x-access-token credential.
+// gitRemote returns the push remote: GitRemote verbatim when injected, else the
+// GitHub https URL. The default remote carries NO credential (M1): the token is
+// delivered out of band via pushAuthEnv (http.extraHeader in the environment),
+// so it never appears in argv or in the remote URL git may echo on failure.
 func (p *Provider) gitRemote() string {
 	if p.GitRemote != "" {
 		return p.GitRemote
 	}
-	return "https://x-access-token:" + p.Token + "@" + gitRemoteHost + "/" +
+	return "https://" + gitRemoteHost + "/" +
 		url.PathEscape(p.Owner) + "/" + url.PathEscape(p.Repo) + ".git"
+}
+
+// pushAuthEnv returns the git configuration that authenticates a push, delivered
+// through the environment (GIT_CONFIG_COUNT/KEY/VALUE) rather than argv so the
+// token is never visible in the process table. It sets http.extraHeader with
+// HTTP Basic (x-access-token:<token>, base64-encoded), keeping the credential
+// out of the remote URL entirely. Basic is the scheme GitHub's git-over-HTTPS
+// smart protocol (git-receive-pack/upload-pack against github.com) actually
+// accepts for both classic/fine-grained PATs and App installation tokens —
+// GitHub's own git-auth-helper tooling (e.g. actions/checkout) authenticates
+// git operations the same way. This is a different surface from the REST API
+// (doOnce), which does take a Bearer Authorization; a Bearer scheme here is
+// rejected with 401. It is empty when the remote is not an http(s) URL (tests
+// push to a local bare repo that needs no credential) or no token is set.
+func (p *Provider) pushAuthEnv() []string {
+	remote := p.gitRemote()
+	if p.Token == "" || (!strings.HasPrefix(remote, "https://") && !strings.HasPrefix(remote, "http://")) {
+		return nil
+	}
+	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + p.Token))
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.extraHeader",
+		"GIT_CONFIG_VALUE_0=AUTHORIZATION: basic " + basic,
+	}
 }
 
 // scrubToken removes the credential from a string surfaced to callers, so a
@@ -464,38 +626,88 @@ func (p *Provider) pullURL(number int) string {
 		url.PathEscape(p.Owner), url.PathEscape(p.Repo), number))
 }
 
-func (p *Provider) url(path string) string {
-	base := p.BaseURL
-	if base == "" {
-		base = defaultBaseURL
+func (p *Provider) baseURL() string {
+	if p.BaseURL == "" {
+		return defaultBaseURL
 	}
-	return base + path
+	return p.BaseURL
 }
+
+func (p *Provider) url(path string) string {
+	return p.baseURL() + path
+}
+
+// defaultHTTPClient carries a request timeout so a stalled connection cannot
+// hang a reconcile (M2). It is shared: http.Client is safe for concurrent use.
+var defaultHTTPClient = &http.Client{Timeout: requestTimeout}
 
 func (p *Provider) httpClient() *http.Client {
 	if p.HTTP != nil {
 		return p.HTTP
 	}
-	return http.DefaultClient
+	return defaultHTTPClient
 }
 
-// do issues one REST call. It sets auth and API headers, JSON-encodes in
-// (when non-nil), decodes a 2xx body into out (when non-nil), and turns a
-// non-2xx response into an *apiError carrying GitHub's message and the
-// status code — never the token. It returns the response header so
-// callers can follow pagination Link headers.
+// do issues one REST call with bounded retry for SAFE requests. A GET is always
+// safe to retry; other methods are retried only when the caller opts in via
+// send (CreateRequest does, because a duplicate create is adopted through the
+// 422 path). Non-idempotent mutations — labels, comment, close, marker rewrite —
+// go through do with a non-GET method and so are never retried.
 func (p *Provider) do(ctx context.Context, method, urlStr string, in, out any) (http.Header, error) {
+	return p.send(ctx, method, urlStr, in, out, method == http.MethodGet)
+}
+
+// send performs a REST call, retrying transient failures with bounded
+// exponential backoff and jitter when retryable is set (M3). It retries on
+// transport errors and on 429 / 5xx / rate-limited 403 responses, honoring a
+// server-provided Retry-After / X-RateLimit-Reset, and respects context
+// cancellation between attempts. A non-retryable request, an exhausted attempt
+// budget, or a cancelled context returns the last result unchanged — so a 422
+// from a create still reaches the adopt path.
+func (p *Provider) send(ctx context.Context, method, urlStr string, in, out any, retryable bool) (http.Header, error) {
+	attempts := p.retryMax
+	if attempts <= 0 {
+		attempts = defaultRetryMax
+	}
+	for attempt := 0; ; attempt++ {
+		hdr, err := p.doOnce(ctx, method, urlStr, in, out)
+		if err == nil {
+			return hdr, nil
+		}
+		if !retryable || attempt >= attempts || ctx.Err() != nil {
+			return hdr, err
+		}
+		wait, ok := retryDelay(err, hdr, p.backoff(attempt))
+		if !ok {
+			return hdr, err
+		}
+		if serr := sleepCtx(ctx, wait); serr != nil {
+			// Context cancelled during backoff: surface the API/transport error
+			// rather than the sleep's cancellation, so callers see why the call
+			// failed.
+			return hdr, err
+		}
+	}
+}
+
+// doOnce issues a single REST call. It sets auth and API headers, JSON-encodes
+// in (when non-nil), decodes a 2xx body into out (when non-nil, capped by an
+// io.LimitReader so a compromised API cannot OOM the process — L1), and turns a
+// non-2xx response into an *apiError carrying GitHub's message and the status
+// code — never the token. It returns the response header so callers can follow
+// pagination Link headers and read Retry-After / X-RateLimit-Reset.
+func (p *Provider) doOnce(ctx context.Context, method, urlStr string, in, out any) (http.Header, error) {
 	var reqBody io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
 		if err != nil {
-			return nil, fmt.Errorf("encode request body: %w", err)
+			return nil, &errNoResponse{fmt.Errorf("encode request body: %w", err)}
 		}
 		reqBody = bytes.NewReader(b)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, urlStr, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, &errNoResponse{fmt.Errorf("build request: %w", err)}
 	}
 	req.Header.Set("Authorization", "Bearer "+p.Token)
 	req.Header.Set("Accept", acceptHeader)
@@ -506,7 +718,7 @@ func (p *Provider) do(ctx context.Context, method, urlStr string, in, out any) (
 
 	resp, err := p.httpClient().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+		return nil, &errNoResponse{fmt.Errorf("http request: %w", err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -514,13 +726,142 @@ func (p *Provider) do(ctx context.Context, method, urlStr string, in, out any) (
 		return resp.Header, parseAPIError(resp)
 	}
 	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		limit := p.maxRespBytes
+		if limit <= 0 {
+			limit = defaultMaxRespBytes
+		}
+		if err := json.NewDecoder(io.LimitReader(resp.Body, limit)).Decode(out); err != nil {
 			return resp.Header, fmt.Errorf("decode response: %w", err)
 		}
 	} else {
 		_, _ = io.Copy(io.Discard, resp.Body)
 	}
 	return resp.Header, nil
+}
+
+// backoff returns the base exponential delay for a retry attempt, clamped to
+// maxRetryBackoff and spread with full jitter (a uniform value in [d/2, d]) so
+// concurrent reconciles do not synchronize on the same schedule.
+func (p *Provider) backoff(attempt int) time.Duration {
+	base := p.retryBackoff
+	if base <= 0 {
+		base = defaultRetryBackoff
+	}
+	d := base << attempt
+	if d > maxRetryBackoff || d <= 0 { // d <= 0 guards a shift overflow
+		d = maxRetryBackoff
+	}
+	half := d / 2
+	return half + time.Duration(rand.Int64N(int64(half)+1))
+}
+
+// errNoResponse marks a failure that occurred before any HTTP response was
+// received: encoding the request body, building the request, or the round trip
+// itself. It is deliberately distinct from a decode failure, where a response
+// (with a real 2xx status) was in fact received but its body did not parse —
+// retryDelay treats only the former as unconditionally transient.
+type errNoResponse struct{ err error }
+
+func (e *errNoResponse) Error() string { return e.err.Error() }
+func (e *errNoResponse) Unwrap() error { return e.err }
+
+// retryDelay decides whether err is transient and how long to wait before
+// retrying. A failure with no HTTP response (a stalled or reset connection, or
+// a request that never left the process) is always transient. An *apiError is
+// transient only for 429, 5xx, and a 403 that carries rate-limit signals; a
+// server-provided Retry-After / X-RateLimit-Reset then wins over the computed
+// backoff. Any other error means a response WAS received but something after it
+// failed — most importantly a decode failure on a 2xx body: that is NOT
+// retried, because the request already reached the server, so re-sending a
+// non-idempotent mutation could double-apply it (CreateRequest's create POST is
+// the one retryable non-GET call; a blind retry there could open a duplicate
+// PR once the original is no longer open to trip GitHub's 422 adopt guard).
+func retryDelay(err error, hdr http.Header, backoff time.Duration) (time.Duration, bool) {
+	var noResp *errNoResponse
+	if errors.As(err, &noResp) {
+		return backoff, true
+	}
+	var ae *apiError
+	if !errors.As(err, &ae) {
+		// A response was received but decoding (or similar) failed: do not retry.
+		return 0, false
+	}
+	if !retryableStatus(ae.StatusCode, hdr) {
+		return 0, false
+	}
+	if d, ok := serverBackoff(hdr); ok {
+		return d, true
+	}
+	return backoff, true
+}
+
+// retryableStatus reports whether an HTTP status is worth retrying. 429 and the
+// common 5xx are always retryable; a 403 is retryable only when it carries
+// rate-limit signals (Retry-After, or an exhausted X-RateLimit-Remaining), so a
+// genuine permission denial is not retried.
+func retryableStatus(code int, hdr http.Header) bool {
+	switch code {
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	case http.StatusForbidden:
+		if hdr.Get("Retry-After") != "" {
+			return true
+		}
+		return hdr.Get("X-RateLimit-Remaining") == "0"
+	default:
+		return false
+	}
+}
+
+// serverBackoff reads a server-directed wait from Retry-After (delta-seconds or
+// an HTTP-date) or X-RateLimit-Reset (a Unix epoch), clamped to maxServerBackoff
+// so an absurd header cannot stall a reconcile. ok is false when neither header
+// gives a usable value.
+func serverBackoff(hdr http.Header) (time.Duration, bool) {
+	clamp := func(d time.Duration) time.Duration {
+		if d < 0 {
+			return 0
+		}
+		if d > maxServerBackoff {
+			return maxServerBackoff
+		}
+		return d
+	}
+	if ra := strings.TrimSpace(hdr.Get("Retry-After")); ra != "" {
+		if secs, err := strconv.Atoi(ra); err == nil {
+			return clamp(time.Duration(secs) * time.Second), true
+		}
+		if t, err := http.ParseTime(ra); err == nil {
+			return clamp(time.Until(t)), true
+		}
+	}
+	if reset := strings.TrimSpace(hdr.Get("X-RateLimit-Reset")); reset != "" {
+		if epoch, err := strconv.ParseInt(reset, 10, 64); err == nil {
+			return clamp(time.Until(time.Unix(epoch, 0))), true
+		}
+	}
+	return 0, false
+}
+
+// sleepCtx waits for d or until ctx is cancelled, returning ctx.Err() if the
+// context ends first (or is already ended). A non-positive d is an immediate
+// return that still reports a cancelled context.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // apiError is a non-2xx GitHub response. It carries the status code so

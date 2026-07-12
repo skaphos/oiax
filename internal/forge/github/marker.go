@@ -1,6 +1,7 @@
 package github
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -46,18 +47,73 @@ type marker struct {
 // serializeMarker renders the HTML-comment marker verbatim in the frozen
 // format (two-space YAML indent, version first, destination not target).
 // It is the inverse of parseMarker for the fields it carries.
+//
+// The marker is load-bearing for managed-request identity, so every value is
+// passed through sanitizeMarkerValue: a newline or "-->" in a value must never
+// be able to forge an extra marker line or close the HTML comment early. Values
+// oiax actually writes (branch and graph names, hex heads, the version and type
+// tokens) contain none of those, so this is a no-op for them; callers should
+// also reject hostile values up front with validateMarker.
 func serializeMarker(m marker) string {
 	var b strings.Builder
 	b.WriteString("<!--\n")
 	b.WriteString("oiax:\n")
-	b.WriteString("  version: " + m.Version + "\n")
-	b.WriteString("  graph: " + m.Graph + "\n")
-	b.WriteString("  type: " + m.Type + "\n")
-	b.WriteString("  source: " + m.Source + "\n")
-	b.WriteString("  destination: " + m.Destination + "\n")
-	b.WriteString("  sourceHead: " + m.SourceHead + "\n")
+	b.WriteString("  version: " + sanitizeMarkerValue(m.Version) + "\n")
+	b.WriteString("  graph: " + sanitizeMarkerValue(m.Graph) + "\n")
+	b.WriteString("  type: " + sanitizeMarkerValue(m.Type) + "\n")
+	b.WriteString("  source: " + sanitizeMarkerValue(m.Source) + "\n")
+	b.WriteString("  destination: " + sanitizeMarkerValue(m.Destination) + "\n")
+	b.WriteString("  sourceHead: " + sanitizeMarkerValue(m.SourceHead) + "\n")
 	b.WriteString("-->")
 	return b.String()
+}
+
+// markerControl matches any ASCII control character (newline, carriage return,
+// tab, and the rest of C0 plus DEL). A marker value oiax writes never contains
+// one; a value that does is treated as hostile.
+var markerControl = regexp.MustCompile(`[\x00-\x1f\x7f]`)
+
+// validMarkerValue reports whether v is safe to place in a marker line
+// verbatim: no control character, and nothing that could open or close the
+// surrounding HTML comment. It is the predicate validateMarker enforces at the
+// boundary before a marker is written to the forge.
+func validMarkerValue(v string) bool {
+	if markerControl.MatchString(v) {
+		return false
+	}
+	return !strings.Contains(v, "-->") && !strings.Contains(v, "<!--")
+}
+
+// validateMarker rejects a marker any of whose fields could forge marker lines
+// or break out of the HTML comment. CreateRequest and UpdateRequest call it
+// before serializing so a hostile graph name, branch name, or head is refused
+// with a clear error rather than silently defanged.
+func validateMarker(m marker) error {
+	for _, f := range []struct{ name, val string }{
+		{"version", m.Version},
+		{"graph", m.Graph},
+		{"type", m.Type},
+		{"source", m.Source},
+		{"destination", m.Destination},
+		{"sourceHead", m.SourceHead},
+	} {
+		if !validMarkerValue(f.val) {
+			return fmt.Errorf("marker %s value contains a forbidden character (control character or HTML-comment delimiter)", f.name)
+		}
+	}
+	return nil
+}
+
+// sanitizeMarkerValue neutralizes anything in a marker value that could forge a
+// marker line or close the HTML comment. A value that passes validMarkerValue is
+// returned unchanged; a hostile control character or comment delimiter is
+// replaced with the Unicode replacement character. It is defense in depth for
+// any path that reaches serializeMarker without the boundary check.
+func sanitizeMarkerValue(v string) string {
+	v = markerControl.ReplaceAllString(v, "�")
+	v = strings.ReplaceAll(v, "-->", "--�")
+	v = strings.ReplaceAll(v, "<!--", "�!--")
+	return v
 }
 
 // parseMarker extracts the oiax marker from a request body. It returns

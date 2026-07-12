@@ -2,15 +2,20 @@ package github
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cgi"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
@@ -29,6 +34,9 @@ func newProvider(t *testing.T, srv *httptest.Server) *Provider {
 		Token:   testToken,
 		BaseURL: srv.URL,
 		HTTP:    srv.Client(),
+		// Shrink backoff so retry paths run instantly under test; a
+		// server-provided Retry-After of 0 still exercises the honoring path.
+		retryBackoff: time.Microsecond,
 	}
 }
 
@@ -45,6 +53,7 @@ type prSpec struct {
 	bodyOverride string // when non-empty, used verbatim as the body
 	state        string
 	mergedAt     string // empty => null
+	createdAt    string // empty => omitted
 	authorLogin  string
 }
 
@@ -82,6 +91,9 @@ func (s prSpec) toPull() map[string]any {
 		pr["merged_at"] = s.mergedAt
 	} else {
 		pr["merged_at"] = nil
+	}
+	if s.createdAt != "" {
+		pr["created_at"] = s.createdAt
 	}
 	return pr
 }
@@ -868,5 +880,700 @@ func assertNoToken(t *testing.T, s string) {
 	t.Helper()
 	if strings.Contains(s, testToken) {
 		t.Errorf("output leaked the token: %q", s)
+	}
+}
+
+// --- Hardening tests (forge provider) ---
+
+// TestSerializeMarkerNeutralizesInjection proves M14 at serializeMarker: a
+// hostile value carrying a newline and "-->" cannot forge an extra marker line
+// or close the HTML comment early. It fails against the pre-fix serializer,
+// which wrote values verbatim.
+func TestSerializeMarkerNeutralizesInjection(t *testing.T) {
+	t.Parallel()
+	evil := marker{
+		Version:     "v1",
+		Graph:       "g\n  source: injected-branch\n  x: -->trailing",
+		Type:        "promotion",
+		Source:      "development",
+		Destination: "test",
+		SourceHead:  "aaa",
+	}
+	s := serializeMarker(evil)
+
+	// The comment is closed exactly once, at the very end: the injected "-->"
+	// did not truncate it.
+	if strings.Count(s, "-->") != 1 || !strings.HasSuffix(s, "-->") {
+		t.Fatalf("marker comment truncated by an injected delimiter:\n%s", s)
+	}
+	// No forged "source:" marker line: exactly one line whose key is source.
+	sourceLines := 0
+	for _, line := range strings.Split(s, "\n") {
+		k, _, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if ok && strings.TrimSpace(k) == "source" {
+			sourceLines++
+		}
+	}
+	if sourceLines != 1 {
+		t.Errorf("found %d source marker lines, want 1 (injection forged one):\n%s", sourceLines, s)
+	}
+	// Parsing back yields the real source, never the injected branch.
+	m, ok := parseMarker(s)
+	if !ok || m.Source != "development" {
+		t.Errorf("parsed source = %q ok=%v, want development (injection must not win)", m.Source, ok)
+	}
+}
+
+// TestCreateRequestRejectsMarkerInjection proves M14 at the boundary:
+// CreateRequest refuses a marker value carrying any of validMarkerValue's
+// forbidden substrings — an embedded newline (the control-character branch)
+// or an HTML-comment delimiter (the "-->"/"<!--" branch) — before any HTTP
+// call is made. Both branches are exercised independently so a regression
+// that breaks only one of them (e.g. a refactor that drops the delimiter
+// check) fails this test even though the other branch still rejects.
+func TestCreateRequestRejectsMarkerInjection(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		source string
+	}{
+		{"embedded newline", "development\n  source: injected"},
+		{"comment close delimiter", "development-->injected"},
+		{"comment open delimiter", "development<!--injected"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			called := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				writeJSON(t, w, http.StatusCreated, prSpec{number: 1}.toPull())
+			}))
+			defer srv.Close()
+
+			p := newProvider(t, srv)
+			_, err := p.CreateRequest(context.Background(), forge.CreateRequest{
+				Graph: "environments", Type: engine.RequestTypePromotion,
+				Source: tc.source, Target: "test", SourceHead: "aaa",
+			})
+			if err == nil {
+				t.Fatalf("CreateRequest should reject a marker value containing %q", tc.source)
+			}
+			if called {
+				t.Error("CreateRequest issued the create despite an injected marker value")
+			}
+		})
+	}
+}
+
+// TestUpdateRequestRejectsMarkerInjection proves M14 at the UpdateRequest
+// boundary: a rewritten sourceHead carrying an HTML-comment delimiter is
+// refused before the marker is re-serialized and before any PATCH is issued.
+// UpdateRequestRewritesSourceHead already covers the happy path; this covers
+// the same validateMarker call with a hostile value, mirroring the
+// CreateRequest coverage above so both call sites are boundary-tested.
+func TestUpdateRequestRejectsMarkerInjection(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		sourceHead string
+	}{
+		{"embedded newline", "abc\n  source: injected"},
+		{"comment close delimiter", "abc-->injected"},
+		{"comment open delimiter", "abc<!--injected"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			original := prSpec{number: 5, source: "development", dest: "test", graph: "environments",
+				typ: "promotion", sourceHead: "old-head", labels: []string{LabelOiax, LabelPromotion}}.toPull()
+			patched := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					writeJSON(t, w, http.StatusOK, original)
+				case http.MethodPatch:
+					patched = true
+					writeJSON(t, w, http.StatusOK, original)
+				default:
+					t.Errorf("unexpected %s", r.Method)
+				}
+			}))
+			defer srv.Close()
+
+			p := newProvider(t, srv)
+			err := p.UpdateRequest(context.Background(), forge.UpdateRequest{ID: "5", SourceHead: tc.sourceHead})
+			if err == nil {
+				t.Fatalf("UpdateRequest should reject a sourceHead containing %q", tc.sourceHead)
+			}
+			if patched {
+				t.Error("UpdateRequest issued the PATCH despite an injected marker value")
+			}
+		})
+	}
+}
+
+// TestPushCredentialOutOfArgv proves M1: the default push remote carries no
+// token in its URL (and so not in argv), and the credential is delivered via
+// git config in the environment instead.
+func TestPushCredentialOutOfArgv(t *testing.T) {
+	t.Parallel()
+	p := &Provider{Owner: "acme", Repo: "widgets", Token: testToken}
+
+	remote := p.gitRemote()
+	assertNoToken(t, remote)
+	if !strings.HasPrefix(remote, "https://github.com/acme/widgets") {
+		t.Errorf("default remote = %q, want a clean https URL", remote)
+	}
+
+	// GitHub's git-over-HTTPS smart protocol authenticates via HTTP Basic, not
+	// the REST API's Bearer scheme (see doOnce) — a Bearer Authorization here
+	// is rejected with 401 by GitHub's git-http backend. Assert the exact
+	// header GitHub's own tooling (e.g. actions/checkout) sends, not merely
+	// that some Authorization-shaped value is present, so a regression back to
+	// a Bearer scheme fails this test.
+	wantBasic := "AUTHORIZATION: basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+testToken))
+	env := p.pushAuthEnv()
+	header := false
+	for _, e := range env {
+		if strings.Contains(e, "http.extraHeader") {
+			header = true
+		}
+		if strings.Contains(strings.ToUpper(e), "AUTHORIZATION") {
+			if !strings.Contains(e, wantBasic) {
+				t.Errorf("pushAuthEnv auth value = %q, want it to contain %q (HTTP Basic, the scheme GitHub's git transport accepts)", e, wantBasic)
+			}
+		}
+	}
+	if !header {
+		t.Errorf("pushAuthEnv does not set http.extraHeader: %v", env)
+	}
+
+	// An injected non-HTTP remote (a local bare repo in tests) needs no
+	// credential.
+	p.GitRemote = "/tmp/some-bare.git"
+	if got := p.pushAuthEnv(); got != nil {
+		t.Errorf("pushAuthEnv should be empty for a non-http(s) remote, got %v", got)
+	}
+}
+
+// TestPushBranchOverHTTPUsesBasicAuth proves M1 end to end against a real git
+// smart HTTP transport, not just that pushAuthEnv's string contents mention a
+// header: it serves a bare repo through the actual `git http-backend` (via
+// net/http/cgi), gated by middleware that rejects anything but the exact HTTP
+// Basic credential GitHub's git-over-HTTPS backend requires
+// ("x-access-token:<token>", base64, Basic scheme — never the REST API's
+// Bearer). PushBranch's default remote-building path (GitRemote pointed at
+// this server, mirroring the real https://github.com/... remote) must
+// authenticate and land the ref; a push carrying any other scheme (e.g. a
+// Bearer Authorization) is rejected by the middleware exactly as GitHub's
+// backend would reject it, so a regression back to Bearer fails this test.
+func TestPushBranchOverHTTPUsesBasicAuth(t *testing.T) {
+	t.Parallel()
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not on PATH")
+	}
+	execPath := strings.TrimSpace(runGit(t, "", "--exec-path"))
+	if _, err := os.Stat(filepath.Join(execPath, "git-http-backend")); err != nil {
+		t.Skipf("git-http-backend not available: %v", err)
+	}
+
+	root := t.TempDir()
+	bare := filepath.Join(root, "repo.git")
+	work := filepath.Join(root, "work")
+	runGit(t, "", "init", "--bare", bare)
+	// git-http-backend refuses receive-pack by default (a safe-by-default
+	// posture for anonymous push); this test's middleware is the thing
+	// actually gating access, so opt the repo in the same way a real hosted
+	// git server does for an authenticated caller.
+	runGit(t, bare, "config", "http.receivepack", "true")
+	sha := seedRepo(t, work)
+
+	// Lowercase "basic" matches pushAuthEnv's literal header value exactly
+	// (the scheme token is case-insensitive per RFC 7235, and this is the
+	// exact casing GitHub's own git-auth-helper tooling sends).
+	wantAuth := "basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+testToken))
+	backend := &cgi.Handler{
+		Path: gitPath,
+		Args: []string{"http-backend"},
+		Dir:  root,
+		Env:  []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1"},
+	}
+	var sawAuthorizedRequest atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != wantAuth {
+			w.Header().Set("WWW-Authenticate", `Basic realm="git"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		sawAuthorizedRequest.Store(true)
+		backend.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	p := &Provider{Owner: "acme", Repo: "widgets", Token: testToken, GitDir: work, GitRemote: srv.URL + "/repo.git"}
+	branch := "oiax/backflow/main-to-development/" + sha[:7]
+	if err := p.PushBranch(context.Background(), forge.BranchPush{Name: branch, SHA: sha, Force: true}); err != nil {
+		t.Fatalf("PushBranch over HTTP with Basic auth: %v", err)
+	}
+	if !sawAuthorizedRequest.Load() {
+		t.Fatal("push never presented a request the Basic-auth gate accepted")
+	}
+
+	got := strings.TrimSpace(runGit(t, bare, "rev-parse", "refs/heads/"+branch))
+	if got != sha {
+		t.Fatalf("bare ref %s = %s, want %s", branch, got, sha)
+	}
+}
+
+// TestContextCancelAbortsHungRequest proves M2: a stalled request is aborted by
+// the request context, promptly, and the safe GET is not retried after the
+// context has ended.
+func TestContextCancelAbortsHungRequest(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release // hang until the test releases it
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	p := newProvider(t, srv)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := p.ListManagedRequests(ctx, forge.RequestFilter{Graph: "g"})
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected a context error from a hung request")
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("hung request not aborted promptly: %v", elapsed)
+	}
+	assertNoToken(t, err.Error())
+}
+
+// TestRetryHonorsRetryAfter proves M3: a 429 with Retry-After is retried, and
+// the header value governs the wait.
+func TestRetryHonorsRetryAfter(t *testing.T) {
+	t.Parallel()
+	var attempts int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&attempts, 1) < 3 {
+			w.Header().Set("Retry-After", "0")
+			writeJSON(t, w, http.StatusTooManyRequests, map[string]string{"message": "slow down"})
+			return
+		}
+		writeJSON(t, w, http.StatusOK, []map[string]any{
+			prSpec{number: 1, source: "development", dest: "test", graph: "environments",
+				typ: "promotion", sourceHead: "aaa", labels: []string{LabelOiax}}.toPull(),
+		})
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	got, err := p.ListManagedRequests(context.Background(), forge.RequestFilter{Graph: "environments"})
+	if err != nil {
+		t.Fatalf("ListManagedRequests: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d requests, want 1", len(got))
+	}
+	if n := atomic.LoadInt32(&attempts); n != 3 {
+		t.Errorf("attempts = %d, want 3 (two retries then success)", n)
+	}
+}
+
+// TestRetry5xxNoHeaders proves M3: a bare 500 (and 503), with no Retry-After or
+// X-RateLimit-Reset, is still retried on its own merits -- retryableStatus's
+// 5xx cases, not just the header-driven backoff path. It fails if those 5xx
+// cases are ever dropped from retryableStatus, since the request would then
+// fail on the first attempt instead of retrying to success.
+func TestRetry5xxNoHeaders(t *testing.T) {
+	t.Parallel()
+	codes := []int{http.StatusInternalServerError, http.StatusServiceUnavailable}
+	for _, code := range codes {
+		code := code
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			t.Parallel()
+			var attempts int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if atomic.AddInt32(&attempts, 1) < 3 {
+					// No Retry-After / X-RateLimit-Reset: the retry must come from
+					// retryableStatus alone, not the server-backoff path.
+					writeJSON(t, w, code, map[string]string{"message": "boom"})
+					return
+				}
+				writeJSON(t, w, http.StatusOK, []map[string]any{
+					prSpec{number: 1, source: "development", dest: "test", graph: "environments",
+						typ: "promotion", sourceHead: "aaa", labels: []string{LabelOiax}}.toPull(),
+				})
+			}))
+			defer srv.Close()
+
+			p := newProvider(t, srv)
+			got, err := p.ListManagedRequests(context.Background(), forge.RequestFilter{Graph: "environments"})
+			if err != nil {
+				t.Fatalf("ListManagedRequests: %v", err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("got %d requests, want 1", len(got))
+			}
+			if n := atomic.LoadInt32(&attempts); n != 3 {
+				t.Errorf("attempts = %d, want 3 (two retries then success)", n)
+			}
+		})
+	}
+}
+
+// TestRetryRateLimited403 proves M3: a 403 carrying rate-limit signals is
+// retried (unlike a permission 403).
+func TestRetryRateLimited403(t *testing.T) {
+	t.Parallel()
+	var attempts int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&attempts, 1) == 1 {
+			w.Header().Set("X-RateLimit-Remaining", "0")
+			w.Header().Set("X-RateLimit-Reset", "1") // epoch in the past => immediate
+			writeJSON(t, w, http.StatusForbidden, map[string]string{"message": "rate limit exceeded"})
+			return
+		}
+		writeJSON(t, w, http.StatusOK, []map[string]any{})
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	if _, err := p.ListManagedRequests(context.Background(), forge.RequestFilter{Graph: "g"}); err != nil {
+		t.Fatalf("a rate-limited 403 should be retried: %v", err)
+	}
+	if n := atomic.LoadInt32(&attempts); n != 2 {
+		t.Errorf("attempts = %d, want 2", n)
+	}
+}
+
+// TestNoRetryOnPermission403 proves M3: a plain 403 (no rate-limit signal) is a
+// genuine permission denial and is not retried.
+func TestNoRetryOnPermission403(t *testing.T) {
+	t.Parallel()
+	var attempts int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		writeJSON(t, w, http.StatusForbidden, map[string]string{"message": "forbidden"})
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	if _, err := p.ListManagedRequests(context.Background(), forge.RequestFilter{Graph: "g"}); err == nil {
+		t.Fatal("a permission 403 must not be retried into success")
+	}
+	if n := atomic.LoadInt32(&attempts); n != 1 {
+		t.Errorf("attempts = %d, want 1 (permission 403 is not transient)", n)
+	}
+}
+
+// TestNoRetryNonIdempotentMutation proves M3: a non-idempotent mutation (the
+// close comment POST) is never retried, even on a 5xx.
+func TestNoRetryNonIdempotentMutation(t *testing.T) {
+	t.Parallel()
+	managed := prSpec{number: 9, source: "development", dest: "test", graph: "environments",
+		typ: "promotion", sourceHead: "h", labels: []string{LabelOiax, LabelPromotion}}.toPull()
+	var comments int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			writeJSON(t, w, http.StatusOK, managed)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/comments"):
+			atomic.AddInt32(&comments, 1)
+			writeJSON(t, w, http.StatusInternalServerError, map[string]string{"message": "boom"})
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	if err := p.CloseRequest(context.Background(), "9", forge.Reason{Summary: "x"}); err == nil {
+		t.Fatal("the comment 500 should fail the close")
+	}
+	if n := atomic.LoadInt32(&comments); n != 1 {
+		t.Errorf("comment attempts = %d, want 1 (a non-idempotent POST must not be retried)", n)
+	}
+}
+
+// TestNoRetryPost2xxDecodeFailure proves the retry classifier distinguishes a
+// genuine transport failure (no HTTP response received) from a decode failure
+// where a 2xx response WAS received: the retryable create POST returns a real
+// 201 (the PR is committed server-side) with a body that is valid at the
+// transport layer but truncated mid-JSON, so decoding fails. That must NOT be
+// retried -- a blind retry could open a second, duplicate pull request once the
+// original is no longer open to trip GitHub's 422 adopt guard. Before the fix
+// the decode error (a plain non-*apiError) fell into retryDelay's blanket
+// transport-retry branch and the POST was sent defaultRetryMax+1 times.
+func TestNoRetryPost2xxDecodeFailure(t *testing.T) {
+	t.Parallel()
+	var posts int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/pulls" {
+			atomic.AddInt32(&posts, 1)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"number":7,`)) // truncated: a genuine 201 whose body cannot decode
+			return
+		}
+		t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	_, err := p.CreateRequest(context.Background(), forge.CreateRequest{
+		Graph: "environments", Type: engine.RequestTypePromotion,
+		Source: "development", Target: "test", SourceHead: "aaa",
+	})
+	if err == nil {
+		t.Fatal("a truncated 201 body should fail the create")
+	}
+	if !strings.Contains(err.Error(), "decode response") {
+		t.Errorf("error = %v, want a decode failure surfaced", err)
+	}
+	if n := atomic.LoadInt32(&posts); n != 1 {
+		t.Errorf("create POST attempts = %d, want 1 (a post-2xx decode failure must not be retried)", n)
+	}
+	assertNoToken(t, err.Error())
+}
+
+// TestMergedDiscoveryStopsPastLookback proves M4: merged discovery early-exits
+// once a page's oldest request predates the lookback window instead of paging
+// the entire closed history, while still returning the recent baseline.
+func TestMergedDiscoveryStopsPastLookback(t *testing.T) {
+	t.Parallel()
+	var srvURL string
+	recent := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	var page2 int32
+	page1 := []map[string]any{
+		prSpec{number: 10, source: "development", dest: "test", graph: "environments",
+			typ: "promotion", sourceHead: "recent-head", labels: []string{LabelOiax, LabelPromotion},
+			state: "closed", mergedAt: recent, createdAt: recent}.toPull(),
+		prSpec{number: 8, source: "development", dest: "test", graph: "environments",
+			typ: "promotion", sourceHead: "old-head", labels: []string{LabelOiax, LabelPromotion},
+			state: "closed", mergedAt: "2000-01-01T00:00:00Z", createdAt: "2000-01-01T00:00:00Z"}.toPull(),
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertAuth(t, r)
+		if r.URL.Query().Get("page") == "2" {
+			atomic.AddInt32(&page2, 1)
+			writeJSON(t, w, http.StatusOK, []map[string]any{})
+			return
+		}
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/acme/widgets/pulls?state=closed&per_page=100&sort=updated&direction=desc&page=2>; rel="next"`, srvURL))
+		writeJSON(t, w, http.StatusOK, page1)
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	p := newProvider(t, srv)
+	got, err := p.ListManagedRequests(context.Background(),
+		forge.RequestFilter{Graph: "environments", Type: engine.RequestTypePromotion, State: forge.RequestStateMerged})
+	if err != nil {
+		t.Fatalf("ListManagedRequests: %v", err)
+	}
+	if n := atomic.LoadInt32(&page2); n != 0 {
+		t.Errorf("page 2 fetched %d times; merged discovery did not early-exit past the lookback window", n)
+	}
+	haveRecent := false
+	for _, cr := range got {
+		if cr.SourceHead == "recent-head" {
+			haveRecent = true
+		}
+	}
+	if !haveRecent {
+		t.Errorf("recent merged baseline was dropped: %+v", got)
+	}
+}
+
+// TestPageOlderThanTreatsMissingTimestampAsRecent proves the safety behavior
+// documented on pageOlderThan: a page whose oldest (last) entry has no
+// merged_at (nil -- unmerged or omitted) or an unparseable one is never
+// treated as past the lookback window, so a missing field can never truncate
+// merged-baseline discovery. Without this, swapping either error branch's
+// "return false" for "return true" (treat a missing/unparseable merged_at as
+// old, early-exiting on it) leaves the rest of the suite green.
+func TestPageOlderThanTreatsMissingTimestampAsRecent(t *testing.T) {
+	t.Parallel()
+	bogus := "not-a-timestamp"
+	tests := []struct {
+		name     string
+		mergedAt *string // nil matches an un-merged or omitted merged_at
+	}{
+		{"nil", nil},
+		{"unparseable", &bogus},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			old := "2000-01-01T00:00:00Z"
+			pulls := []ghPull{
+				{Number: 10, MergedAt: &old},       // newest, itself past the window
+				{Number: 8, MergedAt: tc.mergedAt}, // oldest: missing/bad merged_at
+			}
+			if pageOlderThan(pulls, mergedLookback) {
+				t.Errorf("pageOlderThan with oldest merged_at %v = true, want false: a missing/unparseable oldest timestamp must never trigger early-exit", tc.mergedAt)
+			}
+		})
+	}
+}
+
+// TestListRequestsUsesExplicitSort proves M13: the list query pins an
+// explicit sort and direction rather than relying on GitHub's default —
+// created&desc for open discovery (at most one open request per edge, so
+// order cannot matter there, but the default must never silently drift) and
+// updated&desc for merged discovery, which tracks merge recency far better
+// than created&desc does (the M4 correction: see pageOlderThan).
+func TestListRequestsUsesExplicitSort(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		state    forge.RequestState
+		wantSort string
+	}{
+		{"open", forge.RequestStateOpen, "created"},
+		{"merged", forge.RequestStateMerged, "updated"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var gotSort, gotDir string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotSort = r.URL.Query().Get("sort")
+				gotDir = r.URL.Query().Get("direction")
+				writeJSON(t, w, http.StatusOK, []map[string]any{})
+			}))
+			defer srv.Close()
+
+			p := newProvider(t, srv)
+			if _, err := p.ListManagedRequests(context.Background(),
+				forge.RequestFilter{Graph: "g", State: tt.state}); err != nil {
+				t.Fatalf("ListManagedRequests: %v", err)
+			}
+			if gotSort != tt.wantSort || gotDir != "desc" {
+				t.Errorf("list query sort=%q direction=%q, want %s/desc", gotSort, gotDir, tt.wantSort)
+			}
+		})
+	}
+}
+
+// TestMergedDiscoveryLongReviewCycleNotDropped proves the M4 cutoff
+// correction: a managed promotion request opened long before the lookback
+// window but merged recently — a long review cycle — is not dropped just
+// because an earlier page's last entry is old by created_at. Before the fix,
+// pageOlderThan gated on created_at, so this page's single old-created,
+// recently-merged entry would itself have triggered the early-exit and page 2
+// — holding a different edge's merged survivor — would never be fetched.
+func TestMergedDiscoveryLongReviewCycleNotDropped(t *testing.T) {
+	t.Parallel()
+	var srvURL string
+	recentMerge := time.Now().Add(-3 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	oldCreate := "2000-01-01T00:00:00Z"
+	var page2Fetches int32
+	// page1's only entry was opened decades ago (oldCreate) but merged three
+	// days ago (recentMerge): a created_at-based cutoff sees this as the page's
+	// oldest entry and stops, even though nothing here is stale by merge time.
+	page1 := []map[string]any{
+		prSpec{number: 20, source: "development", dest: "test", graph: "environments",
+			typ: "promotion", sourceHead: "long-review-head", labels: []string{LabelOiax, LabelPromotion},
+			state: "closed", mergedAt: recentMerge, createdAt: oldCreate}.toPull(),
+	}
+	// page2 holds a different edge's merged survivor, reachable only when the
+	// cutoff correctly gates on merged_at rather than created_at.
+	page2Body := []map[string]any{
+		prSpec{number: 5, source: "staging", dest: "prod", graph: "environments",
+			typ: "promotion", sourceHead: "page2-head", labels: []string{LabelOiax, LabelPromotion},
+			state: "closed", mergedAt: recentMerge, createdAt: oldCreate}.toPull(),
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertAuth(t, r)
+		if r.URL.Query().Get("page") == "2" {
+			atomic.AddInt32(&page2Fetches, 1)
+			writeJSON(t, w, http.StatusOK, page2Body)
+			return
+		}
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/acme/widgets/pulls?state=closed&per_page=100&sort=updated&direction=desc&page=2>; rel="next"`, srvURL))
+		writeJSON(t, w, http.StatusOK, page1)
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	p := newProvider(t, srv)
+	got, err := p.ListManagedRequests(context.Background(),
+		forge.RequestFilter{Graph: "environments", Type: engine.RequestTypePromotion, State: forge.RequestStateMerged})
+	if err != nil {
+		t.Fatalf("ListManagedRequests: %v", err)
+	}
+	if n := atomic.LoadInt32(&page2Fetches); n != 1 {
+		t.Fatalf("page 2 fetched %d times; an old created_at on page 1 must not stop pagination when its merged_at is recent", n)
+	}
+	found := false
+	for _, cr := range got {
+		if cr.SourceHead == "page2-head" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a merged promotion behind a long-review survivor was dropped: %+v", got)
+	}
+}
+
+// TestResponseBodyCapped proves L1: the success-path decode is bounded, so an
+// over-large body is truncated (and fails to decode) rather than read wholesale.
+func TestResponseBodyCapped(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"number":1,"body":"`))
+		_, _ = w.Write([]byte(strings.Repeat("a", 4096)))
+		_, _ = w.Write([]byte(`"}]`))
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	p.maxRespBytes = 8 // truncate mid-value so the decode fails
+	_, err := p.ListManagedRequests(context.Background(), forge.RequestFilter{Graph: "g"})
+	if err == nil {
+		t.Fatal("expected a decode error when the body exceeds the cap")
+	}
+	if !strings.Contains(err.Error(), "decode response") {
+		t.Errorf("error = %v, want a decode failure from the capped body", err)
+	}
+}
+
+// TestRefusesCrossOriginPagination proves L2: a next-page link to a foreign
+// origin is refused, so the credential is never sent to a redirected host.
+func TestRefusesCrossOriginPagination(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", `<http://evil.example.com/repos/acme/widgets/pulls?page=2>; rel="next"`)
+		writeJSON(t, w, http.StatusOK, []map[string]any{})
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	_, err := p.ListManagedRequests(context.Background(), forge.RequestFilter{Graph: "g"})
+	if err == nil {
+		t.Fatal("expected a refusal of cross-origin pagination")
+	}
+	if !strings.Contains(err.Error(), "cross-origin") {
+		t.Errorf("error = %v, want a cross-origin refusal", err)
+	}
+}
+
+// TestDefaultClientHasTimeout proves M2's backstop: the production HTTP client
+// carries a request timeout so a stalled connection cannot hang a reconcile
+// even when nothing upstream set a context deadline.
+func TestDefaultClientHasTimeout(t *testing.T) {
+	t.Parallel()
+	p := &Provider{Owner: "acme", Repo: "widgets", Token: testToken}
+	if got := p.httpClient().Timeout; got <= 0 {
+		t.Errorf("default http client timeout = %v, want a positive backstop", got)
 	}
 }
