@@ -21,8 +21,11 @@ func BuildPlan(g *Graph, edges []EdgeState) Plan {
 		Graph:             g.Name,
 		// Actions starts as an empty (non-nil) slice so the frozen
 		// planFormatVersion:1 JSON contract always serializes "actions" as
-		// an array, even when the graph is fully in sync — never null.
-		Actions: []Action{},
+		// an array, even when the graph is fully in sync — never null. It is
+		// preallocated to one action per edge (a typical lower bound) to avoid
+		// reallocation on the common path; an empty graph still yields a
+		// non-nil, zero-length slice that marshals to [].
+		Actions: make([]Action, 0, len(edges)),
 	}
 
 	// A backflow source can have several incoming promotion edges; each yields

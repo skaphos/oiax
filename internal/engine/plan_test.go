@@ -244,7 +244,11 @@ func TestBuildPlanActionsJSONShape(t *testing.T) {
 		if err := json.Unmarshal(got, &raw); err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
-		if actions := string(raw["actions"]); actions != "[]" {
+		actionsRaw, ok := raw["actions"]
+		if !ok {
+			t.Fatal(`marshaled plan has no "actions" key; the frozen contract requires it always present`)
+		}
+		if actions := string(actionsRaw); actions != "[]" {
 			t.Fatalf(`"actions" = %s, want "[]" (strict typed consumers of the frozen contract reject null)`, actions)
 		}
 	})
@@ -263,8 +267,12 @@ func TestBuildPlanActionsJSONShape(t *testing.T) {
 		if err := json.Unmarshal(got, &raw); err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
+		actionsRaw, ok := raw["actions"]
+		if !ok {
+			t.Fatal(`marshaled plan has no "actions" key; the frozen contract requires it always present`)
+		}
 		var actions []json.RawMessage
-		if err := json.Unmarshal(raw["actions"], &actions); err != nil {
+		if err := json.Unmarshal(actionsRaw, &actions); err != nil {
 			t.Fatalf(`"actions" did not unmarshal as a JSON array: %v`, err)
 		}
 		if len(actions) != 1 {
