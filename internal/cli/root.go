@@ -55,6 +55,7 @@ type options struct {
 // NewRootCommand builds the oiax command tree.
 func NewRootCommand() *cobra.Command {
 	opts := &options{}
+	var showVersion bool
 
 	root := &cobra.Command{
 		Use:   "oiax",
@@ -68,6 +69,27 @@ that graph exist — exactly one active managed request per diverged edge,
 no duplicates, no stale leftovers. It never merges, approves, or deploys.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		// PersistentPreRunE runs for every command in the tree (no
+		// subcommand overrides it), so an invalid --output value is
+		// rejected uniformly instead of each command re-checking it.
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			switch opts.output {
+			case "text", "json":
+				return nil
+			default:
+				return fmt.Errorf("invalid --output %q: want %q or %q", opts.output, "text", "json")
+			}
+		},
+		// RunE only fires when oiax is invoked with no subcommand: `oiax
+		// --version` prints version information (mirroring the `version`
+		// subcommand); bare `oiax` falls back to the usual help text.
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if showVersion {
+				return printVersion(cmd, opts)
+			}
+			return cmd.Help()
+		},
 	}
 	root.DisableAutoGenTag = true
 
@@ -75,16 +97,28 @@ no duplicates, no stale leftovers. It never merges, approves, or deploys.`,
 	pf.StringVar(&opts.configPath, "config", config.DefaultPath, "path to the PromotionGraph configuration file")
 	pf.StringVar(&opts.configRef, "config-ref", "", "ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)")
 	pf.StringVarP(&opts.output, "output", "o", "text", "output format: text or json")
+	root.Flags().BoolVar(&showVersion, "version", false, "print version information and exit")
 
 	root.AddCommand(
 		newValidateCommand(opts),
 		newPlanCommand(opts),
 		newReconcileCommand(opts),
 		newGraphCommand(opts),
-		newVersionCommand(),
+		newVersionCommand(opts),
 		newGenCommand(),
 	)
 	return root
+}
+
+// requireTextOutput rejects --output on commands that have no alternative
+// rendering. validate and graph print human-readable status only: there is
+// no JSON shape for them (yet), so silently ignoring an unsupported
+// --output value is worse than a clear rejection at the flag boundary.
+func requireTextOutput(cmdName string, opts *options) error {
+	if opts.output != "text" {
+		return fmt.Errorf("%s: --output %q is not supported; %s only prints text", cmdName, opts.output, cmdName)
+	}
+	return nil
 }
 
 // loadGraph loads, converts, and semantically validates the promotion

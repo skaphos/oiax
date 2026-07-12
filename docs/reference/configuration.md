@@ -94,3 +94,23 @@ Oiax without parsing output.
 | `reconcile` | 1 | Error. |
 | `reconcile` | 3 | Converged with reported divergence requiring human attention (unresolvable diverged edges, backflow conflicts). |
 | all others | 0/1 | Success/error. |
+
+`plan`'s exit 2 and `reconcile`'s exit 3 are deliberately distinct codes
+with distinct meanings, not two spellings of the same thing:
+
+- `plan --detailed-exitcode` exit 2 means "this plan has at least one
+  pending action" — which can be an applyable action (create/update/close
+  a promotion request) *or* a report-only divergence reconcile cannot
+  auto-resolve. Plan does not distinguish the two in its exit code; read
+  the plan's action types (or `-o json`) to tell them apart.
+- `reconcile` exit 3 means "reconcile applied everything it safely could,
+  and at least one edge still requires a human" (a backflow cherry-pick
+  conflict, for example). Reconcile never returns 2.
+
+Because plan's 2 covers both cases, a gate of the shape "plan exits 2 ⇒
+run reconcile ⇒ expect exit 0" is unsound: the same state can leave
+reconcile at exit 3. Gate on reconcile's own exit code for "did this fully
+converge," not on plan's exit code as a proxy for it. These codes are
+frozen for 1.0; a future major version may split plan's 2 into distinct
+applyable-vs-divergence codes, but 1.0 keeps the two commands' contracts
+exactly as shipped.

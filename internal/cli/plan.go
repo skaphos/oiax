@@ -18,7 +18,15 @@ separate dry-run flag.
 Exit codes (the compatibility contract, following terraform plan):
   0  fully in sync (or, without --detailed-exitcode, any successful plan)
   1  error
-  2  valid plan with pending actions (only with --detailed-exitcode)`,
+  2  valid plan with pending actions (only with --detailed-exitcode)
+
+Exit 2 fires for ANY pending action, including a report-only divergence
+that reconcile cannot auto-resolve (see "oiax reconcile --help"). A gate
+that treats "plan exit 2" as "reconcile will converge to exit 0" is wrong:
+running reconcile against that same state can still exit 3. Plan's 2 means
+"there is something to do"; reconcile's 3 means "reconcile did what it
+could and something still needs a human." Do not conflate the two codes
+across commands.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Assert the git version floor before any other git subprocess

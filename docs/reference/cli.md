@@ -16,6 +16,10 @@ forge state and ensures the pull requests required to move changes through
 that graph exist — exactly one active managed request per diverged edge,
 no duplicates, no stale leftovers. It never merges, approves, or deploys.
 
+```
+oiax [flags]
+```
+
 ### Options
 
 ```
@@ -23,6 +27,7 @@ no duplicates, no stale leftovers. It never merges, approves, or deploys.
       --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
   -h, --help                help for oiax
   -o, --output string       output format: text or json (default "text")
+      --version             print version information and exit
 ```
 
 ### SEE ALSO
@@ -300,6 +305,14 @@ Exit codes (the compatibility contract, following terraform plan):
   1  error
   2  valid plan with pending actions (only with --detailed-exitcode)
 
+Exit 2 fires for ANY pending action, including a report-only divergence
+that reconcile cannot auto-resolve (see "oiax reconcile --help"). A gate
+that treats "plan exit 2" as "reconcile will converge to exit 0" is wrong:
+running reconcile against that same state can still exit 3. Plan's 2 means
+"there is something to do"; reconcile's 3 means "reconcile did what it
+could and something still needs a human." Do not conflate the two codes
+across commands.
+
 ```
 oiax plan [flags]
 ```
@@ -338,6 +351,14 @@ Exit codes (the compatibility contract):
   0  converged (including "applied actions successfully")
   1  error
   3  converged with reported divergence requiring human attention
+
+Exit 3 is unrelated to "oiax plan --detailed-exitcode"'s exit 2: plan's 2
+means the plan has pending actions of any kind (including a divergence
+this command cannot resolve); this command's 3 means reconcile applied
+everything it safely could and a specific edge still needs a human. A gate
+keyed on "plan exit 2 implies reconcile will exit 0" is unsound — reconcile
+against that same state can still exit 3. Do not conflate the two codes
+across commands.
 
 ```
 oiax reconcile [flags]

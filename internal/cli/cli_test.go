@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,6 +96,22 @@ func TestDeprecatedAPIVersionWarns(t *testing.T) {
 	}
 }
 
+// M12: a config with a not-ref-format branch name must fail validate in one
+// round trip instead of passing validate/graph and only failing later with
+// a raw git error out of plan/reconcile.
+func TestValidateRejectsMalformedBranchName(t *testing.T) {
+	broken := strings.Replace(exampleConfig, "development:", "foo bar:", 1)
+	broken = strings.Replace(broken, "from: development", "from: foo bar", 1)
+
+	out, err := run(t, "validate", "--config", writeConfig(t, broken))
+	if err == nil {
+		t.Fatalf("validate succeeded, want error:\n%s", out)
+	}
+	if !strings.Contains(out, "invalid branch name") {
+		t.Errorf("output missing ref-format rejection:\n%s", out)
+	}
+}
+
 func TestValidateCommandReportsEveryViolation(t *testing.T) {
 	broken := strings.Replace(exampleConfig, "name: environments", "name: \"\"", 1)
 	broken = strings.Replace(broken, "sources: [main]", "sources: [main, development]", 1)
@@ -172,6 +189,60 @@ func TestVersionCommand(t *testing.T) {
 	}
 	if !strings.Contains(out, "oiax dev") {
 		t.Errorf("output = %q, want dev version", out)
+	}
+}
+
+func TestVersionCommandJSON(t *testing.T) {
+	out, err := run(t, "version", "--output", "json")
+	if err != nil {
+		t.Fatalf("version -o json: %v\n%s", err, out)
+	}
+	var got struct {
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+		Date    string `json:"date"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
+	}
+	if got.Version != "dev" {
+		t.Errorf("version = %q, want %q", got.Version, "dev")
+	}
+}
+
+func TestRootVersionFlag(t *testing.T) {
+	out, err := run(t, "--version")
+	if err != nil {
+		t.Fatalf("--version: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "oiax dev") {
+		t.Errorf("output = %q, want dev version", out)
+	}
+}
+
+// M10: validate and graph have no JSON rendering; -o/--output must be
+// rejected with a clear error rather than silently emitting text (the bug
+// was `graph -o json` succeeding with plain-text output and no complaint).
+func TestValidateAndGraphRejectJSONOutput(t *testing.T) {
+	cfgPath := writeConfig(t, exampleConfig)
+	for _, cmdName := range []string{"validate", "graph"} {
+		out, err := run(t, cmdName, "--config", cfgPath, "--output", "json")
+		if err == nil {
+			t.Fatalf("%s --output json succeeded, want a clear rejection:\n%s", cmdName, out)
+		}
+		if !strings.Contains(err.Error(), "not supported") {
+			t.Errorf("%s --output json error = %v, want a not-supported message", cmdName, err)
+		}
+	}
+}
+
+func TestInvalidOutputFlagRejected(t *testing.T) {
+	out, err := run(t, "validate", "--config", writeConfig(t, exampleConfig), "--output", "yaml")
+	if err == nil {
+		t.Fatalf("--output yaml succeeded, want rejection:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), `"yaml"`) {
+		t.Errorf("error = %v, want it to name the invalid value", err)
 	}
 }
 

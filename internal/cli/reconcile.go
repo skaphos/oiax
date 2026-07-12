@@ -16,7 +16,15 @@ long-lived branches, or touches unmanaged requests.
 Exit codes (the compatibility contract):
   0  converged (including "applied actions successfully")
   1  error
-  3  converged with reported divergence requiring human attention`,
+  3  converged with reported divergence requiring human attention
+
+Exit 3 is unrelated to "oiax plan --detailed-exitcode"'s exit 2: plan's 2
+means the plan has pending actions of any kind (including a divergence
+this command cannot resolve); this command's 3 means reconcile applied
+everything it safely could and a specific edge still needs a human. A gate
+keyed on "plan exit 2 implies reconcile will exit 0" is unsound — reconcile
+against that same state can still exit 3. Do not conflate the two codes
+across commands.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Assert the git version floor before any other git subprocess

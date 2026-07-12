@@ -338,6 +338,107 @@ func TestReconcileBackflowConflictExitsThree(t *testing.T) {
 	}
 }
 
+// TestReconcileJSONAnnotationNotOnStdout guards the GitHub Actions
+// combination M7 fixed: reconcile -o json used to route the Actions
+// ::warning:: annotation for a reported divergence to the same stdout
+// stream as the JSON plan document, corrupting it for machine consumers
+// that parse stdout. The backflow-conflict fixture reliably logs a Warn
+// (the annotation trigger); this proves the annotation lands on stderr
+// only and stdout stays exactly the JSON plan, mirroring
+// TestPlanJSONWarnsOnStderrNotStdout for the deprecation-warning case.
+func TestReconcileJSONAnnotationNotOnStdout(t *testing.T) {
+	// Build the repo directly (rather than via setupRepo) so .oiax.yaml is
+	// committed at main's HEAD: under GITHUB_ACTIONS=true, config must
+	// resolve through the default branch (ADR 0003), which requires a
+	// committed config, not setupRepo's untracked working-tree copy.
+	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	t.Setenv("OIAX_LOG_FORMAT", "")
+	t.Setenv("GITHUB_ACTIONS", "true")
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	gitCmd := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	writeFile := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitCmd("init", "-q", "-b", "main")
+	gitCmd("config", "user.name", "test")
+	gitCmd("config", "user.email", "test@example.invalid")
+	writeFile("app.txt", "v0\n")
+	writeFile(".oiax.yaml", exampleConfig)
+	gitCmd("add", ".")
+	gitCmd("commit", "-q", "-m", "c0")
+	gitCmd("branch", "development")
+	gitCmd("branch", "test")
+
+	// development and main diverge on the same file with conflicting
+	// content, so the backflow cherry-pick cannot apply cleanly: a
+	// reported divergence, which logs the Warn that becomes the
+	// ::warning:: annotation this test is guarding.
+	gitCmd("checkout", "-q", "development")
+	writeFile("app.txt", "dev-change\n")
+	gitCmd("add", "app.txt")
+	gitCmd("commit", "-q", "-m", "dev edit")
+	gitCmd("checkout", "-q", "main")
+	writeFile("app.txt", "hotfix-change\n")
+	gitCmd("add", "app.txt")
+	gitCmd("commit", "-q", "-m", "hotfix")
+
+	// Fabricate the remote-tracking default branch locally so
+	// DefaultBranchRef resolves without a network remote, and reconcile
+	// reads the config committed at main's HEAD.
+	headOut, err := exec.Command("git", "-C", dir, "rev-parse", "main").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.TrimSpace(string(headOut))
+	gitCmd("update-ref", "refs/remotes/origin/main", head)
+	gitCmd("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	f := &fakeForge{}
+	useForge(t, f)
+
+	root := NewRootCommand()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"reconcile", "--output", "json"})
+	err = root.Execute()
+
+	var ece exitCodeError
+	if !errors.As(err, &ece) || ece.code != 3 {
+		t.Fatalf("reconcile --output json err = %v, want exit code 3\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+
+	// The reported-divergence warning must annotate stderr, not stdout.
+	if !strings.Contains(stderr.String(), "::warning::") {
+		t.Errorf("stderr missing the ::warning:: annotation:\n%s", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "::warning::") {
+		t.Errorf("annotation leaked onto stdout, corrupting JSON:\n%s", stdout.String())
+	}
+	// stdout alone must parse as valid JSON — no interleaved annotation line.
+	var plan struct {
+		PlanFormatVersion int `json:"planFormatVersion"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, stdout.String())
+	}
+	if plan.PlanFormatVersion != 1 {
+		t.Errorf("planFormatVersion = %d, want 1", plan.PlanFormatVersion)
+	}
+}
+
 func TestPlanResolvesDefaultBranchConfig(t *testing.T) {
 	t.Setenv("GITHUB_ACTIONS", "")
 	t.Setenv("GITHUB_STEP_SUMMARY", "")

@@ -20,6 +20,9 @@ backflow policy. Output is text; Mermaid and Graphviz renderers are
 planned.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireTextOutput("graph", opts); err != nil {
+				return err
+			}
 			g, err := loadGraph(cmd, opts, opts.configRef)
 			if err != nil {
 				return err

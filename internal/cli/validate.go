@@ -18,6 +18,9 @@ Repository-state validation (configured branches existing as refs) requires
 edge evaluation and is not yet implemented.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireTextOutput("validate", opts); err != nil {
+				return err
+			}
 			g, err := loadGraph(cmd, opts, opts.configRef)
 			if err != nil {
 				return err
