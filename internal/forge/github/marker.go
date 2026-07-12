@@ -1,6 +1,8 @@
 package github
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/skaphos/oiax/internal/engine"
@@ -16,9 +18,18 @@ const (
 	LabelBackflow  = "oiax/backflow"
 )
 
-// markerVersion is the only marker schema this build understands. A
-// marker with any other version is treated as unmanaged.
+// markerVersion is the marker schema version this build writes and fully
+// understands. serializeMarker always stamps it. Readers are deliberately
+// more lenient than writers: managedMarker recognizes any well-formed
+// version (markerVersionPattern), so a request written by a newer release is
+// still identified as oiax's own and never duplicated.
 const markerVersion = "v1"
+
+// markerVersionPattern matches a well-formed marker version token: a "v"
+// followed by one or more digits ("v1", "v2", ...). Recognition accepts any
+// version of this shape; the numeric value decides only whether this build
+// understands the schema well enough to mutate the request (markerVersionNum).
+var markerVersionPattern = regexp.MustCompile(`^v[0-9]+$`)
 
 // marker is the parsed content of the machine-readable oiax block a
 // managed request carries in its body. The field named destination in
@@ -151,4 +162,17 @@ func typeLabel(t engine.RequestType) string {
 		return LabelBackflow
 	}
 	return LabelPromotion
+}
+
+// markerVersionNum returns the integer N of a well-formed "vN" marker
+// version. ok is false for any token markerVersionPattern rejects.
+func markerVersionNum(v string) (n int, ok bool) {
+	if !markerVersionPattern.MatchString(v) {
+		return 0, false
+	}
+	n, err := strconv.Atoi(v[1:])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }

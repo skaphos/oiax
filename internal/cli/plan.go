@@ -21,6 +21,13 @@ Exit codes (the compatibility contract, following terraform plan):
   2  valid plan with pending actions (only with --detailed-exitcode)`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Assert the git version floor before any other git subprocess
+			// (config resolution, graph load) so an unsupported runner fails
+			// fast with a clear message, not a raw git error mid-flight.
+			runner, err := requireGitFloor(cmd)
+			if err != nil {
+				return err
+			}
 			ref, err := effectiveConfigRef(cmd, opts)
 			if err != nil {
 				return err
@@ -29,7 +36,7 @@ Exit codes (the compatibility contract, following terraform plan):
 			if err != nil {
 				return err
 			}
-			coord, err := buildCoordinator(cmd, g)
+			coord, err := buildCoordinator(cmd, g, runner)
 			if err != nil {
 				return err
 			}

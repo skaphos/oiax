@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -426,6 +427,44 @@ func TestPlanRefusesUnresolvableDefaultBranchUnderActions(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "pin --config-ref") {
 		t.Errorf("error = %v, want guidance to pin --config-ref", err)
+	}
+}
+
+// TestPlanAssertsGitFloorBeforeConfigRead proves the version floor is asserted
+// before any other git subprocess. With --config-ref set, config resolution
+// runs `git show --end-of-options <ref>:<path>` during loadGraph; a fake git
+// below the floor reports its version but fails that show the way an old git
+// rejecting a modern option would. If the floor were checked only inside
+// buildCoordinator (after loadGraph), plan would surface the raw git error;
+// asserting the floor first yields the clear "or newer is required" refusal.
+func TestPlanAssertsGitFloorBeforeConfigRead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// The below-floor git is a POSIX shell script; Windows cannot exec an
+		// extension-less script as `git`. The ordering this proves (floor
+		// asserted before any other git subprocess) is platform-independent Go
+		// control flow, fully exercised on the linux and macos matrix legs.
+		t.Skip("fake-git harness is POSIX-only; floor-ordering logic is platform-independent")
+	}
+
+	setupRepo(t)
+	useForge(t, &fakeForge{})
+
+	fakeDir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = version ]; then echo 'git version 2.20.0'; exit 0; fi\n" +
+		"echo 'error: unknown option end-of-options' >&2\n" +
+		"exit 1\n"
+	if err := os.WriteFile(filepath.Join(fakeDir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeDir)
+
+	out, code := runCode(t, "plan", "--config-ref", "origin/main")
+	if code != 1 {
+		t.Fatalf("plan exit = %d, want 1\n%s", code, out)
+	}
+	if !strings.Contains(out, "or newer is required") {
+		t.Errorf("output = %q, want the git version-floor refusal, not a raw git error", out)
 	}
 }
 

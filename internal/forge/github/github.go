@@ -4,9 +4,13 @@
 // Provider notes that shape this implementation:
 //
 //   - Managed requests are identified by the machine-readable marker in
-//     the request body plus branch relationship plus the oiax label,
-//     never by title. Unmanaged requests between the same branches are
-//     never touched.
+//     the request body plus the branch relationship it declares (head ==
+//     source, base == destination), never by title or label. The oiax
+//     label is decorative: it is written for humans, but a human removing
+//     it must not make oiax lose track of its own request. Recognition is
+//     forward-compatible — a marker written by a newer release is still
+//     identified as managed, so an older oiax never opens a duplicate.
+//     Unmanaged requests between the same branches are never touched.
 //   - GitHub rejects a second open pull request with the same head/base
 //     pair (HTTP 422); that rejection is adopted as success (re-list and
 //     continue), not treated as an error. The forge is the concurrency
@@ -121,6 +125,14 @@ type ghPull struct {
 type ghRef struct {
 	Ref string `json:"ref"`
 	SHA string `json:"sha"`
+	// Repo is the repository the branch lives in. GitHub sets it from
+	// server-side state (never the PR author), so it is the provenance signal
+	// managedMarker uses to tell a same-repo request from a fork PR.
+	Repo ghRepo `json:"repo"`
+}
+
+type ghRepo struct {
+	FullName string `json:"full_name"`
 }
 
 type ghLabel struct {
@@ -133,9 +145,9 @@ type ghUser struct {
 
 // ListManagedRequests returns the managed change requests for the graph
 // and type in filter, in the requested state. Discovery keeps only pull
-// requests whose body marker parses, is version v1, whose head/base
-// branches equal the marker's source/destination, and that carry the
-// oiax label — title is never consulted.
+// requests whose body marker parses, carries a recognized version (any
+// vN), and whose head/base branches equal the marker's source/destination
+// — title and label are never consulted.
 func (p *Provider) ListManagedRequests(ctx context.Context, filter forge.RequestFilter) ([]engine.ChangeRequest, error) {
 	state := "open"
 	if filter.State == forge.RequestStateMerged {
@@ -234,8 +246,9 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 }
 
 // UpdateRequest rewrites the recorded sourceHead in a managed request's
-// marker, leaving the human body text intact. It refuses any request that
-// is not a valid v1 managed request.
+// marker, leaving the human body text intact. It refuses a request that is
+// not managed, or whose marker version this build does not support
+// (rewriting an unknown schema could drop fields it cannot see).
 func (p *Provider) UpdateRequest(ctx context.Context, req forge.UpdateRequest) error {
 	num, err := prNumber(string(req.ID))
 	if err != nil {
@@ -248,6 +261,9 @@ func (p *Provider) UpdateRequest(ctx context.Context, req forge.UpdateRequest) e
 	m, ok := managedMarker(pr)
 	if !ok {
 		return fmt.Errorf("update request %s: not a managed request", req.ID)
+	}
+	if !understoodMarker(m) {
+		return fmt.Errorf("update request %s: marker version %q is not supported by this build; upgrade oiax", req.ID, m.Version)
 	}
 	m.SourceHead = req.SourceHead
 	newBody, ok := replaceMarker(pr.Body, m)
@@ -262,8 +278,9 @@ func (p *Provider) UpdateRequest(ctx context.Context, req forge.UpdateRequest) e
 }
 
 // CloseRequest closes an obsolete managed request. It refuses to touch a
-// request that is not a valid v1 managed request, comments the reason
-// before closing, and never deletes.
+// request that is not managed, or whose marker version this build does
+// not support; it comments the reason before closing, and never
+// deletes.
 func (p *Provider) CloseRequest(ctx context.Context, id forge.RequestID, reason forge.Reason) error {
 	num, err := prNumber(string(id))
 	if err != nil {
@@ -273,8 +290,12 @@ func (p *Provider) CloseRequest(ctx context.Context, id forge.RequestID, reason 
 	if err != nil {
 		return fmt.Errorf("close request %s: %w", id, err)
 	}
-	if _, ok := managedMarker(pr); !ok {
+	m, ok := managedMarker(pr)
+	if !ok {
 		return fmt.Errorf("close request %s: not a managed request", id)
+	}
+	if !understoodMarker(m) {
+		return fmt.Errorf("close request %s: marker version %q is not supported by this build; upgrade oiax", id, m.Version)
 	}
 	commentURL := p.url(fmt.Sprintf("/repos/%s/%s/issues/%d/comments",
 		url.PathEscape(p.Owner), url.PathEscape(p.Repo), num))
@@ -525,31 +546,66 @@ func parseAPIError(resp *http.Response) error {
 	return ae
 }
 
-// managedMarker reports whether pr is a valid managed request and returns
-// its marker. Identity is: marker present and parses, version v1, head
-// branch == source, base branch == destination, and the oiax label
-// present. Any failure means unmanaged — the caller must not touch it.
+// managedMarker reports whether pr is one of oiax's own managed requests
+// and returns its marker. Identity rests on facts a third party who can open a
+// pull request cannot forge: a well-formed marker in the body (an HTML-comment
+// block whose version matches markerVersionPattern — prose that merely mentions
+// oiax is never a marker), the branch relationship the marker declares (head ==
+// source, base == destination), and — the provenance signal — the head and base
+// branches living in the same repository. The oiax label is deliberately NOT
+// part of identity: it is decorative, and a human removing it must not make oiax
+// lose track of its own request (which would duplicate on backflow and exit 1 on
+// promotion).
+//
+// The marker body and the head/base branch names are wholly author-controlled:
+// anyone who can open a PR from a fork writes the body and chooses those names.
+// Requiring head and base to share a repository restores the authorization
+// boundary the decorative label never enforced — only a collaborator with push
+// access can create a branch directly in the base repo, so a fork PR (head repo
+// != base repo) is never treated as managed even with a hand-written marker.
+//
+// Recognition is forward-compatible on purpose: a marker written by a newer
+// release (version v2 or higher) is still recognized as managed, so an older
+// oiax running concurrently during a rollout never mistakes it for unmanaged
+// and opens a duplicate. Whether this build understands the schema well
+// enough to mutate the request is the separate, stricter question
+// understoodMarker answers.
 func managedMarker(pr ghPull) (marker, bool) {
 	m, ok := parseMarker(pr.Body)
-	if !ok || m.Version != markerVersion {
+	if !ok || !markerVersionPattern.MatchString(m.Version) {
 		return marker{}, false
 	}
 	if pr.Head.Ref != m.Source || pr.Base.Ref != m.Destination {
 		return marker{}, false
 	}
-	if !hasLabel(pr, LabelOiax) {
+	// A PR whose head branch lives in a different repository than its base —
+	// i.e. opened from a fork — is never oiax's own: oiax only ever opens
+	// requests branch-to-branch within the base repo, and only push access can
+	// put a branch there. This is the provenance the marker text and branch
+	// names cannot supply, since a PR author controls both.
+	if pr.Head.Repo.FullName != pr.Base.Repo.FullName {
 		return marker{}, false
 	}
 	return m, true
 }
 
-func hasLabel(pr ghPull, name string) bool {
-	for _, l := range pr.Labels {
-		if l.Name == name {
-			return true
-		}
+// understoodMarker reports whether this build understands the marker's
+// schema version well enough to safely rewrite or close the request. A
+// marker written by a newer release (a higher vN) is recognized as managed
+// — so it is never duplicated — but this build must not mutate it:
+// re-serializing with an older schema could silently drop fields it cannot
+// see. Acting is therefore gated on understanding; recognition
+// (managedMarker) is not.
+func understoodMarker(m marker) bool {
+	got, ok := markerVersionNum(m.Version)
+	if !ok {
+		return false
 	}
-	return false
+	cur, ok := markerVersionNum(markerVersion)
+	if !ok {
+		return false
+	}
+	return got <= cur
 }
 
 // changeRequest maps a managed pull request and its marker to the

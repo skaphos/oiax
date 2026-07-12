@@ -262,6 +262,14 @@ first run and configuration resolves from the default branch without pinning
 full history the reachability and patch rungs rely on is present; a shallow
 checkout leaves divergence detection inaccurate.
 
+Oiax also requires **git 2.45 or newer** on the runner: backflow replays
+commits with `git cherry-pick --empty=drop`, an option older git lacks
+(Ubuntu 22.04 ships 2.34, Debian bookworm 2.39, and some GHES images are
+older still). The floor is asserted once at startup, so an unsupported
+runner fails fast with a clear error naming the required version and the
+detected one rather than failing deep inside a backflow. `ubuntu-latest`
+satisfies this.
+
 Events are hints to reconcile, not authoritative state. The model stays
 correct when events are duplicated, reordered, missed, or concurrent.
 Concurrency resolves without locks: the forge rejects duplicate

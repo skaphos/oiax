@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -125,9 +126,78 @@ func (r *Runner) resolveBranchRef(ctx context.Context, name string) (string, err
 	return "", fmt.Errorf("branch %q not found as a local head or origin-tracking ref", name)
 }
 
-// Version reports the system git version, primarily for diagnostics.
+// minGitMajor and minGitMinor are the minimum system git version oiax
+// requires: git 2.45 (2024). Backflow convergence replays commits with
+// `git cherry-pick --empty=drop`, an option that only exists from git 2.45;
+// older git (Ubuntu 22.04's 2.34, Debian bookworm's 2.39, and many GHES and
+// self-hosted runners) rejects it with "unknown option `empty=drop`" and
+// every backflow fails. The floor is asserted once at startup so an
+// unsupported runner produces a clear up-front error, not a mid-reconcile
+// surprise.
+const (
+	minGitMajor = 2
+	minGitMinor = 45
+)
+
+// gitVersionPattern captures the leading major.minor pair of a `git version`
+// string. It anchors only on the numeric prefix, so vendor suffixes —
+// "2.39.5 (Apple Git-154)", "2.40.0.windows.1" — still parse to their real
+// version.
+var gitVersionPattern = regexp.MustCompile(`([0-9]+)\.([0-9]+)`)
+
+// Version reports the raw `git version` line ("git version 2.45.1").
+// RequireMinVersion parses it to assert the required floor; it is also useful
+// for diagnostics.
 func (r *Runner) Version(ctx context.Context) (string, error) {
 	return r.run(ctx, "version")
+}
+
+// RequireMinVersion asserts the system git is at least the version oiax needs
+// (see minGitMajor/minGitMinor) and returns a clear error naming both the
+// required floor and the detected version otherwise. It is meant to run once
+// at startup, before any git-dependent work, so an unsupported runner fails
+// fast rather than deep inside a backflow cherry-pick.
+func (r *Runner) RequireMinVersion(ctx context.Context) error {
+	out, err := r.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("determine git version: %w", err)
+	}
+	return checkMinVersion(out)
+}
+
+// checkMinVersion is the pure parse-and-compare behind RequireMinVersion,
+// split out so the floor logic is testable without a system git of a
+// particular version. out is the raw `git version` line.
+func checkMinVersion(out string) error {
+	major, minor, ok := parseGitVersion(out)
+	if !ok {
+		return fmt.Errorf("cannot parse git version from %q", out)
+	}
+	if major < minGitMajor || (major == minGitMajor && minor < minGitMinor) {
+		return fmt.Errorf("git %d.%d or newer is required (backflow uses cherry-pick --empty=drop); detected %q",
+			minGitMajor, minGitMinor, out)
+	}
+	return nil
+}
+
+// parseGitVersion extracts the major and minor components from a `git version`
+// string ("git version 2.45.1"). It tolerates vendor suffixes by reading only
+// the leading numeric major.minor pair. ok is false when no version-shaped
+// number is present.
+func parseGitVersion(out string) (major, minor int, ok bool) {
+	m := gitVersionPattern.FindStringSubmatch(out)
+	if m == nil {
+		return 0, 0, false
+	}
+	major, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0, 0, false
+	}
+	minor, err = strconv.Atoi(m[2])
+	if err != nil {
+		return 0, 0, false
+	}
+	return major, minor, true
 }
 
 // CheckRefFormat rejects names that are not well-formed branch names.
