@@ -245,6 +245,22 @@ func parseGitVersion(out string) (major, minor int, ok bool) {
 	return major, minor, true
 }
 
+// IsShallowRepository reports whether the working repository is a shallow
+// clone — the state actions/checkout produces by default (fetch-depth: 1),
+// where only a truncated slice of history is present. A shallow clone has no
+// merge base for branches whose fork point predates the fetch depth, so the
+// patch-identity and baseline rungs of the equivalence ladder silently switch
+// off and already-promoted content looks unpromoted. The coordinator surfaces
+// a warning on this signal rather than emit spurious promotion requests. It
+// reads `git rev-parse --is-shallow-repository`, which prints "true"/"false".
+func (r *Runner) IsShallowRepository(ctx context.Context) (bool, error) {
+	out, err := r.run(ctx, "rev-parse", "--is-shallow-repository")
+	if err != nil {
+		return false, err
+	}
+	return out == "true", nil
+}
+
 // CheckRefFormat rejects names that are not well-formed branch names.
 // Every configured branch name passes through here before being used in
 // any other git invocation.
@@ -283,6 +299,34 @@ func (r *Runner) Head(ctx context.Context, name string) (string, error) {
 		return "", err
 	}
 	return r.run(ctx, "rev-parse", "--verify", ref)
+}
+
+// RemoteTrackingHead resolves a branch's origin-tracking ref
+// (refs/remotes/origin/<name>) to its commit SHA, reporting ok=false when the
+// tracking ref does not exist. Unlike resolveBranchRef it never falls back to a
+// local head: it reports specifically the branch's last-fetched remote state.
+// It backs the backflow push guard — before force-pushing the deterministic
+// backflow branch, the coordinator compares the freshly replayed head against
+// the branch's already-pushed head and skips an unchanged re-push, so a steady
+// replay does not churn the open request. The name is validated with
+// CheckRefFormat and only refs/remotes/origin/<validated> is constructed,
+// preserving the no-shell and ref-format guarantees. A resolution failure that
+// is git's clean "no such ref" (exit 1) is reported as ok=false; any other
+// failure propagates.
+func (r *Runner) RemoteTrackingHead(ctx context.Context, name string) (string, bool, error) {
+	if err := r.CheckRefFormat(ctx, name); err != nil {
+		return "", false, err
+	}
+	out, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "--end-of-options",
+		"refs/remotes/origin/"+name)
+	if err == nil {
+		return out, true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return "", false, nil
+	}
+	return "", false, err
 }
 
 // ShowFile returns the contents of path as committed at ref
@@ -527,6 +571,29 @@ func (r *Runner) ResolveCommit(ctx context.Context, oid string) (string, error) 
 		return "", fmt.Errorf("invalid oid %q", oid)
 	}
 	return r.run(ctx, "rev-parse", "--verify", "--end-of-options", oid+"^{commit}")
+}
+
+// CommitExists reports whether oid resolves to a commit object present in the
+// local repository. It exists to distinguish a DEFINITIVE not-found — git's
+// `rev-parse --verify --quiet` exit 1, meaning the object is simply not in the
+// object database — from an operational failure (any other error), which
+// propagates. A caller can then act on a genuinely absent commit (e.g. a
+// backflow request whose encoded source head was history-rewritten out of
+// existence) without mistaking a transient git failure for absence. oid is
+// guarded with oidPattern, exactly as ResolveCommit guards it.
+func (r *Runner) CommitExists(ctx context.Context, oid string) (bool, error) {
+	if !oidPattern.MatchString(oid) {
+		return false, fmt.Errorf("invalid oid %q", oid)
+	}
+	_, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "--end-of-options", oid+"^{commit}")
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, err
 }
 
 // Worktree creates an ephemeral, detached working tree checked out at ref

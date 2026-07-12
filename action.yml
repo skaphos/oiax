@@ -76,10 +76,15 @@ runs:
     # head (refs/heads/<name>) and does not set origin/HEAD. Oiax needs every
     # graph branch resolvable — as refs/remotes/origin/<name> — and the
     # default branch known so the pinned config-ref default resolves. This
-    # step only prepares refs; no promotion logic lives in YAML. Full history
-    # (fetch-depth: 0 on actions/checkout) is recommended for the reachability
-    # and patch rungs but is tracked separately — this step does not
-    # --unshallow.
+    # step only prepares refs; no promotion logic lives in YAML.
+    #
+    # Run actions/checkout with `fetch-depth: 0` (see the README/architecture
+    # quick-start). Its default (fetch-depth: 1) leaves a SHALLOW clone with no
+    # merge base, which silently disables the patch-identity and baseline rungs
+    # of the equivalence ladder and produces spurious promotion PRs for
+    # already-promoted content. This step deliberately does not --unshallow, so
+    # a shallow checkout stays shallow: Oiax detects it and emits a WARNING, but
+    # only a full-history (fetch-depth: 0) checkout yields correct results.
     - name: Prepare git refs
       shell: bash
       run: |

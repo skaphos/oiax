@@ -25,6 +25,7 @@ type fakeForge struct {
 	updated []forge.UpdateRequest
 	closed  []forge.RequestID
 	pushed  []forge.BranchPush
+	deleted []string
 }
 
 func (f *fakeForge) ListManagedRequests(_ context.Context, filter forge.RequestFilter) ([]engine.ChangeRequest, error) {
@@ -56,6 +57,11 @@ func (f *fakeForge) PushBranch(_ context.Context, push forge.BranchPush) error {
 
 func (f *fakeForge) RepoMergeMethods(context.Context) (forge.MergeMethods, error) {
 	return forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, nil
+}
+
+func (f *fakeForge) DeleteBranch(_ context.Context, name string) error {
+	f.deleted = append(f.deleted, name)
+	return nil
 }
 
 // useForge substitutes the package forge factory for the duration of a test.

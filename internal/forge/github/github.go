@@ -496,6 +496,64 @@ func (p *Provider) PushBranch(ctx context.Context, push forge.BranchPush) error 
 	return nil
 }
 
+// DeleteBranch deletes refs/heads/<name>, confined to the oiax/ namespace: any
+// name outside oiax/ is refused before the API is touched, so deletion can
+// never escape the namespace Oiax owns. It removes the head branch left behind
+// when a managed backflow request is superseded or closed. A branch that is
+// already gone (GitHub answers 404, or 422 for an unprocessable ref) is treated
+// as success, keeping the reconcile idempotent. The name is validated with git
+// check-ref-format and its slashes are preserved as path separators, so the
+// multi-segment oiax/backflow/... ref reaches the refs API intact.
+func (p *Provider) DeleteBranch(ctx context.Context, name string) error {
+	if !strings.HasPrefix(name, "oiax/") {
+		return fmt.Errorf("delete branch %q: refused outside the oiax/ namespace", name)
+	}
+	if err := p.checkRefFormat(ctx, name); err != nil {
+		return fmt.Errorf("delete branch %q: %w", name, err)
+	}
+	// The refs API addresses the branch as git/refs/heads/<name>; the name's
+	// slashes are ref-hierarchy separators, not characters to encode, so each
+	// segment is percent-escaped individually while the slashes are preserved.
+	// check-ref-format already rejects most hostile input, but a ref may still
+	// carry a byte like "%" that an unescaped URL path would misread.
+	refURL := p.url(fmt.Sprintf("/repos/%s/%s/git/refs/heads/%s",
+		url.PathEscape(p.Owner), url.PathEscape(p.Repo), escapeRefPath(name)))
+	if _, err := p.do(ctx, http.MethodDelete, refURL, nil, nil); err != nil {
+		var ae *apiError
+		if errors.As(err, &ae) && refDeleteMeansAbsent(ae) {
+			// The branch is already gone (or never existed): idempotent success.
+			return nil
+		}
+		return fmt.Errorf("delete branch %q: %w", name, err)
+	}
+	return nil
+}
+
+// escapeRefPath percent-escapes each slash-separated segment of a git ref name
+// for safe use in a URL path, preserving the "/" separators (ref hierarchy, not
+// characters to encode).
+func escapeRefPath(ref string) string {
+	segs := strings.Split(ref, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	return strings.Join(segs, "/")
+}
+
+// refDeleteMeansAbsent reports whether a failed ref delete indicates the ref
+// was already absent — an idempotent success — rather than a genuine failure.
+// GitHub's git-refs API returns 422 "Reference does not exist" for a missing
+// ref (and 404 on some paths); a 422 for any other reason (a validation error,
+// a protected ref) is a real failure that must propagate, so the caller never
+// closes a managed request while leaving its head branch behind.
+func refDeleteMeansAbsent(ae *apiError) bool {
+	if ae.StatusCode == http.StatusNotFound {
+		return true
+	}
+	return ae.StatusCode == http.StatusUnprocessableEntity &&
+		strings.Contains(strings.ToLower(ae.Message), "does not exist")
+}
+
 // checkRefFormat validates a branch name with git before it is used as a
 // ref, mirroring the internal/git posture (names reach git as data, not a
 // shell). It runs in GitDir. The error carries the name (caller data, never
@@ -504,7 +562,7 @@ func (p *Provider) checkRefFormat(ctx context.Context, name string) error {
 	cmd := exec.CommandContext(ctx, "git", "check-ref-format", "--branch", name)
 	cmd.Dir = p.GitDir
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("push branch %q: invalid branch name", name)
+		return fmt.Errorf("invalid branch name %q", name)
 	}
 	return nil
 }
