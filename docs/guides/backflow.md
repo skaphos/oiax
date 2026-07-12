@@ -91,15 +91,15 @@ managed request carries the labels `oiax` and `oiax/backflow`.
 
 ## "Already returned" — the identity check
 
-Oiax decides whether a downstream commit is already represented on the
-target with an ordered ladder (first conclusive rung wins):
+Oiax treats a downstream commit as already-returned if **any** of these
+hold (they are exclusion checks — a match by any one is enough):
 
-1. **Cherry-pick trailer** — a `(cherry picked from commit <sha>)` line
-   on a target commit names this commit.
-2. **Stable patch-id** — the commit's `git patch-id --stable` already
-   appears on the target.
-3. **`Oiax-Backflow: skip` trailer** — a human marked the commit as
-   intentionally not-returned (see below).
+- **Cherry-pick trailer** — a `(cherry picked from commit <sha>)` line on
+  a target commit names this commit.
+- **Stable patch-id** — the commit's `git patch-id --stable` already
+  appears on the target.
+- **`Oiax-Backflow: skip` trailer** — a human marked the commit as
+  intentionally not-returned (see below).
 
 A commit matched by none of these is unreturned, and becomes a replay
 candidate. Merge commits and empty commits are excluded (they carry no

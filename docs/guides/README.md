@@ -22,7 +22,11 @@ the [reference](../reference/), and for the design see
 - **[Backflow: returning hotfixes](backflow.md)** — bring downstream-only
   commits back to your source branch.
 - **[Operating Oiax day to day](operating.md)** — read plans, review and
-  merge managed PRs, and handle reported divergence.
+  merge managed PRs, branch protection, offboarding, scale, and reported
+  divergence.
+- **[Recipes](recipes.md)** — drift/policy gates, PR-time config
+  validation, previewing a graph change, plan-first rollout, JSON output,
+  and monorepos.
 - **[Troubleshooting](troubleshooting.md)** — symptom → cause → fix for
   every warning and error Oiax emits.
 

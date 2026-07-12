@@ -66,10 +66,10 @@ The rest of this guide explains each part and why it is there.
 ## `fetch-depth: 0` is not optional
 
 `actions/checkout` defaults to a **shallow** clone (`fetch-depth: 1`). A
-shallow clone has no merge base, which silently disables the
-patch-identity and baseline rungs of Oiax's [equivalence
-ladder](../architecture.md#the-equivalence-ladder) and produces **spurious
-promotion pull requests** for content that is already promoted.
+shallow clone has no merge base, which silently makes the merge-base,
+patch-identity, and baseline rungs of Oiax's [equivalence
+ladder](../architecture.md#the-equivalence-ladder) unreliable and produces
+**spurious promotion pull requests** for content that is already promoted.
 
 Set `fetch-depth: 0` so the full history is present. Oiax detects a
 shallow clone and warns:
@@ -116,7 +116,11 @@ permissions:
 ```
 
 Grant these at the workflow (or job) level, following least privilege —
-do not widen beyond what Oiax uses.
+do not widen beyond what Oiax uses. Write access lets Oiax open and
+refresh requests and push `oiax/` branches; it never lets Oiax merge,
+approve, or force-push your long-lived branches. Configure the promotion
+targets themselves in [Operating — branch protection and required
+checks](operating.md#branch-protection-and-required-checks).
 
 ## Concurrency
 

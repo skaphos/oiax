@@ -119,9 +119,13 @@ enable the branch-protection setting that dismisses stale approvals. A
 snapshot strategy (frozen `oiax/promote/...` candidates) is deliberately
 deferred.
 
-Obsolete requests (edge removed from configuration, edge synchronized
-out-of-band, metadata no longer matching actual base/head) are closed
-with an explanatory comment, never silently, never deleted.
+A managed promotion request whose edge is still in the graph but has
+synchronized out of band — so it now proposes nothing — is closed with an
+explanatory comment, never silently and never deleted. Removing an edge
+from the configuration is different: its request is no longer evaluated,
+so it is left open (orphaned) rather than closed. Backflow requests, by
+contrast, are superseded and closed (and their head branch deleted) on a
+new hotfix — see [Backflow](#backflow).
 
 ## Backflow
 
@@ -245,6 +249,7 @@ jobs:
         with:
           config: .oiax.yaml
           mode: reconcile
+          version: v1.0.0
 ```
 
 The `on.push.branches` list must mirror the configured graph; workflow
@@ -317,7 +322,8 @@ workflow annotations for warnings/errors and a plan summary written to
   defines, and request templates evaluate nothing.
 - Branch names are passed to git as data (`git check-ref-format`
   validation, `--` separators), never interpolated into shell.
-- Backflow operates in a clean working tree.
+- Backflow runs in an ephemeral detached worktree, never the caller's
+  checkout, and that worktree is removed on every exit path.
 - Force-push is confined to the `oiax/` ref namespace.
 
 ## Roadmap

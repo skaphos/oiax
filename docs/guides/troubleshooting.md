@@ -208,6 +208,39 @@ silently ignore `-o json`, they reject it.
 **Fix.** Drop `-o json` for those commands. Use `-o json` with `plan` /
 `reconcile`, which emit the [plan JSON format](../reference/plan-format.md).
 
+## `reconcile` fails with a "create request" error
+
+**Symptom.** `reconcile` exits 1 on an edge with an error mentioning
+`create request` (an adopt-duplicate failure).
+
+**Cause.** There is already an **open, hand-made** pull request with the
+same head and base as the managed promotion request Oiax is trying to
+open. GitHub rejects the duplicate (HTTP 422), and Oiax only adopts a
+duplicate that is its *own* managed request — it will not take over a PR
+it did not create.
+
+**Fix.** Merge or close the hand-made promotion PR for that edge, then run
+`reconcile` again so Oiax opens the managed request itself. See
+[Adopting Oiax on an existing repository](getting-started.md#adopting-oiax-on-an-existing-repository).
+
+## A configured branch does not exist
+
+**Symptom.** `plan` or `reconcile` fails with:
+
+```
+branch "qa" not found as a local head or origin-tracking ref
+```
+
+**Cause.** A branch named in the graph is not present as a local head or
+an `origin/<name>` tracking ref. Oiax never creates long-lived branches —
+each must already exist.
+
+**Fix.** Create the branch, or fix the name in `.oiax.yaml`. Note that
+**`oiax validate` does not catch this** — it checks graph *semantics*, not
+repository state — so a config can validate clean and still fail here.
+Under GitHub Actions the `skaphos/oiax` Action fetches every branch head,
+so this usually means the branch genuinely does not exist yet.
+
 ## Cannot determine owner/repo
 
 **Symptom.**
@@ -229,7 +262,9 @@ points at the GitHub repository (`git remote -v`), or export
 
 - Re-read the plan: `oiax plan` (or `plan -o json`) shows exactly what
   Oiax intends before it acts.
-- Turn on JSON logs: `OIAX_LOG_FORMAT=json`.
+- Switch log format with `OIAX_LOG_FORMAT=json` for machine-readable logs.
+  This only changes the *format* — Oiax logs at info level, and v1 has no
+  verbose/debug switch, so it does not add detail.
 - Check the [Architecture](../architecture.md) doc for how a case is meant
   to behave, and the [Configuration reference](../reference/configuration.md)
   for exact semantics.

@@ -84,6 +84,13 @@ spec:
       role: terminal
 ```
 
+Every branch here must already exist as a ref — Oiax never creates
+long-lived branches. Note that `oiax validate` checks graph *semantics*,
+not repository state, so it will **not** catch a branch that doesn't exist
+yet; that surfaces only at `plan`/`reconcile` time as `branch "<name>" not
+found as a local head or origin-tracking ref` (see
+[Troubleshooting](troubleshooting.md#a-configured-branch-does-not-exist)).
+
 ### Roles
 
 `role` is optional metadata that constrains the shape of the graph. It

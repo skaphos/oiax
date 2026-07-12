@@ -104,7 +104,7 @@ wrapper around the release binary:
   with:
     config: .oiax.yaml
     mode: reconcile        # validate | plan | reconcile
-    version: v0.1.0
+    version: v1.0.0
 ```
 
 `fetch-depth: 0` is not optional: `actions/checkout`'s default shallow

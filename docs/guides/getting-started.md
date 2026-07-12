@@ -39,6 +39,11 @@ built: unknown
 (A source build reports `dev`; released binaries report their version,
 commit, and build date.)
 
+> **Optional — shell completion.** Oiax ships completions for common
+> shells: `source <(oiax completion zsh)` (or `bash`, `fish`,
+> `powershell`). Run `oiax completion --help` for permanent-install
+> instructions.
+
 ### Prebuilt binaries and the Action (after 1.0.0)
 
 Once a release exists, each tag publishes platform binaries with a
@@ -203,6 +208,33 @@ oiax reconcile
 
 You will almost always run `reconcile` from CI rather than your laptop,
 so that it runs with the right identity and on the right events.
+
+## Adopting Oiax on an existing repository
+
+Two things are worth knowing before the **first** reconcile on a
+repository that already has promotion PRs:
+
+- **Unmanaged pull requests are safe.** Oiax only ever acts on requests it
+  created — recognized by a marker in the body plus the branch
+  relationship, never by title or label. A promotion PR you opened by hand
+  is never edited or closed.
+- **But a hand-made PR on an edge Oiax also manages will collide.** If you
+  already have an open PR from, say, `development` into `test`, and Oiax
+  decides that edge needs a promotion request, it tries to open its own
+  with the same head and base. GitHub rejects the duplicate (HTTP 422),
+  and Oiax only adopts a duplicate that is *its own* managed request — so
+  it cannot adopt your hand-made one, and `reconcile` fails on that edge
+  with a "create request" error.
+
+  Let Oiax own the edge from the start: merge or close your hand-made
+  promotion PR first, then run `reconcile`. See
+  [Troubleshooting](troubleshooting.md#reconcile-fails-with-a-create-request-error).
+
+A safe adoption sequence: run `oiax plan` to see exactly which edges Oiax
+will open requests for, resolve any hand-made PRs on those edges, then
+switch to `reconcile`. Deploying with `mode: plan` before `mode: reconcile`
+(see [Recipes — roll out plan-first](recipes.md#roll-out-plan-first)) makes
+this a low-risk rollout.
 
 ## 6. Deploy it
 

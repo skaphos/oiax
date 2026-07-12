@@ -1,5 +1,10 @@
 # Configuration reference
 
+> This page is the exhaustive key-by-key reference. For worked examples
+> and how to model your environments, see the [promotion-graph
+> guide](../guides/promotion-graphs.md); for the hotfix-return policy, the
+> [backflow guide](../guides/backflow.md).
+
 Oiax is configured by a repository-local file, default path
 `.oiax.yaml`, containing exactly one `PromotionGraph` document. Unknown
 fields are rejected. Multi-document files are rejected (multiple graphs
@@ -76,7 +81,7 @@ generated [CLI reference](cli.md) for per-command flags):
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `GITHUB_TOKEN` | none | **Required.** Token the GitHub provider authenticates with — creating, updating, closing, and listing managed requests, and pushing backflow branches. See [Architecture — Tokens](../architecture.md#tokens) for the token-type tradeoffs (`GITHUB_TOKEN` works out of the box but is degraded: created pull requests do not trigger other workflows). |
+| `GITHUB_TOKEN` | none | **Required for `plan` and `reconcile`** (`validate` and `graph` touch no forge). Token the GitHub provider authenticates with — creating, updating, closing, and listing managed requests, and pushing backflow branches. See [Architecture — Tokens](../architecture.md#tokens) for the token-type tradeoffs (`GITHUB_TOKEN` works out of the box but is degraded: created pull requests do not trigger other workflows). |
 | `OIAX_LOG_FORMAT` | `text` | Structured log format: `text` or `json`. |
 
 ## Exit codes

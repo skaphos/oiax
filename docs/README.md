@@ -18,7 +18,9 @@ Task-oriented walkthroughs — see the [guides index](guides/README.md):
   App token setup that keeps managed PRs from stalling.
 - [Backflow: returning hotfixes](guides/backflow.md).
 - [Operating Oiax day to day](guides/operating.md) — reading plans,
-  reviewing managed PRs, handling divergence.
+  reviewing managed PRs, branch protection, offboarding, scale, divergence.
+- [Recipes](guides/recipes.md) — drift gates, PR validation, previewing a
+  graph change, plan-first rollout, JSON output, monorepos.
 - [Troubleshooting](guides/troubleshooting.md) — symptom → cause → fix.
 
 ## Design and internals

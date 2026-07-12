@@ -27,7 +27,7 @@ The verbs:
 | --- | --- | --- |
 | `create` | createPromotionRequest | Unpromoted source commits exist and no managed promotion request is open — Oiax opens one. |
 | `update` | updateManagedRequest | An open promotion request's recorded baseline is stale because the source advanced — Oiax refreshes it. |
-| `close` | closeObsoleteRequest | An open managed request now proposes nothing (edge removed, or synchronized out of band) — Oiax closes it with a comment. |
+| `close` | closeObsoleteRequest | A managed request for an edge **still in the graph** now proposes nothing — the edge synchronized out of band — so Oiax closes it with a comment. |
 | `backflow` | createBackflowRequest | Downstream-only commits need returning — Oiax opens a [backflow](backflow.md) request. |
 | `report` | reportDivergence | The destination has content the source lacks and no backflow or drift policy accounts for it — **Oiax reports, and does nothing else.** See [Divergence](#when-oiax-reports-a-divergence). |
 
@@ -90,10 +90,40 @@ review always reflects what is actually about to merge.
 
 ### Obsolete requests are closed, not deleted
 
-When an edge is removed from the graph, or an edge synchronizes out of
-band (someone merged the content another way), the managed request now
-proposes nothing. Oiax closes it **with an explanatory comment** — never
-silently, never by deleting it. The comment tells you why.
+When an edge that is **still in the graph** synchronizes out of band —
+someone merged its content another way, so the managed request now
+proposes nothing — Oiax closes that request **with an explanatory
+comment**, never silently and never by deleting it. The comment tells you
+why.
+
+One case Oiax does **not** clean up automatically: if you *remove* an
+edge from the graph, its managed request is no longer evaluated, so it is
+left open (orphaned), not closed. Close it yourself — see [Removing or
+pausing Oiax](#removing-or-pausing-oiax). (Backflow is the exception — a
+superseded or orphaned backflow request *is* closed and its branch
+deleted.)
+
+## Branch protection and required checks
+
+Oiax opens and refreshes the promotion pull requests; **your branch
+protection decides whether they can merge and who merges them.** A
+sensible setup on each promotion target (`test`, `qa`, … through your
+terminal branch):
+
+- **Require status checks to pass** — the checks that actually gate a
+  promotion. They only run on a managed PR if it was created with a token
+  that triggers workflows; see [Tokens](tokens.md).
+- **Dismiss stale approvals** — enable "Dismiss stale pull request
+  approvals when new commits are pushed," because a managed request's head
+  is the live source branch and can gain commits after approval (see
+  [above](#approvals-can-go-stale)).
+- **Require review / CODEOWNERS** as your process dictates.
+
+Oiax needs `contents: write` (to push `oiax/` backflow branches) and
+`pull-requests: write` (to manage requests), but it **never approves,
+merges, or force-pushes your long-lived branches** — those decisions stay
+with your protected-branch rules and reviewers. Granting Oiax write does
+not let it bypass protection.
 
 ## When Oiax reports a divergence
 
@@ -145,6 +175,38 @@ still explainable from its output, and **the next reconcile converges**
 from wherever things ended up. If a provider call fails, fix the cause
 (permissions, token, a rate limit) and let the next scheduled or
 event-driven run catch up. Re-running is always safe.
+
+## Removing or pausing Oiax
+
+- **Pause** — switch the Action to `mode: plan` (it observes and reports
+  but changes nothing), or disable the workflow. Open managed requests are
+  left as they are.
+- **Remove one edge** — deleting an edge from the graph stops Oiax
+  evaluating it, but **does not close the request it already opened** (see
+  [Obsolete requests](#obsolete-requests-are-closed-not-deleted)). Close
+  that PR yourself, or leave it for a human to merge.
+- **Remove Oiax entirely** — delete the workflow (and, if you like,
+  `.oiax.yaml`). Open managed requests are ordinary pull requests
+  afterward: merge or close them by hand. Oiax keeps no state outside Git
+  and the forge, so there is nothing else to clean up beyond any `oiax/`
+  backflow branches you no longer want.
+
+## Scale and rate limits
+
+- **Discovery is two list calls per run**, whatever the graph's size —
+  Oiax lists open and recently-merged managed requests once and matches
+  them to edges in memory, so more edges do not multiply API calls.
+- **Rate limits are absorbed** — the GitHub provider retries with backoff
+  and honors `Retry-After` / rate-limit-reset headers, so a transient
+  throttle is waited out rather than failed. A run that still cannot
+  progress exits non-zero, and the next reconcile converges.
+- **Merged-request lookback is 180 days.** To recover a promotion
+  baseline (rung 4 of the [equivalence
+  ladder](../architecture.md#the-equivalence-ladder)), Oiax scans merged
+  promotion requests from the last 180 days. An edge whose last promotion
+  merged longer ago than that falls back to the other rungs — detection
+  stays correct, it just skips the baseline shortcut. An actively-promoted
+  edge merges far more often than the window.
 
 ## Observability
 

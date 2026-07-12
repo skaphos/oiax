@@ -11,6 +11,17 @@ against the `json` struct tags in
 [`internal/engine/types.go`](../../internal/engine/types.go); consumers
 should treat this page as authoritative.
 
+> For the human-readable (`-o text`) rendering and how to read a plan, see
+> [Operating Oiax — reading a plan](../guides/operating.md#reading-a-plan);
+> for a worked JSON-consumption recipe, [Recipes — consume the plan as
+> JSON](../guides/recipes.md#consume-the-plan-as-json).
+>
+> **A note on endpoint field names.** The same edge endpoints are named
+> differently across shapes: an [`Action`](#action) uses `from`/`to`, the
+> nested [`Request`](#request) uses `source`/`target`, and the
+> managed-request body marker uses `source`/`destination`. They all denote
+> the edge's source and destination branches.
+
 ## `Plan`
 
 | Field | Type | Presence | Meaning |
