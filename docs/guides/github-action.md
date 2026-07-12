@@ -7,6 +7,9 @@ composite wrapper around the release binary — it downloads a
 checksum-verified `oiax`, prepares git refs, and runs it. No promotion
 logic lives in YAML.
 
+The composite Action supports Linux runners on x64 and ARM64. Use the
+standalone release binary when running Oiax on another operating system.
+
 > **Release status.** The `skaphos/oiax@v1` Action reference will resolve
 > only after the first v1 release exists; Oiax has not cut it yet.
 > The workflow below is the shape you will use; it becomes runnable when
