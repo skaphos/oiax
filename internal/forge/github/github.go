@@ -247,7 +247,7 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 
 // UpdateRequest rewrites the recorded sourceHead in a managed request's
 // marker, leaving the human body text intact. It refuses a request that is
-// not managed, or whose marker version is newer than this build understands
+// not managed, or whose marker version this build does not support
 // (rewriting an unknown schema could drop fields it cannot see).
 func (p *Provider) UpdateRequest(ctx context.Context, req forge.UpdateRequest) error {
 	num, err := prNumber(string(req.ID))
@@ -263,7 +263,7 @@ func (p *Provider) UpdateRequest(ctx context.Context, req forge.UpdateRequest) e
 		return fmt.Errorf("update request %s: not a managed request", req.ID)
 	}
 	if !understoodMarker(m) {
-		return fmt.Errorf("update request %s: marker version %q is newer than this build understands; upgrade oiax", req.ID, m.Version)
+		return fmt.Errorf("update request %s: marker version %q is not supported by this build; upgrade oiax", req.ID, m.Version)
 	}
 	m.SourceHead = req.SourceHead
 	newBody, ok := replaceMarker(pr.Body, m)
@@ -278,8 +278,8 @@ func (p *Provider) UpdateRequest(ctx context.Context, req forge.UpdateRequest) e
 }
 
 // CloseRequest closes an obsolete managed request. It refuses to touch a
-// request that is not managed, or whose marker version is newer than this
-// build understands; it comments the reason before closing, and never
+// request that is not managed, or whose marker version this build does
+// not support; it comments the reason before closing, and never
 // deletes.
 func (p *Provider) CloseRequest(ctx context.Context, id forge.RequestID, reason forge.Reason) error {
 	num, err := prNumber(string(id))
@@ -295,7 +295,7 @@ func (p *Provider) CloseRequest(ctx context.Context, id forge.RequestID, reason 
 		return fmt.Errorf("close request %s: not a managed request", id)
 	}
 	if !understoodMarker(m) {
-		return fmt.Errorf("close request %s: marker version %q is newer than this build understands; upgrade oiax", id, m.Version)
+		return fmt.Errorf("close request %s: marker version %q is not supported by this build; upgrade oiax", id, m.Version)
 	}
 	commentURL := p.url(fmt.Sprintf("/repos/%s/%s/issues/%d/comments",
 		url.PathEscape(p.Owner), url.PathEscape(p.Repo), num))

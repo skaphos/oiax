@@ -249,7 +249,7 @@ func TestUpdateRequestRefusesNewerMarkerVersion(t *testing.T) {
 	if err == nil {
 		t.Fatal("UpdateRequest should refuse a marker version newer than this build understands")
 	}
-	if !strings.Contains(err.Error(), "newer than this build understands") {
+	if !strings.Contains(err.Error(), "not supported by this build") {
 		t.Errorf("error = %v, want a version-understanding refusal", err)
 	}
 	if patched {
@@ -660,7 +660,7 @@ func TestCloseRequestRefusesNewerMarkerVersion(t *testing.T) {
 	if err == nil {
 		t.Fatal("CloseRequest should refuse a marker version newer than this build understands")
 	}
-	if !strings.Contains(err.Error(), "newer than this build understands") {
+	if !strings.Contains(err.Error(), "not supported by this build") {
 		t.Errorf("error = %v, want a version-understanding refusal", err)
 	}
 	if touched {
