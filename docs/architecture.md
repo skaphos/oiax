@@ -4,7 +4,8 @@ Oiax is a declarative Git branch promotion reconciler. Given a promotion
 graph declared over long-lived branches, it observes branch and forge
 state and ensures the pull requests required to move changes through that
 graph exist — exactly one active managed request per diverged edge, no
-duplicates, no stale leftovers.
+duplicates. A request whose edge is removed from the graph is outside the
+new graph and is deliberately left for a human to close.
 
 Oiax deliberately does **not**:
 
@@ -184,7 +185,7 @@ many commits applied cleanly. This is a reported divergence
 ```text
 ┌──────────────────────────────────────┐
 │              Entrypoint              │
-│ CLI / GitHub Action / Azure Pipeline │
+│         CLI / GitHub Action          │
 ├──────────────────────────────────────┤
 │                Engine                │
 │ graph / divergence / planning        │
@@ -193,7 +194,7 @@ many commits applied cleanly. This is a reported divergence
 │ refs / reachability / patch identity │
 ├──────────────────────────────────────┤
 │            Forge provider            │
-│ GitHub / Azure DevOps / GitLab       │
+│       GitHub (other forges later)    │
 └──────────────────────────────────────┘
 ```
 
@@ -242,14 +243,13 @@ jobs:
   reconcile:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: skaphos/oiax@v1
         with:
           config: .oiax.yaml
           mode: reconcile
-          version: v1.0.0
 ```
 
 The `on.push.branches` list must mirror the configured graph; workflow
@@ -284,17 +284,24 @@ group only reduces wasted runs; correctness never depends on it.
 
 ### Tokens
 
-Pull requests created with the default `GITHUB_TOKEN` do not trigger
-`on: pull_request` workflows (GitHub's recursion guard) — under branch
-protection such requests can never merge. In order of recommendation:
+Pull requests created with the default `GITHUB_TOKEN` do not start
+`on: pull_request` checks automatically. GitHub's recursion guard queues
+the `opened`, `synchronize`, and `reopened` runs for approval by a user
+with write access. Under branch protection, an unattended request stalls
+until someone approves those runs. GitHub documents the current behavior
+under [triggering a workflow from a
+workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow).
+In order of recommendation:
 
 1. **GitHub App installation token** (e.g. via
-   `actions/create-github-app-token`) — production guidance. Native App
-   operation is v0.3 scope; supplying an App token works from v0.1.
+   `actions/create-github-app-token`) — production guidance. Supplying an
+   installation token is supported; Oiax does not mint one from App
+   credentials itself.
 2. **Fine-grained PAT** — acceptable; rotation burden on the user.
-3. **`GITHUB_TOKEN`** — works out of the box, degraded: created
-   requests get no CI. Acceptable only when no required checks guard
-   promotion targets; Oiax warns when it detects this.
+3. **`GITHUB_TOKEN`** — works out of the box, degraded: Oiax-created
+   requests need a write user to approve their initial queued workflow runs.
+   Acceptable for attended use or when no required checks guard promotion
+   targets; Oiax emits a conservative warning about this condition.
 
 ## Failure handling and observability
 
@@ -328,23 +335,17 @@ workflow annotations for warnings/errors and a plan summary written to
 
 ## Roadmap
 
-- **v0.1** — edge evaluation with the full equivalence ladder; managed
-  promotion request discovery/creation/update with `sourceHead`
-  metadata; obsolescence handling; `validate`/`plan`/`reconcile`/`graph`
-  with text and JSON output; exit-code contract; GitHub forge provider;
-  GitHub Action wrapper.
-- **v0.2** *(implemented)* — backflow: drift policy enforcement at
-  runtime, deterministic backflow branches keyed to the source head,
-  cherry-pick `-x` replay in an ephemeral worktree, identity ladder with
-  the `Oiax-Backflow: skip` override, supersede-and-close on a new
-  hotfix, conflict diagnostics as reported divergence
-  ([ADR 0004](adr/0004-backflow-execution.md)).
-- **v0.3** — native GitHub App mode; org-level defaults; request
-  templates; labels/assignees/reviewers.
-- **v0.4** — Azure DevOps provider; provider capability discovery.
-- **v1.0** — stable configuration API; idempotence under all three
-  merge methods; reliable backflow identity; concurrent execution
-  tested; managed-request compatibility across minor releases.
+The unreleased implementation already includes the full equivalence
+ladder, GitHub managed-request lifecycle, the CLI and Action wrapper, and
+backflow as specified by
+[ADR 0004](adr/0004-backflow-execution.md). The first planned release is
+**v1.0.0**, which makes the configuration API, exit codes, JSON plan
+format, and managed-request metadata compatibility contracts.
+
+Post-1.0 candidates include native GitHub App credential minting,
+org-level defaults, request templates and reviewer assignment, provider
+capability discovery, and additional forge providers. These are not
+assigned release numbers yet.
 
 ## Prior art
 

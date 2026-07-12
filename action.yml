@@ -13,9 +13,9 @@ branding:
 # promotion logic lives in JavaScript, shell, or Action YAML.
 #
 # Token guidance (load-bearing): pull requests created with the default
-# GITHUB_TOKEN do not trigger `on: pull_request` workflows, so managed
-# requests get no CI and can never merge under branch protection. Use a
-# GitHub App installation token in production; see docs/architecture.md.
+# GITHUB_TOKEN leave `on: pull_request` workflow runs waiting for approval
+# by a write user. Use a GitHub App installation token for unattended
+# production; see docs/architecture.md.
 
 inputs:
   mode:
@@ -35,14 +35,17 @@ inputs:
   token:
     description: >-
       Token used for forge API calls. Prefer a GitHub App installation
-      token; GITHUB_TOKEN works but created requests trigger no CI.
+      token; GITHUB_TOKEN works but workflow runs caused by an automated
+      pull-request open require approval by a write user.
     required: false
     default: ${{ github.token }}
   version:
     description: >-
-      Oiax release version to download (for example v0.1.0). Required
-      until the first release pins a default here.
-    required: true
+      Exact Oiax release version to download (for example v1.0.0).
+      Defaults to the version recorded by the Action ref, so @v1 follows
+      the newest published v1.x.y release.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -51,8 +54,28 @@ runs:
       shell: bash
       env:
         OIAX_VERSION: ${{ inputs.version }}
+        OIAX_ACTION_PATH: ${{ github.action_path }}
+        OIAX_ACTION_REF: ${{ github.action_ref }}
       run: |
         set -euo pipefail
+        if [ -z "${OIAX_VERSION}" ]; then
+          manifest="${OIAX_ACTION_PATH}/.release-please-manifest.json"
+          OIAX_VERSION="v$(sed -n 's/^[[:space:]]*"\."[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${manifest}")"
+        fi
+        if [[ ! "${OIAX_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "invalid Oiax release version '${OIAX_VERSION}' (want vMAJOR.MINOR.PATCH)" >&2
+          exit 1
+        fi
+        if [[ "${OIAX_ACTION_REF}" =~ ^v([0-9]+)(\.|$) ]]; then
+          action_major="${BASH_REMATCH[1]}"
+          if [[ "${OIAX_VERSION}" =~ ^v([0-9]+)\. ]]; then
+            binary_major="${BASH_REMATCH[1]}"
+            if [ "${binary_major}" != "${action_major}" ]; then
+              echo "Oiax Action ${OIAX_ACTION_REF} cannot run binary ${OIAX_VERSION}; major versions must match" >&2
+              exit 1
+            fi
+          fi
+        fi
         case "${RUNNER_OS}-${RUNNER_ARCH}" in
           Linux-X64)    asset="oiax_${OIAX_VERSION#v}_linux_amd64.tar.gz" ;;
           Linux-ARM64)  asset="oiax_${OIAX_VERSION#v}_linux_arm64.tar.gz" ;;

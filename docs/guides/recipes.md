@@ -17,7 +17,6 @@ your intent, then flip the input to `mode: reconcile`.
 - uses: skaphos/oiax@v1
   with:
     mode: plan          # observe only; change to `reconcile` when satisfied
-    version: v1.0.0
 ```
 
 Pair this with [adopting on an existing repo](getting-started.md#adopting-oiax-on-an-existing-repository)
@@ -52,7 +51,7 @@ jobs:
   drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - name: Prepare git refs          # mirror what the Action does for you
         run: |
@@ -91,11 +90,10 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4          # PR head; default depth is fine
+      - uses: actions/checkout@v7          # PR head; default depth is fine
       - uses: skaphos/oiax@v1
         with:
           mode: validate
-          version: v1.0.0
 ```
 
 `validate` checks graph *semantics* (acyclicity, references, roles,

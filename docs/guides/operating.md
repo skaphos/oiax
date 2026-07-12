@@ -99,9 +99,11 @@ why.
 One case Oiax does **not** clean up automatically: if you *remove* an
 edge from the graph, its managed request is no longer evaluated, so it is
 left open (orphaned), not closed. Close it yourself — see [Removing or
-pausing Oiax](#removing-or-pausing-oiax). (Backflow is the exception — a
-superseded or orphaned backflow request *is* closed and its branch
-deleted.)
+pausing Oiax](#removing-or-pausing-oiax). Backflow cleanup is narrower:
+while processing a new backflow action for the same pair, Oiax closes a
+superseded request or one whose encoded source commit disappeared after a
+history rewrite. Removing the backflow configuration itself does not
+trigger cleanup.
 
 ## Branch protection and required checks
 
@@ -193,13 +195,16 @@ event-driven run catch up. Re-running is always safe.
 
 ## Scale and rate limits
 
-- **Discovery is two list calls per run**, whatever the graph's size —
-  Oiax lists open and recently-merged managed requests once and matches
-  them to edges in memory, so more edges do not multiply API calls.
-- **Rate limits are absorbed** — the GitHub provider retries with backoff
-  and honors `Retry-After` / rate-limit-reset headers, so a transient
-  throttle is waited out rather than failed. A run that still cannot
-  progress exits non-zero, and the next reconcile converges.
+- **Discovery is two listing passes per plan**, whatever the graph's size:
+  one for open requests and one for recently merged requests. Each pass
+  may make several paginated API calls, but more graph edges do not
+  multiply the passes.
+- **Safe requests retry transient failures** — reads and duplicate-safe
+  request creation retry with bounded backoff and honor `Retry-After` /
+  rate-limit-reset headers. Other mutations are not blindly retried,
+  because their first result may be unknown and replaying them could
+  duplicate an effect. A run that cannot progress exits non-zero; the
+  next reconcile converges.
 - **Merged-request lookback is 180 days.** To recover a promotion
   baseline (rung 4 of the [equivalence
   ladder](../architecture.md#the-equivalence-ladder)), Oiax scans merged

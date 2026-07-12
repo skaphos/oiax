@@ -1,7 +1,8 @@
 # Setting up a token that triggers CI
 
-Read this before you rely on Oiax in production. It is the single most
-common way an Oiax deployment silently half-works.
+Read this before you rely on Oiax in unattended production. Token choice
+determines whether checks on Oiax-managed pull requests start
+automatically or wait for manual approval.
 
 ## The problem
 
@@ -10,26 +11,29 @@ Oiax authenticates to GitHub with the token you pass as the Action's
 default that is `${{ github.token }}` — the workflow's built-in
 `GITHUB_TOKEN`.
 
-Pull requests created with `GITHUB_TOKEN` **do not trigger other
-workflows.** This is GitHub's deliberate recursion guard: it stops an
-Action from creating a PR that re-runs the Action forever. The
-consequence for Oiax:
+GitHub applies a recursion guard to events created with `GITHUB_TOKEN`.
+For pull requests, `opened`, `synchronize`, and `reopened` events now
+create workflow runs in an **approval-required** state; a user with write
+access must approve them. Other pull-request activity types still do not
+create runs. GitHub documents the current behavior under
+[triggering a workflow from a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow).
+The consequence for Oiax:
 
-- A managed promotion PR that Oiax opens with `GITHUB_TOKEN` gets **no
-  `on: pull_request` runs** — no required checks fire.
-- Under branch protection that requires those checks, the PR **can never
-  become mergeable.** Promotion stalls silently.
+- A managed promotion PR that Oiax opens with `GITHUB_TOKEN`
+  does not start its `on: pull_request` checks automatically.
+- Under branch protection that requires those checks, unattended
+  promotion stalls until a write user approves the queued runs.
 
-Oiax detects this and warns once:
+Oiax detects this identity and emits the following conservative warning
+once (its wording predates GitHub's approval-required behavior):
 
 ```
 created pull request is authored by github-actions[bot]; on: pull_request workflows will not run for it. Configure a GitHub App installation token so managed requests get CI.
 ```
 
-`GITHUB_TOKEN` is only acceptable when **no required checks guard your
-promotion targets** — for example a trial run, or a repo where promotion
-PRs merge without CI. Everywhere else, use a GitHub App installation
-token.
+`GITHUB_TOKEN` is acceptable for an attended trial, or when no required
+checks guard your promotion targets. For unattended operation, use a
+GitHub App installation token.
 
 ## The options, ranked
 
@@ -39,8 +43,9 @@ token.
 2. **Fine-grained personal access token (PAT)** — works, but a person
    owns it and you carry the rotation burden. Acceptable for a team
    without an App.
-3. **`GITHUB_TOKEN`** — works out of the box, degraded: created PRs get
-   no CI. Only when no required checks gate promotion.
+3. **`GITHUB_TOKEN`** — works out of the box, degraded: Oiax-created PRs
+   need a write user to approve their initial queued workflow runs. Use
+   for attended operation or when no required checks gate promotion.
 
 ## Recommended: a GitHub App installation token
 
@@ -62,7 +67,7 @@ Under **Settings → Developer settings → GitHub Apps → New GitHub App**
     close managed requests.
   - Leave everything else at **No access**.
 
-Create the App, then note its **App ID** and generate a **private key**
+Create the App, then note its **Client ID** and generate a **private key**
 (a `.pem` download).
 
 ### 2. Install it on the repository
@@ -75,7 +80,7 @@ repository (or repositories) Oiax reconciles.
 In the repository (or org) settings, under **Secrets and variables →
 Actions**:
 
-- Add a **variable** `OIAX_APP_ID` = the App ID.
+- Add a **variable** `OIAX_APP_CLIENT_ID` = the Client ID.
 - Add a **secret** `OIAX_APP_PRIVATE_KEY` = the full contents of the
   `.pem` private key.
 
@@ -90,13 +95,13 @@ jobs:
   reconcile:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/create-github-app-token@v1
+      - uses: actions/create-github-app-token@v3.2.0
         id: app-token
         with:
-          app-id: ${{ vars.OIAX_APP_ID }}
+          client-id: ${{ vars.OIAX_APP_CLIENT_ID }}
           private-key: ${{ secrets.OIAX_APP_PRIVATE_KEY }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -105,12 +110,14 @@ jobs:
         with:
           config: .oiax.yaml
           mode: reconcile
-          version: v1.0.0
           token: ${{ steps.app-token.outputs.token }}
 ```
 
-Passing the App token to `actions/checkout` too means the branches Oiax
-pushes are authored by the App, so any push-triggered checks also fire.
+Passing the App token to `actions/checkout` ensures the Action's ref
+preparation fetches use the same installation identity. Oiax uses the
+token passed to its own `token` input for API calls and backflow pushes;
+those events are therefore attributed to the App and can trigger
+workflows automatically.
 
 After this, managed promotion PRs are authored by your App, `on:
 pull_request` workflows run for them, required checks report, and the PRs
@@ -127,13 +134,12 @@ the repository:
 Store it as a secret (e.g. `OIAX_TOKEN`) and pass it directly:
 
 ```yaml
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.OIAX_TOKEN }}
       - uses: skaphos/oiax@v1
         with:
-          version: v1.0.0
           token: ${{ secrets.OIAX_TOKEN }}
 ```
 
@@ -158,8 +164,9 @@ actually open managed requests.
 ## Why not native App auth in Oiax?
 
 Supplying an App **installation token** (as above) works from the first
-release. Oiax minting tokens from an App key itself — so you would hand it
-an App ID and private key directly — is a later milestone (see the
+release. Oiax minting tokens from App credentials itself — so you would
+hand it a Client ID and private key directly — is a possible later
+capability (see the
 [roadmap](../architecture.md#roadmap)). The installation-token approach
 above needs nothing further from Oiax.
 

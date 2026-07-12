@@ -5,19 +5,23 @@ so you can match them against what you see. Under GitHub Actions,
 warnings appear as `::warning::` annotations; the CLI prints them to
 stderr.
 
-## Managed pull requests get no CI and never merge
+## Managed pull request checks wait for approval
 
-**Symptom.** Oiax opens promotion PRs, but their required checks never
-run, so they cannot merge. You see:
+**Symptom.** Oiax opens promotion PRs, but their required checks show as
+waiting for approval instead of starting automatically. You see:
 
 ```
 created pull request is authored by github-actions[bot]; on: pull_request workflows will not run for it. Configure a GitHub App installation token so managed requests get CI.
 ```
 
-**Cause.** The PRs were created with the default `GITHUB_TOKEN`, which by
-design does not trigger `on: pull_request` workflows.
+**Cause.** The PRs were created with the default `GITHUB_TOKEN`. GitHub's
+recursion guard puts `opened`, `synchronize`, and `reopened` workflow
+runs in an approval-required state; other pull-request activity types do
+not create runs.
 
-**Fix.** Use a GitHub App installation token (or a fine-grained PAT).
+**Fix.** For a one-off, a user with write access can approve the queued
+runs. For unattended operation, use a GitHub App installation token (or
+a fine-grained PAT).
 Full walkthrough: **[Setting up a token that triggers CI](tokens.md)**.
 
 ## Spurious or duplicate promotion PRs for content that is already promoted

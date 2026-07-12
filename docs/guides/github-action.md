@@ -7,8 +7,8 @@ composite wrapper around the release binary — it downloads a
 checksum-verified `oiax`, prepares git refs, and runs it. No promotion
 logic lives in YAML.
 
-> **Release status.** The `skaphos/oiax@v1` Action resolves to a
-> published release, and Oiax has not cut one yet (1.0.0 is in progress).
+> **Release status.** The `skaphos/oiax@v1` Action reference will resolve
+> only after the first v1 release exists; Oiax has not cut it yet.
 > The workflow below is the shape you will use; it becomes runnable when
 > the first release ships. Until then you can exercise the same behavior
 > from source with `oiax reconcile` (see [getting started](getting-started.md)).
@@ -41,14 +41,13 @@ jobs:
   reconcile:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: skaphos/oiax@v1
         with:
           config: .oiax.yaml
           mode: reconcile
-          version: v1.0.0
 ```
 
 The rest of this guide explains each part and why it is there.
@@ -61,7 +60,12 @@ The rest of this guide explains each part and why it is there.
 | `config` | `.oiax.yaml` | Path to the configuration file. |
 | `config-ref` | *(empty)* | Ref to read configuration from. Empty means the repository default branch — the [pinned-ref](promotion-graphs.md#where-configuration-is-read-from) default. |
 | `token` | `${{ github.token }}` | Token for forge API calls and pushing `oiax/` branches. **Change this** — see [Tokens](#tokens). |
-| `version` | *(required)* | The Oiax release to download, e.g. `v1.0.0`. Required until a release pins a default. |
+| `version` | Action ref's release | Optional exact binary override, e.g. `v1.0.0`. By default `@v1` reads the release manifest at that ref, so wrapper and binary advance together within v1. A cross-major override is rejected. |
+
+Release automation advances the floating `v1` tag only after a full
+`v1.x.y` release and its checksum-verified artifacts are published. A
+consumer on `@v1` therefore receives compatible minor and patch updates;
+set `version` only when you need to hold the binary at an exact release.
 
 ## `fetch-depth: 0` is not optional
 
@@ -140,19 +144,23 @@ deterministic), so overlapping runs converge rather than collide. Use
 
 This is the one setup step that trips everyone up.
 
-Pull requests created with the default `GITHUB_TOKEN` **do not trigger
-`on: pull_request` workflows** (GitHub's recursion guard). Under branch
-protection with required checks, such a request gets no CI and **can
-never merge**. Oiax warns when it sees this:
+Pull requests created with the default `GITHUB_TOKEN` **do not start
+`on: pull_request` checks automatically**. GitHub queues workflow runs
+for the `opened`, `synchronize`, and `reopened` events in an
+approval-required state. Under branch protection, unattended promotion
+stalls until a user with write access approves those runs. See GitHub's
+[workflow-trigger documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow).
+Oiax emits a conservative warning when it sees this identity:
 
 ```
 created pull request is authored by github-actions[bot]; on: pull_request workflows will not run for it. Configure a GitHub App installation token so managed requests get CI.
 ```
 
-The fix is a **GitHub App installation token**. It is worth doing before
-you rely on Oiax in production. The full walkthrough — creating the App,
-wiring `actions/create-github-app-token`, and the fine-grained-PAT
-fallback — is in **[Set up a token that triggers CI](tokens.md)**.
+The unattended fix is a **GitHub App installation token**. It is worth
+doing before you rely on Oiax in production. The full walkthrough —
+creating the App, wiring `actions/create-github-app-token`, and the
+fine-grained-PAT fallback — is in **[Set up a token that triggers
+CI](tokens.md)**.
 
 ## Choosing a mode
 
