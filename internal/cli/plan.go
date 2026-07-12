@@ -80,8 +80,10 @@ exit 3 after a plan of 2 in that single case.`,
 
 // planReportsDivergence reports whether the plan contains a report-only
 // divergence — the ActionReportDivergence the planner emits for a non-backflow
-// destination with unexpected downstream content. Its presence is exactly what
-// makes reconcile set res.Divergence and exit 3.
+// destination with unexpected downstream content. When it is present, reconcile
+// also sets res.Divergence and exits 3 for the same state. The converse does
+// not hold: reconcile can also exit 3 for an apply-time backflow cherry-pick
+// conflict the plan cannot foresee (see the command help).
 func planReportsDivergence(plan engine.Plan) bool {
 	for _, a := range plan.Actions {
 		if a.Type == engine.ActionReportDivergence {

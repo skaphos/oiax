@@ -88,6 +88,12 @@ no duplicates, no stale leftovers. It never merges, approves, or deploys.`,
 			if showVersion {
 				return printVersion(cmd, opts)
 			}
+			// Bare `oiax` prints help, which has no JSON rendering; reject a
+			// non-text --output rather than silently ignore it, mirroring
+			// requireTextOutput on validate/graph.
+			if err := requireTextOutput("oiax", opts); err != nil {
+				return err
+			}
 			return cmd.Help()
 		},
 	}

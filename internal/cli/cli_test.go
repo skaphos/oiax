@@ -236,6 +236,18 @@ func TestValidateAndGraphRejectJSONOutput(t *testing.T) {
 	}
 }
 
+// M10: `oiax -o json` with no subcommand falls back to help, which has no JSON
+// rendering; it must be rejected rather than silently ignore --output.
+func TestRootRejectsJSONOutputWithoutSubcommand(t *testing.T) {
+	out, err := run(t, "--output", "json")
+	if err == nil {
+		t.Fatalf("oiax --output json (no subcommand) succeeded, want a clear rejection:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("error = %v, want a not-supported message", err)
+	}
+}
+
 func TestInvalidOutputFlagRejected(t *testing.T) {
 	out, err := run(t, "validate", "--config", writeConfig(t, exampleConfig), "--output", "yaml")
 	if err == nil {
