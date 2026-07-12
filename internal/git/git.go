@@ -208,7 +208,10 @@ func (r *Runner) ShowFile(ctx context.Context, ref, path string) ([]byte, error)
 // stale local branch.
 func (r *Runner) DefaultBranchRef(ctx context.Context) (string, bool) {
 	if out, err := r.run(ctx, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil && out != "" {
-		return out, true
+		// symbolic-ref does not guarantee the target tracking ref exists.
+		if _, err := r.run(ctx, "show-ref", "--verify", "--quiet", "refs/remotes/"+out); err == nil {
+			return out, true
+		}
 	}
 	// origin/HEAD is not recorded locally; ask the remote which branch its
 	// HEAD points at. The symref line looks like "ref: refs/heads/main\tHEAD".
