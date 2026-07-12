@@ -701,13 +701,13 @@ func (p *Provider) doOnce(ctx context.Context, method, urlStr string, in, out an
 	if in != nil {
 		b, err := json.Marshal(in)
 		if err != nil {
-			return nil, &errNoResponse{fmt.Errorf("encode request body: %w", err)}
+			return nil, fmt.Errorf("encode request body: %w", err)
 		}
 		reqBody = bytes.NewReader(b)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, urlStr, reqBody)
 	if err != nil {
-		return nil, &errNoResponse{fmt.Errorf("build request: %w", err)}
+		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+p.Token)
 	req.Header.Set("Accept", acceptHeader)
@@ -755,27 +755,31 @@ func (p *Provider) backoff(attempt int) time.Duration {
 	return half + time.Duration(rand.Int64N(int64(half)+1))
 }
 
-// errNoResponse marks a failure that occurred before any HTTP response was
-// received: encoding the request body, building the request, or the round trip
-// itself. It is deliberately distinct from a decode failure, where a response
-// (with a real 2xx status) was in fact received but its body did not parse —
-// retryDelay treats only the former as unconditionally transient.
+// errNoResponse marks a transport-level failure whose round trip did not
+// complete, so no HTTP response was received (a stalled or reset connection, a
+// DNS failure, a refused connection). It is deliberately distinct from the
+// deterministic construction errors that precede the round trip — encoding the
+// body, building the request — which fail fast because a retry would fail
+// identically, and from a decode failure, where a response with a real 2xx
+// status was in fact received but its body did not parse. retryDelay treats
+// only errNoResponse as unconditionally transient.
 type errNoResponse struct{ err error }
 
 func (e *errNoResponse) Error() string { return e.err.Error() }
 func (e *errNoResponse) Unwrap() error { return e.err }
 
 // retryDelay decides whether err is transient and how long to wait before
-// retrying. A failure with no HTTP response (a stalled or reset connection, or
-// a request that never left the process) is always transient. An *apiError is
-// transient only for 429, 5xx, and a 403 that carries rate-limit signals; a
-// server-provided Retry-After / X-RateLimit-Reset then wins over the computed
-// backoff. Any other error means a response WAS received but something after it
-// failed — most importantly a decode failure on a 2xx body: that is NOT
-// retried, because the request already reached the server, so re-sending a
-// non-idempotent mutation could double-apply it (CreateRequest's create POST is
-// the one retryable non-GET call; a blind retry there could open a duplicate
-// PR once the original is no longer open to trip GitHub's 422 adopt guard).
+// retrying. Only errNoResponse — a transport failure whose round trip did not
+// complete (a stalled or reset connection, a DNS failure, a refused connection)
+// — is unconditionally transient. An *apiError is transient only for 429, 5xx,
+// and a 403 that carries rate-limit signals; a server-provided Retry-After /
+// X-RateLimit-Reset then wins over the computed backoff. Every other error is
+// NOT retried: a deterministic construction error (encoding the body, building
+// the request) would fail identically, and a decode failure on a 2xx body means
+// the request already reached the server — re-sending a non-idempotent mutation
+// could double-apply it (CreateRequest's create POST is the one retryable
+// non-GET call; a blind retry there could open a duplicate PR once the original
+// is no longer open to trip GitHub's 422 adopt guard).
 func retryDelay(err error, hdr http.Header, backoff time.Duration) (time.Duration, bool) {
 	var noResp *errNoResponse
 	if errors.As(err, &noResp) {

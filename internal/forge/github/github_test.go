@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -104,6 +105,28 @@ func writeJSON(t *testing.T, w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		t.Fatalf("encode response: %v", err)
+	}
+}
+
+// TestDoOnceConstructionErrorNotRetried pins that a deterministic pre-round-trip
+// failure (here an invalid HTTP method, which makes http.NewRequestWithContext
+// fail before anything is sent) is NOT classified as a transient no-response
+// error: it must fail fast rather than be retried by send, since a retry would
+// fail identically.
+func TestDoOnceConstructionErrorNotRetried(t *testing.T) {
+	t.Parallel()
+	p := &Provider{Owner: "acme", Repo: "widgets", Token: testToken, HTTP: http.DefaultClient}
+
+	_, err := p.doOnce(context.Background(), "BAD METHOD", "http://example.invalid", nil, nil)
+	if err == nil {
+		t.Fatal("expected a construction error from an invalid method")
+	}
+	var noResp *errNoResponse
+	if errors.As(err, &noResp) {
+		t.Errorf("construction error wrapped as errNoResponse (would be retried): %v", err)
+	}
+	if _, retry := retryDelay(err, http.Header{}, time.Second); retry {
+		t.Errorf("construction error classified as retryable; want fail-fast: %v", err)
 	}
 }
 
