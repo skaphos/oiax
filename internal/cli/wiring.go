@@ -37,17 +37,34 @@ var newForge = func(ctx context.Context, logger *slog.Logger) (forge.Forge, erro
 	}, nil
 }
 
+// requireGitFloor asserts the system git satisfies oiax's version floor before
+// any other git-dependent work runs, and returns the Runner it checked so the
+// same instance can back the coordinator. Backflow replay needs cherry-pick
+// --empty=drop (git >= 2.45), so an unsupported runner must fail fast with a
+// clear up-front message rather than surface a raw git error deep inside config
+// resolution or a reconcile. It is the first action of plan and reconcile, ahead
+// of effectiveConfigRef and loadGraph, so the floor is asserted before any other
+// git subprocess (DefaultBranchRef, ShowFile) is spawned.
+func requireGitFloor(cmd *cobra.Command) (*git.Runner, error) {
+	runner := &git.Runner{}
+	if err := runner.RequireMinVersion(cmd.Context()); err != nil {
+		return nil, err
+	}
+	return runner, nil
+}
+
 // buildCoordinator assembles the coordinator for a plan-producing command:
 // the structured logger, the forge provider, and the git runner over the
-// working directory.
-func buildCoordinator(cmd *cobra.Command, g *engine.Graph) (*reconcile.Coordinator, error) {
+// working directory. runner is the instance requireGitFloor already asserted
+// the version floor on, so the floor is checked exactly once.
+func buildCoordinator(cmd *cobra.Command, g *engine.Graph, runner *git.Runner) (*reconcile.Coordinator, error) {
 	logger := buildLogger(cmd)
 	f, err := newForge(cmd.Context(), logger)
 	if err != nil {
 		return nil, err
 	}
 	return &reconcile.Coordinator{
-		Git:   &git.Runner{},
+		Git:   runner,
 		Forge: f,
 		Graph: g,
 		Log:   logger,

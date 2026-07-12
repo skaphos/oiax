@@ -800,6 +800,20 @@ func TestCherryPickDropsRedundant(t *testing.T) {
 	}
 }
 
+// TestRequireMinVersion exercises the startup floor assertion end to end
+// against the system git (Version + checkMinVersion). The test suite already
+// requires a git executable, and the whole point of the floor is that oiax's
+// supported runners meet it, so a passing check on the host git is the
+// happy-path guarantee; the below-floor rejection is covered purely by
+// checkMinVersion in version_internal_test.go, needing no old git binary.
+func TestRequireMinVersion(t *testing.T) {
+	t.Parallel()
+	r, _ := newRepo(t)
+	if err := r.RequireMinVersion(context.Background()); err != nil {
+		t.Fatalf("RequireMinVersion on the system git: %v", err)
+	}
+}
+
 // oidLike is a test-local check that a string looks like a git object id.
 func oidLike(s string) bool {
 	if len(s) < 7 || len(s) > 64 {

@@ -153,13 +153,118 @@ func TestReplaceMarkerPreservesText(t *testing.T) {
 	}
 }
 
+// TestManagedMarkerIdentity pins the on-forge identity rules directly at
+// managedMarker: identity is marker presence + a recognized version + the
+// branch relationship, and NOT the oiax label. It fails against the pre-fix
+// build, which required an exact v1 version and the oiax label.
+func TestManagedMarkerIdentity(t *testing.T) {
+	t.Parallel()
+	// pull builds a ghPull whose default (empty body) carries a managed marker
+	// for the development->test edge with the given version; a non-empty body is
+	// used verbatim.
+	pull := func(version string, labels []string, body string) ghPull {
+		if body == "" {
+			body = "Automated promotion.\n\n" + serializeMarker(marker{
+				Version: version, Graph: "environments", Type: "promotion",
+				Source: "development", Destination: "test", SourceHead: "aaa",
+			})
+		}
+		ls := make([]ghLabel, 0, len(labels))
+		for _, l := range labels {
+			ls = append(ls, ghLabel{Name: l})
+		}
+		return ghPull{
+			Number: 1,
+			Body:   body,
+			Head:   ghRef{Ref: "development"},
+			Base:   ghRef{Ref: "test"},
+			Labels: ls,
+		}
+	}
+
+	tests := []struct {
+		name   string
+		pr     ghPull
+		wantOK bool
+	}{
+		{"v1 with the oiax label is managed", pull("v1", []string{LabelOiax, LabelPromotion}, ""), true},
+		// The label is decorative: a human removing it must not make oiax lose
+		// track of its own request.
+		{"v1 without the oiax label is still managed", pull("v1", []string{LabelPromotion}, ""), true},
+		// Forward compatibility: a marker written by a newer release is still
+		// recognized, so an older oiax never opens a duplicate.
+		{"v2 marker is recognized as managed", pull("v2", []string{LabelOiax}, ""), true},
+		// Prose that merely mentions oiax outside an HTML comment is never a marker.
+		{"prose mentioning oiax is not a marker", pull("", nil, "we track this with oiax: promotion, but it is prose"), false},
+		{"no marker at all is not managed", pull("", nil, "an ordinary human PR body"), false},
+		{"malformed version token is not a marker", pull("draft", []string{LabelOiax}, ""), false},
+		{"branch relationship contradicting the marker is not managed", func() ghPull {
+			p := pull("v1", []string{LabelOiax}, "")
+			p.Base = ghRef{Ref: "staging"}
+			return p
+		}(), false},
+		// A fork PR (head branch in a different repository than the base) is
+		// never managed even with a well-formed matching marker: only push
+		// access can put a branch in the base repo, so this is the provenance
+		// signal a PR author cannot forge with body text and branch names.
+		{"a fork PR whose head repo differs from its base repo is not managed", func() ghPull {
+			p := pull("v1", []string{LabelOiax}, "")
+			p.Head.Repo = ghRepo{FullName: "attacker/widgets"}
+			p.Base.Repo = ghRepo{FullName: "acme/widgets"}
+			return p
+		}(), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := managedMarker(tc.pr); ok != tc.wantOK {
+				t.Fatalf("managedMarker ok = %v, want %v", ok, tc.wantOK)
+			}
+		})
+	}
+}
+
+// TestUpdateRequestRefusesNewerMarkerVersion proves the acting/recognition
+// split: a v2 marker is recognized as managed (so it is never duplicated) but
+// this build must not rewrite a schema it does not understand.
+func TestUpdateRequestRefusesNewerMarkerVersion(t *testing.T) {
+	t.Parallel()
+	newer := prSpec{number: 5, source: "development", dest: "test", graph: "environments",
+		typ: "promotion", sourceHead: "old-head", labels: []string{LabelOiax, LabelPromotion}}.toPull()
+	newer["body"] = "Automated promotion.\n\n" + serializeMarker(marker{
+		Version: "v2", Graph: "environments", Type: "promotion",
+		Source: "development", Destination: "test", SourceHead: "old-head",
+	})
+	patched := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			patched = true
+		}
+		writeJSON(t, w, http.StatusOK, newer)
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	err := p.UpdateRequest(context.Background(), forge.UpdateRequest{ID: "5", SourceHead: "new-head"})
+	if err == nil {
+		t.Fatal("UpdateRequest should refuse a marker version newer than this build understands")
+	}
+	if !strings.Contains(err.Error(), "newer than this build understands") {
+		t.Errorf("error = %v, want a version-understanding refusal", err)
+	}
+	if patched {
+		t.Error("UpdateRequest rewrote a marker it does not understand")
+	}
+}
+
 func TestListManagedRequestsFiltering(t *testing.T) {
 	t.Parallel()
 	pulls := []map[string]any{
 		// Managed promotion for the graph — kept.
 		prSpec{number: 1, source: "development", dest: "test", graph: "environments",
 			typ: "promotion", sourceHead: "aaa", labels: []string{LabelOiax, LabelPromotion}}.toPull(),
-		// Valid marker but missing the oiax label — unmanaged.
+		// Valid marker, oiax label absent — the label is decorative, so this is
+		// still one of oiax's managed requests and is kept.
 		prSpec{number: 2, source: "development", dest: "test", graph: "environments",
 			typ: "promotion", sourceHead: "bbb", labels: []string{"other"}}.toPull(),
 		// Marker graph differs from the filter — excluded.
@@ -194,13 +299,23 @@ func TestListManagedRequestsFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListManagedRequests: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("got %d managed requests, want 1: %+v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("got %d managed requests, want 2: %+v", len(got), got)
 	}
-	want := engine.ChangeRequest{ID: "1", Type: engine.RequestTypePromotion,
-		Source: "development", Target: "test", SourceHead: "aaa"}
-	if got[0] != want {
-		t.Errorf("managed request = %+v, want %+v", got[0], want)
+	byID := map[string]engine.ChangeRequest{}
+	for _, cr := range got {
+		byID[cr.ID] = cr
+	}
+	want := map[string]engine.ChangeRequest{
+		"1": {ID: "1", Type: engine.RequestTypePromotion, Source: "development", Target: "test", SourceHead: "aaa"},
+		// PR 2 has no oiax label yet is still recognized: identity does not
+		// depend on the (decorative) label.
+		"2": {ID: "2", Type: engine.RequestTypePromotion, Source: "development", Target: "test", SourceHead: "bbb"},
+	}
+	for id, w := range want {
+		if byID[id] != w {
+			t.Errorf("managed request %s = %+v, want %+v", id, byID[id], w)
+		}
 	}
 }
 
@@ -450,9 +565,12 @@ func TestUpdateRequestRewritesSourceHead(t *testing.T) {
 
 func TestUpdateRequestRefusesUnmanaged(t *testing.T) {
 	t.Parallel()
-	// Valid-looking body but missing the oiax label => unmanaged.
+	// No marker in the body => unmanaged. (A missing oiax label no longer makes
+	// a request unmanaged; the label is decorative, so the fixture must lack the
+	// marker itself to exercise the refusal.)
 	unmanaged := prSpec{number: 5, source: "development", dest: "test", graph: "environments",
-		typ: "promotion", sourceHead: "h", labels: []string{"other"}}.toPull()
+		typ: "promotion", sourceHead: "h", labels: []string{LabelOiax, LabelPromotion},
+		bodyOverride: "just a human PR body, no marker"}.toPull()
 	patched := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
@@ -517,10 +635,44 @@ func TestCloseRequestCommentsThenCloses(t *testing.T) {
 	}
 }
 
+// TestCloseRequestRefusesNewerMarkerVersion mirrors the UpdateRequest gate:
+// a v2 marker is recognized as managed (so it is never duplicated) but this
+// build must not close a schema it does not understand.
+func TestCloseRequestRefusesNewerMarkerVersion(t *testing.T) {
+	t.Parallel()
+	newer := prSpec{number: 9, source: "development", dest: "test", graph: "environments",
+		typ: "promotion", sourceHead: "h", labels: []string{LabelOiax, LabelPromotion}}.toPull()
+	newer["body"] = "Automated promotion.\n\n" + serializeMarker(marker{
+		Version: "v2", Graph: "environments", Type: "promotion",
+		Source: "development", Destination: "test", SourceHead: "h",
+	})
+	touched := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			touched = true
+		}
+		writeJSON(t, w, http.StatusOK, newer)
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	err := p.CloseRequest(context.Background(), "9", forge.Reason{Summary: "superseded"})
+	if err == nil {
+		t.Fatal("CloseRequest should refuse a marker version newer than this build understands")
+	}
+	if !strings.Contains(err.Error(), "newer than this build understands") {
+		t.Errorf("error = %v, want a version-understanding refusal", err)
+	}
+	if touched {
+		t.Error("CloseRequest touched a request it does not understand")
+	}
+}
+
 func TestCloseRequestRefusesUnmanaged(t *testing.T) {
 	t.Parallel()
 	unmanaged := prSpec{number: 9, source: "development", dest: "test", graph: "environments",
-		typ: "promotion", sourceHead: "h", labels: []string{"other"}}.toPull()
+		typ: "promotion", sourceHead: "h", labels: []string{LabelOiax, LabelPromotion},
+		bodyOverride: "just a human PR body, no marker"}.toPull()
 	touched := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

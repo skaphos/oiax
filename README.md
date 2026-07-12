@@ -76,6 +76,12 @@ oiax plan        # compute pending actions (the dry run)
 oiax reconcile   # plan, then apply
 ```
 
+Oiax shells out to `git` for all repository state and backflow replay, and
+requires **git 2.45 or newer** (backflow uses `git cherry-pick
+--empty=drop`, added in git 2.45). The version is checked once at startup;
+on older git, `plan` and `reconcile` fail fast with a clear message naming
+the required floor and the detected version.
+
 `plan` and `reconcile` currently validate configuration and stop; edge
 evaluation is the next roadmap milestone.
 
