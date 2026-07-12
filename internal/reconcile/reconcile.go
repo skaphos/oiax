@@ -35,10 +35,12 @@ import (
 
 // cherryPickedFromRE captures the source object id recorded by
 // 'git cherry-pick -x' in a "(cherry picked from commit <sha>)" provenance
-// line, so a downstream commit already returned to the target is recognized
-// by identity even when its patch-id was rewritten during conflict
-// resolution.
-var cherryPickedFromRE = regexp.MustCompile(`cherry picked from commit ([0-9a-f]{7,40})`)
+// line. It anchors a STANDALONE line (git's -x output is always a bare line),
+// so a downstream commit already returned to the target is recognized by
+// identity even when its patch-id was rewritten during conflict resolution,
+// while the same object id merely embedded in a prose sentence is not mistaken
+// for provenance.
+var cherryPickedFromRE = regexp.MustCompile(`(?m)^\(cherry picked from commit ([0-9a-f]{7,64})\)$`)
 
 // Coordinator wires the git layer and a forge provider to the engine. It
 // holds no mutable state of its own; Plan and Apply take a context and
@@ -291,7 +293,13 @@ func (c *Coordinator) backflowAlreadyReturned(ctx context.Context, from, to, tar
 			return nil, err
 		}
 		for _, body := range targetBodies {
-			for _, m := range cherryPickedFromRE.FindAllStringSubmatch(body, -1) {
+			// `git cherry-pick -x` appends the "(cherry picked from commit <sha>)"
+			// line to the message's LAST paragraph (its trailer block). Match only
+			// that block — mirroring how backflowSkipTrailers leans on git's own
+			// trailer semantics — so a commit that merely mentions a source SHA, or
+			// even quotes a provenance line, in earlier prose does not falsely mark
+			// that source commit already-returned and silently drop a live hotfix.
+			for _, m := range cherryPickedFromRE.FindAllStringSubmatch(lastParagraph(body), -1) {
 				already[m[1]] = struct{}{}
 			}
 		}
@@ -325,6 +333,20 @@ func (c *Coordinator) commitBodies(ctx context.Context, revRange string) (map[st
 		out[strings.TrimLeft(sha, "\n")] = body
 	}
 	return out, nil
+}
+
+// lastParagraph returns the final blank-line-delimited block of a commit
+// message body — the trailer block, where `git cherry-pick -x` records its
+// "(cherry picked from commit <sha>)" provenance line. Restricting provenance
+// matching to this block (rather than the whole body) keeps a stray mention of
+// the phrase in an earlier prose paragraph from being read as genuine
+// provenance.
+func lastParagraph(body string) string {
+	body = strings.TrimRight(body, "\n")
+	if i := strings.LastIndex(body, "\n\n"); i >= 0 {
+		return body[i+2:]
+	}
+	return body
 }
 
 // backflowSkipTrailers returns the set of commit SHAs in revRange whose
@@ -499,6 +521,24 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
 	}
 
+	// Every replayed commit may have been dropped by `git cherry-pick
+	// --empty=drop` because its content already reached the target through a
+	// squash or rebase merge that gave it a different patch-id than any single
+	// replayed commit — so the plan's patch-identity rung never marked it
+	// returned, yet the replay produces no new content. CherryPick then returns
+	// the target head unchanged: the edge has CONVERGED. Push nothing, create
+	// nothing, adopt or supersede nothing. Doing otherwise would force-push the
+	// target head over a real backflow commit and 422-adopt the existing request
+	// as success — silently losing the hotfix — or open a head==base request the
+	// forge rejects with 422 on every run.
+	targetHead, err := c.Git.Head(ctx, a.To)
+	if err != nil {
+		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+	}
+	if head == targetHead {
+		return nil
+	}
+
 	// Force-push the deterministic branch (confined to oiax/ by the provider).
 	// The branch name is a pure function of the source head, and the replayed
 	// HEAD is deterministic too (CherryPick pins the committer), so a repeated
@@ -516,7 +556,7 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 		Target:     a.To,
 		SourceHead: head,
 		Title:      fmt.Sprintf("oiax: backflow %s to %s", a.From, a.To),
-		Body:       backflowBody(a),
+		Body:       backflowBody(a, len(toReturn)),
 	}); err != nil {
 		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
 	}
@@ -531,21 +571,66 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 	return nil
 }
 
-// backflowActionState re-derives, from live state, the edge state a backflow
+// backflowActionState re-derives, from live state, the return set a backflow
 // action operates on. The action's From is the backflow source (a downstream
 // branch); the returned EdgeState carries the commits to return (ToReturn) and
 // the current source-head short SHA (SourceHeadShort) that names the branch.
+//
+// The return set is the UNION of the returnable content across EVERY promotion
+// edge into the backflow source, not just the first. A source can have several
+// incoming edges; a commit that is downstream-only relative to a second
+// incoming edge (present on the first edge's upstream but absent on the
+// second's) is still content the source carries and the target lacks, and must
+// be returned. Deriving the set from a single edge would silently drop it. Each
+// edge's ToReturn is already filtered by patch identity and already-returned,
+// so normally promoted content — which reached the source through its immediate
+// upstream — is excluded from every term of the union.
 func (c *Coordinator) backflowActionState(ctx context.Context, a engine.Action) (engine.EdgeState, error) {
+	source := a.From
+	target := c.Graph.Backflow.Target
+
+	want := make(map[string]struct{})
+	var short string
+	var found bool
 	for _, p := range c.Graph.Promotions {
-		if p.To == a.From {
-			obs, err := c.observe(ctx, p.From, p.To, nil, nil)
-			if err != nil {
-				return engine.EdgeState{}, err
-			}
-			return engine.EvaluateEdge(obs), nil
+		if p.To != source {
+			continue
+		}
+		found = true
+		obs, err := c.observe(ctx, p.From, source, nil, nil)
+		if err != nil {
+			return engine.EdgeState{}, err
+		}
+		st := engine.EvaluateEdge(obs)
+		short = st.SourceHeadShort
+		for _, cm := range st.ToReturn {
+			want[cm.SHA] = struct{}{}
 		}
 	}
-	return engine.EdgeState{}, fmt.Errorf("no promotion edge into backflow source %q", a.From)
+	if !found {
+		return engine.EdgeState{}, fmt.Errorf("no promotion edge into backflow source %q", source)
+	}
+
+	// Order the union by one traversal of the source relative to the backflow
+	// target (target..source, newest first). Cherry-pick needs a stable
+	// topological order; merging the per-edge lists would not preserve it, and a
+	// mis-ordered replay could fail to apply a child before its parent.
+	ordered, err := c.Git.UniqueCommits(ctx, target, source)
+	if err != nil {
+		return engine.EdgeState{}, err
+	}
+	toReturn := make([]engine.Commit, 0, len(want))
+	for _, cm := range ordered {
+		if _, ok := want[cm.SHA]; ok {
+			toReturn = append(toReturn, engine.Commit{SHA: cm.SHA, Subject: cm.Subject})
+		}
+	}
+
+	return engine.EdgeState{
+		To:              engine.BranchState{Name: source},
+		ToReturn:        toReturn,
+		SourceHeadShort: short,
+	}, nil
 }
 
 // supersedeBackflow closes any still-open managed backflow request for the
@@ -652,9 +737,9 @@ func promotionBody(a engine.Action) string {
 
 // backflowBody is the human body of a created backflow request; the provider
 // appends the machine-readable marker after it.
-func backflowBody(a engine.Action) string {
+func backflowBody(a engine.Action, count int) string {
 	return fmt.Sprintf(
 		"Oiax opened this request to return %d downstream-only commit(s) from `%s` back to `%s` by cherry-pick.\n\n"+
 			"This request is managed by Oiax. Do not edit the metadata block below.",
-		a.Unpromoted, a.From, a.To)
+		count, a.From, a.To)
 }

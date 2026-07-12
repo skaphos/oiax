@@ -21,9 +21,42 @@ func BuildPlan(g *Graph, edges []EdgeState) Plan {
 		Graph:             g.Name,
 	}
 
+	// A backflow source can have several incoming promotion edges; each yields
+	// an EdgeState with the same To, and thus the same backflow (source, target)
+	// pair and branch name. Emit exactly one backflow action per pair — two would
+	// double-push the branch and open two identical requests. Apply returns the
+	// UNION of the returnable content across every incoming edge (see
+	// reconcile.backflowActionState), so accumulate that union here too: the
+	// surviving action's Unpromoted/Reason must reflect the full set apply
+	// cherry-picks, not just whichever edge was processed first.
+	backflowIndex := make(map[[2]string]int)
+	backflowSeen := make(map[[2]string]map[string]struct{})
 	for _, e := range edges {
 		plan.Actions = append(plan.Actions, planPromotion(e)...)
-		plan.Actions = append(plan.Actions, planDownstream(g, e)...)
+		for _, a := range planDownstream(g, e) {
+			if a.Type == ActionCreateBackflowRequest {
+				key := [2]string{a.From, a.To}
+				if idx, ok := backflowIndex[key]; ok {
+					// A later edge into the same source: fold its returnable SHAs
+					// into the union and restate the surviving action's count and
+					// reason so both track what apply actually returns.
+					seen := backflowSeen[key]
+					for _, cm := range e.ToReturn {
+						seen[cm.SHA] = struct{}{}
+					}
+					plan.Actions[idx].Unpromoted = len(seen)
+					plan.Actions[idx].Reason = fmt.Sprintf("%d downstream-only commits on %s to return to %s", len(seen), a.From, a.To)
+					continue
+				}
+				seen := make(map[string]struct{}, len(e.ToReturn))
+				for _, cm := range e.ToReturn {
+					seen[cm.SHA] = struct{}{}
+				}
+				backflowSeen[key] = seen
+				backflowIndex[key] = len(plan.Actions)
+			}
+			plan.Actions = append(plan.Actions, a)
+		}
 	}
 	return plan
 }
