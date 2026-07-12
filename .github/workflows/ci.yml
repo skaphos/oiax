@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Least-privilege default: every job here only reads the repository
+# (checkout + build/test/lint; no repo writes, releases, or PR mutations).
+# Elevate per-job only if one ever needs more.
+permissions:
+  contents: read
+
 jobs:
   dco:
     name: DCO
