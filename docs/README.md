@@ -18,6 +18,8 @@ branch-per-environment GitOps repositories. Start with the repository
   regenerate with `task docs:cli-ref`.
 - [Configuration reference](reference/configuration.md) — every
   `.oiax.yaml` key, flag, and exit code.
+- [Plan JSON format](reference/plan-format.md) — the frozen
+  `planFormatVersion: 1` field-level contract for `oiax plan -o json`.
 
 ## Decisions
 

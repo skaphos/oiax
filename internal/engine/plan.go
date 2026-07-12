@@ -19,6 +19,10 @@ func BuildPlan(g *Graph, edges []EdgeState) Plan {
 	plan := Plan{
 		PlanFormatVersion: PlanFormatVersion,
 		Graph:             g.Name,
+		// Actions starts as an empty (non-nil) slice so the frozen
+		// planFormatVersion:1 JSON contract always serializes "actions" as
+		// an array, even when the graph is fully in sync — never null.
+		Actions: []Action{},
 	}
 
 	// A backflow source can have several incoming promotion edges; each yields
