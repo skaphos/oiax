@@ -89,28 +89,26 @@ Oiax without parsing output.
 | --- | --- | --- |
 | `plan` | 0 | Fully in sync (without `--detailed-exitcode`: any successful plan). |
 | `plan` | 1 | Error. |
-| `plan` | 2 | Valid plan with pending actions (only with `--detailed-exitcode`). |
+| `plan` | 2 | Applyable changes pending, no divergence (only with `--detailed-exitcode`). |
+| `plan` | 3 | A report-only divergence is present (only with `--detailed-exitcode`). |
 | `reconcile` | 0 | Converged, including "applied actions successfully". |
 | `reconcile` | 1 | Error. |
 | `reconcile` | 3 | Converged with reported divergence requiring human attention (unresolvable diverged edges, backflow conflicts). |
 | all others | 0/1 | Success/error. |
 
-`plan`'s exit 2 and `reconcile`'s exit 3 are deliberately distinct codes
-with distinct meanings, not two spellings of the same thing:
+With `--detailed-exitcode`, `plan`'s exit code predicts what `reconcile`
+does for the same state, so a CI gate can rely on it:
 
-- `plan --detailed-exitcode` exit 2 means "this plan has at least one
-  pending action" — which can be an applyable action (create/update/close
-  a promotion request) *or* a report-only divergence reconcile cannot
-  auto-resolve. Plan does not distinguish the two in its exit code; read
-  the plan's action types (or `-o json`) to tell them apart.
-- `reconcile` exit 3 means "reconcile applied everything it safely could,
-  and at least one edge still requires a human" (a backflow cherry-pick
-  conflict, for example). Reconcile never returns 2.
+- `plan` exit **2** means the plan has applyable changes (create / update /
+  close a promotion request, or open a backflow) and no divergence —
+  `reconcile` applies them and converges to exit 0.
+- `plan` exit **3** means the plan already contains a report-only
+  divergence — `reconcile` surfaces it and also exits 3. It is the same
+  code, with the same meaning, in both commands.
 
-Because plan's 2 covers both cases, a gate of the shape "plan exits 2 ⇒
-run reconcile ⇒ expect exit 0" is unsound: the same state can leave
-reconcile at exit 3. Gate on reconcile's own exit code for "did this fully
-converge," not on plan's exit code as a proxy for it. These codes are
-frozen for 1.0; a future major version may split plan's 2 into distinct
-applyable-vs-divergence codes, but 1.0 keeps the two commands' contracts
-exactly as shipped.
+So a gate may treat `plan` exit 2 as "safe to reconcile" and exit 3 as
+"needs a human," and expect `reconcile` to agree. The one state `plan`
+cannot foresee is a backflow whose commits conflict only when cherry-picked
+at apply time: it shows as an applyable change (`plan` exit 2), but
+`reconcile` hits the conflict and exits 3. `reconcile` never returns 2.
+These codes are frozen for 1.0.

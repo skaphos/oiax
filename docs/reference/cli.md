@@ -303,15 +303,18 @@ separate dry-run flag.
 Exit codes (the compatibility contract, following terraform plan):
   0  fully in sync (or, without --detailed-exitcode, any successful plan)
   1  error
-  2  valid plan with pending actions (only with --detailed-exitcode)
+  2  applyable changes pending (only with --detailed-exitcode)
+  3  a report-only divergence is present (only with --detailed-exitcode)
 
-Exit 2 fires for ANY pending action, including a report-only divergence
-that reconcile cannot auto-resolve (see "oiax reconcile --help"). A gate
-that treats "plan exit 2" as "reconcile will converge to exit 0" is wrong:
-running reconcile against that same state can still exit 3. Plan's 2 means
-"there is something to do"; reconcile's 3 means "reconcile did what it
-could and something still needs a human." Do not conflate the two codes
-across commands.
+With --detailed-exitcode the exit code predicts what "oiax reconcile" does
+for the same state: 2 means reconcile applies the pending changes and
+converges to its exit 0; 3 means the plan already contains a report-only
+divergence that reconcile will surface and exit 3 on, matching reconcile's
+own exit 3. A gate may therefore treat plan's 2 as "safe to reconcile" and
+3 as "needs a human." One residual reconcile alone can see: a backflow
+whose commits only conflict when cherry-picked shows here as an applyable
+change (exit 2) — plan cannot foresee the conflict — so reconcile can still
+exit 3 after a plan of 2 in that single case.
 
 ```
 oiax plan [flags]
@@ -320,7 +323,7 @@ oiax plan [flags]
 ### Options
 
 ```
-      --detailed-exitcode   exit 2 when the plan contains pending actions
+      --detailed-exitcode   exit 2 for applyable changes, 3 for a report-only divergence
   -h, --help                help for plan
 ```
 
@@ -352,13 +355,11 @@ Exit codes (the compatibility contract):
   1  error
   3  converged with reported divergence requiring human attention
 
-Exit 3 is unrelated to "oiax plan --detailed-exitcode"'s exit 2: plan's 2
-means the plan has pending actions of any kind (including a divergence
-this command cannot resolve); this command's 3 means reconcile applied
-everything it safely could and a specific edge still needs a human. A gate
-keyed on "plan exit 2 implies reconcile will exit 0" is unsound — reconcile
-against that same state can still exit 3. Do not conflate the two codes
-across commands.
+Exit 3 matches "oiax plan --detailed-exitcode"'s exit 3 for the same state:
+both mean a report-only divergence needs a human. Plan's exit 2 (applyable
+changes, no divergence) predicts this command applies them and exits 0 —
+with one exception plan cannot foresee: a backflow whose commits only
+conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.
 
 ```
 oiax reconcile [flags]

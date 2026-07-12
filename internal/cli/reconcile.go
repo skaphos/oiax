@@ -18,13 +18,11 @@ Exit codes (the compatibility contract):
   1  error
   3  converged with reported divergence requiring human attention
 
-Exit 3 is unrelated to "oiax plan --detailed-exitcode"'s exit 2: plan's 2
-means the plan has pending actions of any kind (including a divergence
-this command cannot resolve); this command's 3 means reconcile applied
-everything it safely could and a specific edge still needs a human. A gate
-keyed on "plan exit 2 implies reconcile will exit 0" is unsound — reconcile
-against that same state can still exit 3. Do not conflate the two codes
-across commands.`,
+Exit 3 matches "oiax plan --detailed-exitcode"'s exit 3 for the same state:
+both mean a report-only divergence needs a human. Plan's exit 2 (applyable
+changes, no divergence) predicts this command applies them and exits 0 —
+with one exception plan cannot foresee: a backflow whose commits only
+conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Assert the git version floor before any other git subprocess

@@ -167,6 +167,51 @@ func TestPlanPendingDetailedExitCode(t *testing.T) {
 	}
 }
 
+func TestPlanExitCode(t *testing.T) {
+	promo := engine.Action{Type: engine.ActionCreatePromotionRequest}
+	backflow := engine.Action{Type: engine.ActionCreateBackflowRequest}
+	diverge := engine.Action{Type: engine.ActionReportDivergence}
+	cases := []struct {
+		name    string
+		actions []engine.Action
+		want    int
+	}{
+		{"in sync", nil, 0},
+		{"applyable promotion", []engine.Action{promo}, 2},
+		{"applyable backflow", []engine.Action{backflow}, 2},
+		{"report-only divergence", []engine.Action{diverge}, 3},
+		{"divergence dominates applyable changes", []engine.Action{promo, diverge}, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := planExitCode(engine.Plan{Actions: tc.actions}); got != tc.want {
+				t.Errorf("planExitCode = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPlanReportDivergenceDetailedExitCode(t *testing.T) {
+	// A commit made directly on a promotion DESTINATION (test) that its source
+	// lacks is downstream-only content on a non-backflow branch with no expected
+	// drift, so the plan carries a report-only divergence. plan --detailed-exitcode
+	// must exit 3 (not 2), matching what reconcile exits for the same state — the
+	// M11 alignment.
+	git := setupRepo(t)
+	git("checkout", "-q", "test")
+	git("write", "drift.txt", "x\n")
+	git("add", ".")
+	git("commit", "-q", "-m", "direct edit on test")
+	useForge(t, &fakeForge{})
+
+	if out, code := runCode(t, "plan", "--detailed-exitcode"); code != 3 {
+		t.Fatalf("plan --detailed-exitcode with a report-only divergence = %d, want 3\n%s", code, out)
+	}
+	if out, code := runCode(t, "reconcile"); code != 3 {
+		t.Fatalf("reconcile for the same state = %d, want 3\n%s", code, out)
+	}
+}
+
 func TestPlanJSONShape(t *testing.T) {
 	git := setupRepo(t)
 	git("checkout", "-q", "development")
@@ -359,11 +404,7 @@ func TestReconcileJSONAnnotationNotOnStdout(t *testing.T) {
 	t.Chdir(dir)
 	gitCmd := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
+		gittest.Run(t, dir, args...)
 	}
 	writeFile := func(name, content string) {
 		t.Helper()
@@ -371,9 +412,7 @@ func TestReconcileJSONAnnotationNotOnStdout(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	gitCmd("init", "-q", "-b", "main")
-	gitCmd("config", "user.name", "test")
-	gitCmd("config", "user.email", "test@example.invalid")
+	gittest.InitRepo(t, dir)
 	writeFile("app.txt", "v0\n")
 	writeFile(".oiax.yaml", exampleConfig)
 	gitCmd("add", ".")
@@ -397,11 +436,7 @@ func TestReconcileJSONAnnotationNotOnStdout(t *testing.T) {
 	// Fabricate the remote-tracking default branch locally so
 	// DefaultBranchRef resolves without a network remote, and reconcile
 	// reads the config committed at main's HEAD.
-	headOut, err := exec.Command("git", "-C", dir, "rev-parse", "main").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	head := strings.TrimSpace(string(headOut))
+	head := gittest.Run(t, dir, "rev-parse", "main")
 	gitCmd("update-ref", "refs/remotes/origin/main", head)
 	gitCmd("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 
@@ -413,7 +448,7 @@ func TestReconcileJSONAnnotationNotOnStdout(t *testing.T) {
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
 	root.SetArgs([]string{"reconcile", "--output", "json"})
-	err = root.Execute()
+	err := root.Execute()
 
 	var ece exitCodeError
 	if !errors.As(err, &ece) || ece.code != 3 {

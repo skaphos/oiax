@@ -2,6 +2,8 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+
+	"github.com/skaphos/oiax/internal/engine"
 )
 
 func newPlanCommand(opts *options) *cobra.Command {
@@ -18,15 +20,18 @@ separate dry-run flag.
 Exit codes (the compatibility contract, following terraform plan):
   0  fully in sync (or, without --detailed-exitcode, any successful plan)
   1  error
-  2  valid plan with pending actions (only with --detailed-exitcode)
+  2  applyable changes pending (only with --detailed-exitcode)
+  3  a report-only divergence is present (only with --detailed-exitcode)
 
-Exit 2 fires for ANY pending action, including a report-only divergence
-that reconcile cannot auto-resolve (see "oiax reconcile --help"). A gate
-that treats "plan exit 2" as "reconcile will converge to exit 0" is wrong:
-running reconcile against that same state can still exit 3. Plan's 2 means
-"there is something to do"; reconcile's 3 means "reconcile did what it
-could and something still needs a human." Do not conflate the two codes
-across commands.`,
+With --detailed-exitcode the exit code predicts what "oiax reconcile" does
+for the same state: 2 means reconcile applies the pending changes and
+converges to its exit 0; 3 means the plan already contains a report-only
+divergence that reconcile will surface and exit 3 on, matching reconcile's
+own exit 3. A gate may therefore treat plan's 2 as "safe to reconcile" and
+3 as "needs a human." One residual reconcile alone can see: a backflow
+whose commits only conflict when cherry-picked shows here as an applyable
+change (exit 2) — plan cannot foresee the conflict — so reconcile can still
+exit 3 after a plan of 2 in that single case.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Assert the git version floor before any other git subprocess
@@ -57,15 +62,46 @@ across commands.`,
 			}
 			writeStepSummary(cmd, plan)
 
-			// Every emitted action is non-NoOp, so any action means the graph
-			// is not fully in sync. With --detailed-exitcode that is exit 2
-			// (silent); otherwise a successful plan is exit 0.
-			if len(plan.Actions) > 0 && detailedExitCode {
-				return exitCodeError{code: 2}
+			// With --detailed-exitcode, return a status code that predicts
+			// reconcile's outcome for this state (see the command help): 3 for a
+			// report-only divergence, 2 for other applyable changes, 0 in sync.
+			// Without the flag, a successful plan is always exit 0.
+			if detailedExitCode {
+				if code := planExitCode(plan); code != 0 {
+					return exitCodeError{code: code}
+				}
 			}
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&detailedExitCode, "detailed-exitcode", false, "exit 2 when the plan contains pending actions")
+	cmd.Flags().BoolVar(&detailedExitCode, "detailed-exitcode", false, "exit 2 for applyable changes, 3 for a report-only divergence")
 	return cmd
+}
+
+// planReportsDivergence reports whether the plan contains a report-only
+// divergence — the ActionReportDivergence the planner emits for a non-backflow
+// destination with unexpected downstream content. Its presence is exactly what
+// makes reconcile set res.Divergence and exit 3.
+func planReportsDivergence(plan engine.Plan) bool {
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionReportDivergence {
+			return true
+		}
+	}
+	return false
+}
+
+// planExitCode maps a plan to its --detailed-exitcode result, chosen so the
+// code predicts what reconcile does for the same state: 3 when a report-only
+// divergence is present (reconcile exits 3), 2 when other applyable changes are
+// pending (reconcile applies them and exits 0), and 0 when fully in sync. Every
+// emitted action is non-NoOp, so a non-empty plan always means work.
+func planExitCode(plan engine.Plan) int {
+	if planReportsDivergence(plan) {
+		return 3
+	}
+	if len(plan.Actions) > 0 {
+		return 2
+	}
+	return 0
 }
