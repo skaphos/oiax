@@ -132,10 +132,9 @@ type Promotion struct {
 }
 
 // Expectations are validation and reporting metadata for an edge. Oiax
-// validates the declared value against the closed MergeMethod enum but
-// does not check it against the forge's actual repository settings (no
-// warning is emitted on a contradiction), and never modifies repository
-// settings.
+// validates the declared value against the closed MergeMethod enum and
+// warns when the forge's repository settings do not permit the configured
+// method; it never modifies repository settings.
 type Expectations struct {
 	// MergeMethod is the merge method promotion requests on this edge
 	// are expected to merge with: "merge", "squash", or "rebase".
