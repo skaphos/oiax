@@ -1,9 +1,7 @@
-name: Oiax
+name: Skaphos Oiax
 description: >-
-  Linux GitHub Actions runner for the Oiax declarative Git branch promotion
-  reconciler. Ensures the pull requests required to move changes through a
-  declared promotion graph exist — exactly one active managed request per
-  diverged edge.
+  Linux GitHub Actions runner for the Oiax Git branch promotion reconciler:
+  one managed PR per diverged edge.
 author: Skaphos
 
 branding:
