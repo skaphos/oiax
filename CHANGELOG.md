@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/skaphos/oiax/compare/v1.0.1...v1.0.2) (2026-07-13)
+
+
+### Documentation
+
+* **release:** document GitHub Marketplace publishing ([ea6f8f6](https://github.com/skaphos/oiax/commit/ea6f8f6802cf428f06eea4797df1a856cabc6721))
+
 ## [1.0.1](https://github.com/skaphos/oiax/compare/v1.0.0...v1.0.1) (2026-07-13)
 
 
