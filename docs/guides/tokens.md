@@ -113,11 +113,35 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 ```
 
-Passing the App token to `actions/checkout` ensures the Action's ref
-preparation fetches use the same installation identity. Oiax uses the
-token passed to its own `token` input for API calls and backflow pushes;
-those events are therefore attributed to the App and can trigger
-workflows automatically.
+The App token must be on **both** steps — this is not optional.
+`actions/checkout` persists the token you give it as the git credential
+for `github.com`, and that persisted credential is what authenticates
+Oiax's `git push` of an `oiax/` branch (the backflow/promotion branches).
+Oiax's own `token` input is used for its REST API calls — opening and
+managing the pull requests. So: the App token on `actions/checkout` covers
+the push and the ref-preparation fetch; the App token on Oiax's `token`
+input covers the API. Both events are then attributed to the App and can
+trigger workflows automatically.
+
+If you leave `actions/checkout` on the default `GITHUB_TOKEN`, its
+persisted `github-actions[bot]` credential wins on the push regardless of
+what you set on Oiax's `token` input. Once you also apply the recommended
+hardening — reducing the workflow's own `GITHUB_TOKEN` to `contents: read`
+because the App now carries the write scopes — that `github-actions[bot]`
+credential has no push permission, and the first backflow or promotion
+fails:
+
+```text
+remote: Permission to <owner>/<repo>.git denied to github-actions[bot].
+fatal: unable to access 'https://github.com/<owner>/<repo>.git/': The requested URL returned error: 403
+```
+
+This surfaces only on a run that actually pushes: `validate` and `plan`
+never push, so the wiring can look correct until the first `reconcile`
+that opens a backflow or promotion branch. The fix is to pass the App
+token to `actions/checkout` as shown above (equivalently, set
+`persist-credentials: false` on checkout so nothing shadows Oiax's own
+push auth).
 
 After this, managed promotion PRs are authored by your App, `on:
 pull_request` workflows run for them, required checks report, and the PRs
