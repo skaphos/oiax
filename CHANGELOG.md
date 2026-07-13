@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/skaphos/oiax/compare/v1.0.0...v1.0.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* **action:** satisfy GitHub Marketplace listing rules ([#20](https://github.com/skaphos/oiax/issues/20)) ([7f126a4](https://github.com/skaphos/oiax/commit/7f126a47710e69250cb56e2646c47f5a130ffb02))
+
 ## 1.0.0 (2026-07-12)
 
 
