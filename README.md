@@ -133,6 +133,9 @@ workflow example and token guidance.
 - [Documentation index](docs/README.md)
 - [Guides](docs/guides/README.md) — getting started, GitHub Action setup,
   tokens, backflow, day-two operations, troubleshooting
+- [Installing Oiax with an AI agent](docs/guides/agent-install.md) — a
+  step-by-step playbook for a coding agent to infer your repository's
+  promotion graph, confirm it, and set Oiax up
 - [Architecture](docs/architecture.md) — the design: promotion graph,
   equivalence ladder, backflow, execution model, security posture
 - [Configuration reference](docs/reference/configuration.md)

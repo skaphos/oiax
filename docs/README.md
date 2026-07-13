@@ -10,6 +10,8 @@ Task-oriented walkthroughs — see the [guides index](guides/README.md):
 
 - [Getting started](guides/getting-started.md) — install, write your
   first graph, inspect it locally.
+- [Installing Oiax with an AI agent](guides/agent-install.md) — a
+  playbook for a coding agent to infer, confirm, and set up the graph.
 - [Modeling your promotion graph](guides/promotion-graphs.md) — branches,
   roles, drift, merge methods, and common topologies.
 - [Deploy Oiax as a GitHub Action](guides/github-action.md) — the

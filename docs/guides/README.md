@@ -9,6 +9,10 @@ the [reference](../reference/), and for the design see
 
 1. **[Getting started](getting-started.md)** — install, write your first
    promotion graph, and inspect it locally.
+   - **[Installing Oiax with an AI agent](agent-install.md)** — hand this
+     playbook to a coding agent: it infers your repository's promotion
+     graph, confirms the shape with you, then writes the config and
+     workflow.
 2. **[Modeling your promotion graph](promotion-graphs.md)** — branches,
    roles, drift policy, merge methods, and common topologies.
 3. **[Deploy Oiax as a GitHub Action](github-action.md)** — the workflow
