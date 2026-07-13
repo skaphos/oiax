@@ -596,6 +596,51 @@ func TestPlanBackflowSkipTrailerSuppresses(t *testing.T) {
 	}
 }
 
+// TestPlanBackflowIdentityLookupResolvesOriginTrackingRefs reproduces the exact
+// GitHub Action failure: the backflow source (main) and its upstream (test)
+// exist only as refs/remotes/origin/<name>, because actions/checkout
+// materializes just the triggering branch as a local head. A downstream-only
+// hotfix on the source drives the O6 already-returned identity lookup
+// (skip-trailer + cherry-pick provenance), which shells out to git with a raw
+// rev-range. Before that lookup resolved origin-tracking refs it built
+// refs/heads/test..refs/heads/main and died with git exit 128 ("ambiguous
+// argument ... unknown revision"), failing reconcile on its first run. The
+// hotfix carries no skip trailer, so it must still surface as a backflow
+// request — proving the whole observation ran to completion, not just that the
+// range read did not error.
+func TestPlanBackflowIdentityLookupResolvesOriginTrackingRefs(t *testing.T) {
+	r, _ := gitHarness(t)
+	dir := r.Dir
+
+	// A hotfix lands on main (the backflow source) that test never received.
+	checkout(t, r, "main")
+	commitOn(t, dir, "hotfix.txt", "urgent\n", "hotfix on main")
+
+	// development is the triggering branch (a local head); test and main exist
+	// only as remote-tracking refs, exactly as under actions/checkout.
+	checkout(t, r, "development")
+	for _, b := range []string{"test", "main"} {
+		sha := gitExec(t, dir, "rev-parse", b)
+		gitExec(t, dir, "update-ref", "refs/remotes/origin/"+b, sha)
+		gitExec(t, dir, "branch", "-D", b)
+	}
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan over origin-only backflow source: %v", err)
+	}
+	var sawBackflow bool
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			sawBackflow = true
+		}
+	}
+	if !sawBackflow {
+		t.Fatalf("want a backflow request for the downstream-only hotfix, got %+v", plan.Actions)
+	}
+}
+
 func TestPlanBackflowSkipMentionInProseStillReturns(t *testing.T) {
 	// The O6 override is a git TRAILER, not any occurrence of the text. A hotfix
 	// whose body merely mentions 'Oiax-Backflow: skip' in prose (with more text
@@ -1287,13 +1332,12 @@ func TestApplyBackflowShallowCloneLeavesAmbiguousOrphanAlone(t *testing.T) {
 	gitExec(t, parent, "clone", "-q", "--depth=1", "file://"+origin.Dir, shallowDir)
 	gitExec(t, shallowDir, "fetch", "--no-tags", "--prune", "origin",
 		"+refs/heads/*:refs/remotes/origin/*")
-	// The reconcile layer's O6 skip-trailer lookup reads a raw refs/heads/<name>
-	// range rather than falling back to origin-tracking refs (a separate,
-	// pre-existing gap outside this test's scope), so give development and test
-	// local heads mirroring their origin-tracking refs -- main alone stays a
-	// true single-commit shallow head, which is what this test exercises.
-	gitExec(t, shallowDir, "branch", "development", "origin/development")
-	gitExec(t, shallowDir, "branch", "test", "origin/test")
+	// development and test exist solely as origin-tracking refs, exactly as
+	// under actions/checkout: only main (the triggering, shallow-cloned branch)
+	// is a local head. The reconcile layer's O6 identity lookup resolves each
+	// range endpoint to its local head or origin-tracking ref, so no local heads
+	// need to be synthesized here -- main alone stays a true single-commit
+	// shallow head, which is what this test exercises.
 	shallowRunner := &git.Runner{Dir: shallowDir}
 
 	// Confirm the premise directly: h1 is a genuine ancestor of main's current

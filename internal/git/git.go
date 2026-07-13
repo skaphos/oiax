@@ -133,6 +133,21 @@ func (r *Runner) validRev(ctx context.Context, s string) (string, error) {
 	return r.resolveBranchRef(ctx, s)
 }
 
+// ResolveRev exposes validRev to callers outside this package that must build
+// their own rev-ranges. The reconcile layer shells out to git directly for the
+// commit-body and trailer reads the Runner does not expose (see
+// commitBodies/backflowSkipTrailers); it uses this to resolve each range
+// endpoint to the ref that actually holds it — the local head or, under
+// actions/checkout where non-triggering branches are only remote-tracking, the
+// origin-tracking ref — instead of hard-coding refs/heads/<name> and failing on
+// every branch but the one that triggered the workflow. A bare object id passes
+// through unchanged; a branch name still passes CheckRefFormat and resolves
+// only to refs/heads/<name> or refs/remotes/origin/<name>, preserving the
+// no-shell and ref-format guarantees.
+func (r *Runner) ResolveRev(ctx context.Context, s string) (string, error) {
+	return r.validRev(ctx, s)
+}
+
 // resolveBranchRef validates a branch name and resolves it to the
 // fully-qualified ref that actually holds it, preferring the local head
 // (refs/heads/<name>) and falling back to the origin-tracking ref

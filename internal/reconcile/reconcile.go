@@ -288,12 +288,28 @@ func (c *Coordinator) isBackflowSource(branch string) bool {
 func (c *Coordinator) backflowAlreadyReturned(ctx context.Context, from, to, target, targetMergeBase string) (map[string]struct{}, error) {
 	already := make(map[string]struct{})
 
+	// Resolve each branch endpoint to the ref that actually holds it. Under
+	// actions/checkout only the triggering branch is a local head; every other
+	// branch in a promotion graph exists solely as an origin-tracking ref. These
+	// ranges are read by shelling out to git directly (the Runner does not expose
+	// commit bodies/trailers), so — unlike the rest of the git layer, which routes
+	// endpoints through validRev — they must resolve names themselves rather than
+	// hard-coding refs/heads/<name>, which failed on every non-triggering branch.
+	fromRef, err := c.Git.ResolveRev(ctx, from)
+	if err != nil {
+		return nil, err
+	}
+	toRef, err := c.Git.ResolveRev(ctx, to)
+	if err != nil {
+		return nil, err
+	}
+
 	// O6 skip trailer on the downstream-only range (from..to). This is a git
 	// TRAILER (a key:value in the message's last paragraph), parsed with git's
 	// own trailer semantics — not a whole-body line match — so a commit that
 	// merely quotes 'Oiax-Backflow: skip' in prose elsewhere in its body does
 	// not falsely suppress a legitimate hotfix.
-	skips, err := c.backflowSkipTrailers(ctx, "refs/heads/"+from+"..refs/heads/"+to)
+	skips, err := c.backflowSkipTrailers(ctx, fromRef+".."+toRef)
 	if err != nil {
 		return nil, err
 	}
@@ -302,9 +318,14 @@ func (c *Coordinator) backflowAlreadyReturned(ctx context.Context, from, to, tar
 	}
 
 	// Cherry-pick -x provenance on the target's commits since it diverged from
-	// the source (targetMergeBase..target).
+	// the source (targetMergeBase..target). targetMergeBase is already an object
+	// id from a prior MergeBase call; target still needs resolving to its ref.
 	if targetMergeBase != "" {
-		targetBodies, err := c.commitBodies(ctx, targetMergeBase+"..refs/heads/"+target)
+		targetRef, err := c.Git.ResolveRev(ctx, target)
+		if err != nil {
+			return nil, err
+		}
+		targetBodies, err := c.commitBodies(ctx, targetMergeBase+".."+targetRef)
 		if err != nil {
 			return nil, err
 		}
