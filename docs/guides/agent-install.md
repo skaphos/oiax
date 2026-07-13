@@ -33,7 +33,7 @@ A complete installation adds two files and one credential:
    `reconcile` on branch pushes and a schedule.
 3. **A token** that lets managed pull requests start CI — a GitHub App
    installation token in production. This is a human step you cannot do
-   for them; surface it clearly (see [step 7](#7-set-up-the-token-human-step)).
+   for them; surface it clearly (see [step 8](#8-set-up-the-token-human-step)).
 
 Your job is to produce 1 and 2 correctly for *this* repository and hand
 off 3.
