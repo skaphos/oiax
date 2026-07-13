@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/skaphos/oiax/compare/v1.0.2...v1.0.3) (2026-07-13)
+
+
+### Bug Fixes
+
+* **reconcile:** resolve origin-tracking refs in backflow identity lookup ([83dda24](https://github.com/skaphos/oiax/commit/83dda24bd892702fd6e2e80f7878a0a9461dbac0))
+
 ## [1.0.2](https://github.com/skaphos/oiax/compare/v1.0.1...v1.0.2) (2026-07-13)
 
 
