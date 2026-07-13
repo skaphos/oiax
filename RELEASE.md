@@ -37,6 +37,32 @@ newest published `v1.x.y` wrapper and binary together; consumers can set
 the Action's `version` input to a full tag when they need an exact binary
 within the same major. The Action rejects a cross-major override.
 
+## Publishing to the GitHub Marketplace
+
+Listing the Action on the [GitHub Marketplace](https://github.com/marketplace)
+is separate from release automation and is a **manual, one-time** step.
+GitHub exposes no API for the *Publish this Action to the GitHub Marketplace*
+toggle, so neither release-please nor GoReleaser can set it. The listing only
+adds discoverability: `skaphos/oiax@v1` resolves from tags and release assets
+whether or not a listing exists.
+
+The listing anchors to a **release** — you tick the checkbox on the release
+form and choose the categories (primary **Deployment**, secondary
+**Utilities**); the icon and colour come from `action.yml`'s `branding`.
+Establishing the listing once is enough: it persists across later releases
+and only needs re-publishing when you want to feature a newer version.
+
+**Immutability interaction (load-bearing).** An immutable release is locked
+at publish time and cannot be edited, so the Marketplace checkbox cannot be
+added to it afterward — and disabling the repository's immutable-releases
+setting does **not** unlock releases that were already published. Anchor the
+listing to a release that is editable when you tick the box: either one
+published while the immutable-releases setting is off, or one still in
+**draft** (the checkbox is available on a draft, and immutability applies
+only once the draft is published). If you draft the target release, publish
+it promptly — `action.yml` downloads binaries from the release assets, which
+are not publicly readable while the release is a draft.
+
 ## Required credentials
 
 Release automation does not run on the default `GITHUB_TOKEN`:
