@@ -25,6 +25,13 @@ jobs:
       - name: Reconcile tagged release PR labels
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # This step runs before actions/checkout, so there is no local git
+          # repository for gh to infer the target from. Without GH_REPO every gh
+          # call here fails with "not a git repository", the reconcile silently
+          # no-ops, and a merged release PR keeps its "autorelease: pending"
+          # label -- which makes the very next release-please run abort with
+          # "untagged, merged release PRs outstanding" and jams all releases.
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -94,8 +101,22 @@ jobs:
           fi
 
           mark_release_pr_tagged() {
+            # The subject carries a (#NN) suffix only for squash merges; a
+            # release commit merged any other way (as v1.0.2 was) has none, so
+            # fall back to locating the still-pending merged release PR for this
+            # exact version. Leaving it "autorelease: pending" would jam the next
+            # release-please run ("untagged, merged release PRs outstanding").
             if [ -z "${pr_number}" ]; then
-              echo "Could not determine release PR number from ${subject}; skipping label update."
+              pr_number="$(
+                gh pr list --state merged --label "autorelease: pending" \
+                  --json number,title \
+                  | jq -r --arg t "chore(main): release ${version}" \
+                      '.[] | select(.title == $t) | .number' \
+                  | head -n1
+              )"
+            fi
+            if [ -z "${pr_number}" ]; then
+              echo "Could not determine release PR for ${version}; skipping label update."
               return 0
             fi
 
