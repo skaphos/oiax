@@ -138,12 +138,16 @@ Oiax decides whether a destination has diverged **by reachability**
 promotion PR is merged with **squash** or a **merge commit** — the two
 default buttons on most forges — the destination gains a commit that
 exists on no upstream branch: the squash commit, or the merge node. Its
-*content* is fully represented upstream (promotion detection, which only
-looks at source-side content, stays in sync), but as a *commit* it is
-unique to the destination, so Oiax reports it as downstream-only:
+*content* is fully represented upstream, so the promotion direction stays
+in sync: the [equivalence
+ladder](../architecture.md#the-equivalence-ladder) only asks whether the
+commits unique to the *source* are represented in the destination, and
+downstream-only commits never enter that question. But as a *commit* the
+residue is unique to the destination, so Oiax reports it as
+downstream-only — one line of the plan output:
 
-```
-report  development -> test (1): test has 1 commits not represented in development
+```text
+  report   development -> test (1): test has 1 commits not represented in development
 ```
 
 Only a **fast-forward** merge leaves the destination a strict subset with
