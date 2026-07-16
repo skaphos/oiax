@@ -117,7 +117,7 @@ the graph.
 | `drift` | Meaning |
 | --- | --- |
 | `forbidden` *(default)* | Downstream-only content is a problem. Oiax **reports** it, and if the branch is a backflow source, **returns** it to the authoritative branch via backflow. |
-| `expected` | Downstream-only content is normal steady state and is acknowledged silently. Promotion detection is unaffected — it only ever looks at source-side content. |
+| `expected` | Downstream-only content is normal steady state and is acknowledged silently. Promotion detection is unaffected — downstream-only commits never enter the question it asks. |
 
 Use `expected` for a branch that is *supposed* to carry local commits the
 upstream will never see (for example, an environment branch with
