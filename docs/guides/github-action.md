@@ -96,6 +96,47 @@ resolves without you setting `config-ref`. You do not need to do anything
 for this; it is why a multi-branch graph reconciles correctly on the
 first run.
 
+## Large repositories: partial clone
+
+For most repositories `fetch-depth: 0` costs seconds and needs no
+thought. When a repository is large enough that the full clone dominates
+the job's runtime, keep the full history but defer blob download with a
+**blobless partial clone**:
+
+```yaml
+- uses: actions/checkout@v7
+  with:
+    fetch-depth: 0
+    filter: blob:none
+```
+
+A partial clone is **not** a shallow clone. The entire commit graph is
+present, so everything that made `fetch-depth: 0` mandatory still holds:
+merge bases resolve, the reachability and baseline rungs of the
+[equivalence ladder](../architecture.md#the-equivalence-ladder) are
+exact, backflow branch names stay deterministic, and no shallow-clone
+warning fires. Tree objects are included too, so tree-level comparison
+is local. What moves is **file content**: blobs download lazily, so the
+operations that read them — the patch-identity rung, and the cherry-pick
+replay during [backflow](backflow.md) — fetch blobs on demand in the
+middle of the run.
+
+The trade is bandwidth at checkout for latency during evaluation:
+
+- Every edge pays something, whichever rung settles it. Oiax computes
+  patch-ids for each promotion edge up front — before the ladder picks a
+  rung — so a blobless clone defers that blob download to evaluation
+  time rather than avoiding it. The saving is on history the run never
+  looks at, not on the edges themselves.
+- A backflow edge with a long tail of unreturned commits triggers an
+  on-demand fetch per patch it inspects or replays — many small fetches
+  where a full clone paid one large one. If your reconciles are
+  backflow-heavy, measure both configurations before committing.
+
+Do **not** reach for a depth-limited fetch (`fetch-depth: 1` or any
+finite depth) as the optimization — that is exactly the shallow
+degradation the warning above exists to catch.
+
 ## Triggers
 
 Oiax is event-driven with scheduled repair. Events are only *hints to

@@ -25,6 +25,9 @@ the [reference](../reference/), and for the design see
 
 - **[Backflow: returning hotfixes](backflow.md)** — bring downstream-only
   commits back to your source branch.
+- **[Minimizing divergence](minimizing-divergence.md)** — practices
+  upstream of Oiax that keep managed requests merging cleanly: config
+  isolation, hotfix discipline, drift gates, and rollback.
 - **[Operating Oiax day to day](operating.md)** — read plans, review and
   merge managed PRs, branch protection, offboarding, scale, and reported
   divergence.
