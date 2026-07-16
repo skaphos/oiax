@@ -4,9 +4,9 @@ Oiax reconciles divergence; it cannot prevent it. Every conflict a
 promotion or backflow hits was created upstream of Oiax — by how
 environment differences are stored, how hotfixes land, and how merges
 are performed. Repositories that follow the practices below see managed
-requests that merge cleanly; repositories that don't see exit-3
-divergence reports that need a human. This guide is about staying in the
-first group.
+requests that merge cleanly; repositories that don't see divergence
+reports that need a human — a reconcile that exits 3. This guide is
+about staying in the first group.
 
 ## Isolate environment-specific configuration
 
@@ -80,10 +80,14 @@ contract.
 
 It will — that is what the reconcile loop is for. The playbook:
 
-- **A managed PR conflicts** → do not hand-edit the `oiax/` branch —
-  Oiax force-pushes it by design, so local fixes there are overwritten.
-  Fix the underlying content on the source or target branch and let the
-  next reconcile re-propose.
+- **A managed promotion PR conflicts** → fix the content on the source
+  or target branch. A promotion request's head *is* your source branch,
+  so this is the normal workflow; Oiax never force-pushes your
+  long-lived branches.
+- **A managed backflow PR conflicts** → do not hand-edit its `oiax/`
+  branch. That branch is Oiax's own artifact and it force-pushes it by
+  design, so local fixes there are overwritten. Fix the underlying
+  content and let the next reconcile re-propose.
 - **A backflow stops on a cherry-pick conflict (exit 3)** → follow
   [the backflow conflict guide](backflow.md#when-a-replay-conflicts).
 - **A promotion landed and was wrong** → revert it; see the

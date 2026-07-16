@@ -123,8 +123,11 @@ middle of the run.
 
 The trade is bandwidth at checkout for latency during evaluation:
 
-- A graph whose edges settle on the reachability or baseline rungs pays
-  almost nothing after checkout.
+- Every edge pays something, whichever rung settles it. Oiax computes
+  patch-ids for each promotion edge up front — before the ladder picks a
+  rung — so a blobless clone defers that blob download to evaluation
+  time rather than avoiding it. The saving is on history the run never
+  looks at, not on the edges themselves.
 - A backflow edge with a long tail of unreturned commits triggers an
   on-demand fetch per patch it inspects or replays — many small fetches
   where a full clone paid one large one. If your reconciles are

@@ -173,11 +173,18 @@ where the revert goes:
 
 - **Reverting only on the target is a stopgap, not a fix.** It takes
   the change out of that environment *now*, but the source still
-  carries it — divergence detection is history-based, so Oiax will not
-  re-propose the old commits, yet the **next** promotion of anything
-  newer brings the source's tree along and reintroduces the change over
-  your revert. Use a target-only revert to stop the bleeding, then land
-  the real revert at the source before the next promotion.
+  carries it — and reverting does not erase the original from the
+  target's history, so the [equivalence
+  ladder](../architecture.md#the-equivalence-ladder) still counts those
+  commits as promoted and Oiax will not re-propose them. Whether your
+  revert then *survives* depends on how promotions merge. With **merge
+  commits**, the merge base has advanced past the change, so the next
+  promotion leaves the revert standing. With **squash** or **rebase** it
+  has not, so the next promotion of anything newer replays the source's
+  whole diff — the reverted change included — and reintroduces it over
+  your revert, possibly as a conflict. Either way, land the real revert
+  at the source; on a squashing repository, do it before the next
+  promotion.
 
 The same logic applies to a merged **backflow** return: revert it on the
 target (the source branch of the graph) and the revert promotes forward;

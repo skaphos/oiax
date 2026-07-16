@@ -6,9 +6,12 @@
 ## Context
 
 `internal/git` executes the system `git` binary through a single
-`Runner`; nothing else in the codebase touches git. The layer enforces a
-version floor — git 2.45, required for `cherry-pick --empty=drop` — with
-a startup check and a clear error. External review of the 1.0 codebase
+`Runner`, the primary git seam. A few callers outside it shell out
+directly, under the same posture: commit-trailer reads in
+`internal/reconcile`, push and ref validation in `internal/forge/github`,
+and origin resolution in `internal/cli`. The engine never shells out at
+all. The layer enforces a version floor — git 2.45, required for
+`cherry-pick --empty=drop` — with a startup check and a clear error. External review of the 1.0 codebase
 recommended migrating the core operations (refs, reachability,
 patch-ids, cherry-pick, tree comparison) to a pure-Go library such as
 go-git, or to libgit2 bindings, citing portability, easier mocking, and
@@ -44,12 +47,13 @@ a current git binary is unconditionally present.
 
 ## Decision
 
-Keep `internal/git` a shell-out to the system git binary, permanently
-fenced behind the `Runner` seam. The version floor stays and stays
-checked at startup. Mockability is already served by the seam itself —
-the engine never sees a subprocess, and the reconcile tests exercise
-real git against throwaway repositories, which is a feature: the tests
-verify the behavior users' own git will exhibit.
+Keep `internal/git` a shell-out to the system git binary, behind the
+`Runner` seam, and keep the direct shell-outs elsewhere to the same
+posture rather than growing them. The version floor stays and stays
+checked at startup. Mockability is already served where it matters —
+the engine is pure and never sees a subprocess — and the reconcile tests
+exercise real git against throwaway repositories, which is a feature:
+the tests verify the behavior users' own git will exhibit.
 
 Revisit only if the execution model changes to environments where a
 git binary cannot be assumed (which today it can, on every supported

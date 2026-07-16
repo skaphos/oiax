@@ -69,16 +69,23 @@ Extend `backflow.strategy` with `merge`. Per (source, target) edge:
   surfaces as a reported divergence (exit 3), exactly as ADR 0004
   handles a conflicting cherry-pick.
 - **Identity becomes ancestry plus baseline.** After the return merges,
-  the source head is an ancestor of the target — rung 1 of the forward
-  ladder, exact and cheap. The patch-id and provenance rungs are not
-  consulted on merge-strategy edges.
+  the backflow source's head is an ancestor of the backflow target, so
+  the downstream-only range (`target..source`) is empty by ancestry —
+  exact and cheap, and the patch-id and provenance filters never have to
+  run. (This is the ancestry computation that *produces* the
+  downstream-only set, not rung 1 of the forward promotion ladder, which
+  tests the opposite range.)
 - **Validation must fence the merge method.** The strategy only works
   if the managed request itself merges as a **merge commit** — squash
   or rebase at that moment destroys the ancestry the identity model
-  depends on, and the same content would be re-proposed forever.
-  `merge` therefore requires the target's expected merge method to be
-  `merge`, enforced at validation, and the mismatch warning at
-  reconcile time becomes an error for these edges.
+  depends on, and the same content would be re-proposed forever. This
+  is **new enforcement, not a stricter version of an existing check**:
+  `mergeMethod` today lives on `Expectations`, which hangs off a
+  `Promotion` only, and `warnMergeMethodMismatch` walks `Promotions`
+  alone — neither reaches a backflow edge. Adopting `merge` therefore
+  requires a new config surface for the backflow edge's expected merge
+  method, plus a reconcile-time check that fences it. Cost to be
+  budgeted with SKA-562, not absorbed by it.
 
 ## Consequences
 
@@ -109,5 +116,6 @@ Extend `backflow.strategy` with `merge`. Per (source, target) edge:
 
 - Extends [ADR 0004 — Backflow execution](0004-backflow-execution.md)
 - Identity posture: [ADR 0002 — Detect divergence by content, not
-  ancestry](0002-content-based-divergence-detection.md) (rung 1
-  reachability is exactly what a merge-commit return restores)
+  ancestry](0002-content-based-divergence-detection.md) (a merge-commit
+  return restores plain ancestry as the identity signal, which is what
+  the content rungs exist to substitute for when it is absent)
