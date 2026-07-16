@@ -113,23 +113,33 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 ```
 
-The App token must be on **both** steps — this is not optional.
-`actions/checkout` persists the token you give it as the git credential
-for `github.com`, and that persisted credential is what authenticates
-Oiax's `git push` of an `oiax/` branch (the backflow/promotion branches).
-Oiax's own `token` input is used for its REST API calls — opening and
-managing the pull requests. So: the App token on `actions/checkout` covers
-the push and the ref-preparation fetch; the App token on Oiax's `token`
-input covers the API. Both events are then attributed to the App and can
-trigger workflows automatically.
+The App token must be on **both** steps — this is not optional, and the
+reason is subtler than it looks.
 
-If you leave `actions/checkout` on the default `GITHUB_TOKEN`, its
-persisted `github-actions[bot]` credential wins on the push regardless of
-what you set on Oiax's `token` input. Once you also apply the recommended
-hardening — reducing the workflow's own `GITHUB_TOKEN` to `contents: read`
-because the App now carries the write scopes — that `github-actions[bot]`
-credential has no push permission, and the first backflow or promotion
-fails:
+Oiax authenticates its own `git push` of an `oiax/` branch (the
+backflow/promotion branches) with the token from its `token` input: it
+supplies an `AUTHORIZATION` header for the push rather than putting a
+credential in the remote URL. But `actions/checkout`, with its default
+`persist-credentials: true`, also writes a credential for `github.com`
+into the repository's git config — and git sends **both**. The push is
+attributed to checkout's persisted credential, so that is the one that
+decides whether the push is allowed, whatever you pass to Oiax's `token`
+input.
+
+The requirement, then, is not that checkout supply Oiax's push auth —
+Oiax has its own — but that checkout must not persist a *different*
+credential than the one Oiax pushes with. Giving both steps the same App
+token satisfies that, and attributes the ref-preparation fetch to the App
+as well. Oiax's `token` input still covers its REST API calls — opening
+and managing the pull requests. Push and API are then both attributed to
+the App and can trigger workflows automatically.
+
+If you leave `actions/checkout` on the default `GITHUB_TOKEN`, the push is
+attributed to its persisted `github-actions[bot]` credential. Once you
+also apply the recommended hardening — reducing the workflow's own
+`GITHUB_TOKEN` to `contents: read` because the App now carries the write
+scopes — that `github-actions[bot]` credential has no push permission, and
+the first backflow or promotion fails:
 
 ```text
 remote: Permission to <owner>/<repo>.git denied to github-actions[bot].
@@ -138,10 +148,14 @@ fatal: unable to access 'https://github.com/<owner>/<repo>.git/': The requested 
 
 This surfaces only on a run that actually pushes: `validate` and `plan`
 never push, so the wiring can look correct until the first `reconcile`
-that opens a backflow or promotion branch. The fix is to pass the App
-token to `actions/checkout` as shown above (equivalently, set
-`persist-credentials: false` on checkout so nothing shadows Oiax's own
-push auth).
+that opens a backflow or promotion branch.
+
+The fix is to pass the App token to `actions/checkout`, as shown above.
+Setting `persist-credentials: false` is an alternative rather than an
+equivalent: it stops checkout installing a competing credential, so Oiax's
+own push auth stands alone — but checkout's fetch then still runs as
+`github-actions[bot]`, which means the workflow's `GITHUB_TOKEN` must keep
+`contents: read`.
 
 After this, managed promotion PRs are authored by your App, `on:
 pull_request` workflows run for them, required checks report, and the PRs
