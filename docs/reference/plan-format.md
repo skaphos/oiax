@@ -29,7 +29,7 @@ should treat this page as authoritative.
 | `planFormatVersion` | int | always | Format version. `1` for this page. |
 | `graph` | string | always | The graph's `metadata.name` (see the [configuration reference](configuration.md)). |
 | `actions` | array of [`Action`](#action) | always | The ordered actions required to converge the graph. **Always a JSON array, never `null`** — including when the graph is fully in sync, in which case it is `[]`. |
-| `edges` | array of [`Edge`](#edge) | `omitempty` | Per-edge diagnostics: one summary per evaluated promotion edge, in graph declaration order — including edges fully in sync, which produce no action. Additive within version 1; absent (never `null`) when no edges were evaluated. |
+| `edges` | array of [`Edge`](#edge) | `omitempty` | Per-edge diagnostics: one summary per evaluated promotion edge, in graph declaration order — including edges fully in sync, which usually produce no action (the exception is `closeObsoleteRequest`). Additive within version 1; absent (never `null`) when no edges were evaluated. |
 
 Example, fully in sync (a one-edge graph):
 
@@ -161,7 +161,7 @@ text.
 
 One per-edge diagnostic summary, answering "which equivalence-ladder rung
 settled this edge" — for every evaluated edge, including in-sync edges
-that produce no action. `edges` is an **additive** version-1 field:
+that usually produce no action. `edges` is an **additive** version-1 field:
 consumers written before it existed ignore it; consumers that use it must
 tolerate its absence (a plan produced by an older oiax).
 
@@ -172,9 +172,9 @@ tolerate its absence (a plan produced by an older oiax).
 | `equivalence` | string, [enum](#equivalence) | always | The ladder rung that settled the edge. Unlike the action-level `equivalence`, **all four values are observable here** — an edge settled in sync by `patch-identity`, `head-tree`, or `baseline` appears with that rung. |
 | `inSync` | bool | always | `true` when no unpromoted commits survived the ladder. |
 | `unpromoted` | int | `omitempty` | Source commits not represented in the destination after the ladder. Absent (not `0`) when the edge is in sync. |
-| `downstreamOnly` | int | `omitempty` | Destination commits not represented in the source. Absent when zero. |
-| `toReturn` | int | `omitempty` | Downstream-only commits still to backflow. Meaningful only when `to` is a backflow source; absent when zero. |
-| `excluded` | array of [`Exclusion`](#exclusion) | `omitempty` | The downstream-only commits the backflow exclusion ladder resolved as not needing return. Absent when nothing was excluded. |
+| `downstreamOnly` | int | `omitempty` | Destination commits not represented in the source. On an edge whose destination **is** a backflow source, this is the *returnable* count: merge commits and empty commits — which cherry-pick cannot return — are filtered out before evaluation, so it can be smaller than a raw `git rev-list --count from..to`. Absent when zero. |
+| `toReturn` | int | `omitempty` | Downstream-only commits still to backflow. Populated only when `to` is a configured backflow source; absent when zero — in particular, always absent on edges whose destination is not a backflow source, however far their destination is ahead. |
+| `excluded` | array of [`Exclusion`](#exclusion) | `omitempty` | The downstream-only commits the backflow exclusion ladder resolved as not needing return. Populated only when `to` is a configured backflow source; absent when nothing was excluded. |
 
 ### `Exclusion`
 

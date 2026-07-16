@@ -235,9 +235,14 @@ func TestBuildPlanDedupsBackflowAcrossIncomingEdges(t *testing.T) {
 func TestBuildPlanEdgeSummaries(t *testing.T) {
 	g := FromConfig(validGraph())
 
+	// "test" is NOT a backflow source, so the degenerate ToReturn/Excluded
+	// views EvaluateEdge computes there (its exclusion inputs are never
+	// observed) must not be published — only the downstream-only count is.
 	inSync := edge("development", "test")
 	inSync.Equivalence = EquivalencePatchIdentity
 	inSync.DownstreamOnly = []Commit{{SHA: "x"}}
+	inSync.ToReturn = []Commit{{SHA: "x"}}
+	inSync.Excluded = []BackflowExclusion{{SHA: "y", Reason: BackflowExcludedPatchID}}
 
 	diverged := edge("test", "qa")
 	diverged.Equivalence = EquivalenceReachability
@@ -269,6 +274,45 @@ func TestBuildPlanEdgeSummaries(t *testing.T) {
 			t.Errorf("edges[%d] = %+v, want %+v", i, plan.Edges[i], want[i])
 		}
 	}
+}
+
+// TestBuildPlanEdgesJSONShape pins the additive-field contract for "edges":
+// absent (not null, not []) when no edges were evaluated, a JSON array when
+// they were.
+func TestBuildPlanEdgesJSONShape(t *testing.T) {
+	g := FromConfig(validGraph())
+
+	t.Run("no evaluated edges omits the edges key", func(t *testing.T) {
+		got, err := json.Marshal(BuildPlan(g, nil))
+		if err != nil {
+			t.Fatalf("Marshal() error = %v", err)
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(got, &raw); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if edgesRaw, ok := raw["edges"]; ok {
+			t.Fatalf(`"edges" = %s, want the key absent when no edges were evaluated (never null)`, edgesRaw)
+		}
+	})
+
+	t.Run("evaluated edges serialize as an array of objects", func(t *testing.T) {
+		got, err := json.Marshal(BuildPlan(g, []EdgeState{edge("development", "test")}))
+		if err != nil {
+			t.Fatalf("Marshal() error = %v", err)
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(got, &raw); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		var edges []json.RawMessage
+		if err := json.Unmarshal(raw["edges"], &edges); err != nil {
+			t.Fatalf(`"edges" did not unmarshal as a JSON array: %v (raw: %s)`, err, raw["edges"])
+		}
+		if len(edges) != 1 {
+			t.Fatalf("len(edges) = %d, want 1", len(edges))
+		}
+	})
 }
 
 func TestBuildPlanActionsJSONShape(t *testing.T) {

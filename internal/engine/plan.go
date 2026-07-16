@@ -32,12 +32,13 @@ func BuildPlan(g *Graph, edges []EdgeState) Plan {
 	}
 
 	// Per-edge diagnostics: which rung settled each edge and the counts the
-	// observability surfaces render, for every edge — in-sync edges produce
-	// no action, so without this the settling rung would be invisible.
+	// observability surfaces render, for every edge — an in-sync edge usually
+	// produces no action at all (the exception is closing an obsolete
+	// request), so without this its settling rung would be invisible.
 	if len(edges) > 0 {
 		plan.Edges = make([]EdgeSummary, 0, len(edges))
 		for _, e := range edges {
-			plan.Edges = append(plan.Edges, summarizeEdge(e))
+			plan.Edges = append(plan.Edges, summarizeEdge(g, e))
 		}
 	}
 
@@ -85,17 +86,27 @@ func BuildPlan(g *Graph, edges []EdgeState) Plan {
 // record the plan carries: the settling rung, sync status, and counts. The
 // Excluded slice is shared, not copied — EdgeState is not mutated after
 // evaluation.
-func summarizeEdge(e EdgeState) EdgeSummary {
-	return EdgeSummary{
+//
+// ToReturn and Excluded are published only when the destination is a
+// configured backflow source, mirroring planDownstream's gate. EvaluateEdge
+// computes EdgeState.ToReturn unconditionally, and for a non-source
+// destination the exclusion inputs are never observed, so its ToReturn
+// degenerates to all of DownstreamOnly — publishing that would claim pending
+// backflow work on an edge nothing will ever backflow.
+func summarizeEdge(g *Graph, e EdgeState) EdgeSummary {
+	s := EdgeSummary{
 		From:           e.From.Name,
 		To:             e.To.Name,
 		Equivalence:    e.Equivalence,
 		InSync:         len(e.Unpromoted) == 0,
 		Unpromoted:     len(e.Unpromoted),
 		DownstreamOnly: len(e.DownstreamOnly),
-		ToReturn:       len(e.ToReturn),
-		Excluded:       e.Excluded,
 	}
+	if g.isBackflowSource(e.To.Name) {
+		s.ToReturn = len(e.ToReturn)
+		s.Excluded = e.Excluded
+	}
+	return s
 }
 
 func planPromotion(e EdgeState) []Action {

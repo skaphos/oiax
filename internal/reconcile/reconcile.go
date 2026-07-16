@@ -115,7 +115,7 @@ func (c *Coordinator) Plan(ctx context.Context) (engine.Plan, error) {
 		edges = append(edges, engine.EvaluateEdge(obs))
 	}
 	plan := engine.BuildPlan(c.Graph, edges)
-	c.logPlanCounts(plan, candidates)
+	c.logPlanCounts(plan, edges, candidates)
 	return plan, nil
 }
 
@@ -124,21 +124,41 @@ func (c *Coordinator) Plan(ctx context.Context) (engine.Plan, error) {
 // inspected, and how the backflow exclusion ladder classified downstream
 // commits. One structured record per run, so a log pipeline can track
 // convergence without parsing plan JSON.
-func (c *Coordinator) logPlanCounts(plan engine.Plan, candidates int) {
+//
+// The backflow tallies are deduplicated by commit SHA across edges, not
+// summed over the per-edge summaries: a backflow source with several
+// incoming promotion edges carries the SAME downstream commit in each
+// edge's view, and apply returns the union (see backflowActionState) — so
+// the run-level count must be the union too, or one hotfix would be
+// reported N times.
+func (c *Coordinator) logPlanCounts(plan engine.Plan, edges []engine.EdgeState, candidates int) {
 	inSync := 0
 	settledBy := make(map[engine.Equivalence]int)
-	toReturn := 0
-	excludedBy := make(map[engine.BackflowExclusionReason]int)
 	for _, e := range plan.Edges {
 		if e.InSync {
 			inSync++
 		}
 		settledBy[e.Equivalence]++
-		toReturn += e.ToReturn
+	}
+	seenReturn := make(map[string]struct{})
+	excludedBy := make(map[engine.BackflowExclusionReason]int)
+	seenExcluded := make(map[string]struct{})
+	for _, e := range edges {
+		if !c.isBackflowSource(e.To.Name) {
+			continue
+		}
+		for _, cm := range e.ToReturn {
+			seenReturn[cm.SHA] = struct{}{}
+		}
 		for _, x := range e.Excluded {
+			if _, ok := seenExcluded[x.SHA]; ok {
+				continue
+			}
+			seenExcluded[x.SHA] = struct{}{}
 			excludedBy[x.Reason]++
 		}
 	}
+	toReturn := len(seenReturn)
 	c.log().Info("plan built",
 		"graph", plan.Graph,
 		"edges", len(plan.Edges),

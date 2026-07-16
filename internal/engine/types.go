@@ -164,9 +164,10 @@ type Action struct {
 const PlanFormatVersion = 1
 
 // EdgeSummary is the per-edge diagnostic record a plan carries for every
-// promotion edge — including edges fully in sync, which produce no action.
-// It answers "which equivalence rung settled this edge" and carries the
-// counts the observability surfaces render.
+// promotion edge — including edges fully in sync, which usually produce no
+// action (the exception: closing an obsolete request). It answers "which
+// equivalence rung settled this edge" and carries the counts the
+// observability surfaces render.
 type EdgeSummary struct {
 	From string `json:"from"`
 	To   string `json:"to"`
@@ -177,15 +178,19 @@ type EdgeSummary struct {
 	// Unpromoted counts the source commits not represented in the
 	// destination after the ladder. Absent when zero.
 	Unpromoted int `json:"unpromoted,omitempty"`
-	// DownstreamOnly counts destination content absent from the source.
-	// Absent when zero.
+	// DownstreamOnly counts destination content absent from the source. On
+	// an edge whose destination is a backflow source this is the RETURNABLE
+	// count — merge and empty commits, which cherry-pick cannot return, are
+	// already filtered out by observation. Absent when zero.
 	DownstreamOnly int `json:"downstreamOnly,omitempty"`
 	// ToReturn counts the downstream-only commits still to backflow.
-	// Meaningful only when To is a backflow source; absent when zero.
+	// Populated only when To is a configured backflow source (see
+	// summarizeEdge); absent when zero.
 	ToReturn int `json:"toReturn,omitempty"`
 	// Excluded lists the downstream-only commits the backflow exclusion
-	// ladder resolved as not needing return, with reasons. Absent when
-	// nothing was excluded.
+	// ladder resolved as not needing return, with reasons. Populated only
+	// when To is a configured backflow source; absent when nothing was
+	// excluded.
 	Excluded []BackflowExclusion `json:"excluded,omitempty"`
 }
 

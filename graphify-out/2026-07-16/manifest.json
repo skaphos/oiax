@@ -70,13 +70,13 @@
     "semantic_hash": ""
   },
   "internal/engine/plan.go": {
-    "mtime": 1784238911.3986888,
-    "ast_hash": "7f6bbdf9f6f393feae30057207350094",
+    "mtime": 1784237020.0951056,
+    "ast_hash": "9757e472c75238e39c409fcbff1a2b2f",
     "semantic_hash": ""
   },
   "internal/engine/types.go": {
-    "mtime": 1784238948.08449,
-    "ast_hash": "52eb7b2b353c28200dfaf9d2bc35d4e2",
+    "mtime": 1784236954.9819582,
+    "ast_hash": "8499bea3d739595cd355acfc904904bd",
     "semantic_hash": ""
   },
   "internal/engine/validate_test.go": {
@@ -90,8 +90,8 @@
     "semantic_hash": ""
   },
   "internal/engine/plan_test.go": {
-    "mtime": 1784239093.6585853,
-    "ast_hash": "f07c8eee2e9f586db9ed0785011ed26f",
+    "mtime": 1784237529.6590543,
+    "ast_hash": "4c5f344124e626a33d4539cd64561034",
     "semantic_hash": ""
   },
   "internal/engine/validate.go": {
@@ -205,7 +205,7 @@
     "semantic_hash": ""
   },
   "internal/engine/edge.go": {
-    "mtime": 1784238361.6218798,
+    "mtime": 1784236998.044957,
     "ast_hash": "4776c76b18d71b2d8b55f8eba3ae2eeb",
     "semantic_hash": ""
   },
@@ -260,23 +260,23 @@
     "semantic_hash": ""
   },
   "internal/reconcile/reconcile.go": {
-    "mtime": 1784238931.442663,
-    "ast_hash": "563494ce3b11ddfdce75430395ee1f68",
+    "mtime": 1784237129.6199622,
+    "ast_hash": "e19e0cbe73a50fe55df6ec44a68b944b",
     "semantic_hash": ""
   },
   "internal/reconcile/reconcile_test.go": {
-    "mtime": 1784239074.4880154,
-    "ast_hash": "b5a2492248f3962949f8deb15ced3c9e",
+    "mtime": 1784237497.6586537,
+    "ast_hash": "622491184b028686131b41e9a9fc7c21",
     "semantic_hash": ""
   },
   "internal/reconcile/render.go": {
-    "mtime": 1784238615.7892656,
+    "mtime": 1784237167.443631,
     "ast_hash": "41af6b393473bc15c868b8e47c2a1c87",
     "semantic_hash": ""
   },
   "internal/reconcile/render_test.go": {
-    "mtime": 1784239098.9297853,
-    "ast_hash": "56225510648b3aeaffde4b53a660dbea",
+    "mtime": 1784237448.094666,
+    "ast_hash": "6c0acf46e91963d5a06b20f01a6cdb81",
     "semantic_hash": ""
   },
   "pkg/api/v1/types.go": {
@@ -390,8 +390,8 @@
     "semantic_hash": ""
   },
   "docs/guides/operating.md": {
-    "mtime": 1784238982.349427,
-    "ast_hash": "76c6fb365677ea9d72fd22af7076b5f1",
+    "mtime": 1784237651.349282,
+    "ast_hash": "0f7ea609505b5e99d679718f110812f5",
     "semantic_hash": ""
   },
   "docs/guides/promotion-graphs.md": {
@@ -410,8 +410,8 @@
     "semantic_hash": ""
   },
   "docs/reference/plan-format.md": {
-    "mtime": 1784238967.660358,
-    "ast_hash": "231a2fa08548d2ca4fa6876b87e9bc24",
+    "mtime": 1784237623.6909266,
+    "ast_hash": "7b56ed961079bfeeb86ef18222fbdee6",
     "semantic_hash": ""
   },
   "internal/config/testdata/environments.yaml": {

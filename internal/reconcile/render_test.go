@@ -130,6 +130,27 @@ func TestRenderTextWithoutEdgeSummaries(t *testing.T) {
 	}
 }
 
+// TestRenderMarkdownWithoutEdgeSummaries is the markdown analogue of the text
+// test above: a plan carrying no edge diagnostics renders no edges table but
+// still renders the header and the actions table.
+func TestRenderMarkdownWithoutEdgeSummaries(t *testing.T) {
+	plan := samplePlan()
+	plan.Edges = nil
+	var buf bytes.Buffer
+	if err := RenderMarkdown(&buf, plan); err != nil {
+		t.Fatalf("render markdown: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "| Edge |") {
+		t.Errorf("unexpected edges table:\n%s", out)
+	}
+	for _, want := range []string{"## Oiax plan: environments", "| create | development | test |"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("markdown missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // failingWriter fails every write, standing in for a broken pipe or full
 // disk so the renderers' error propagation can be exercised.
 type failingWriter struct{}

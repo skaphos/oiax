@@ -21,10 +21,14 @@ Promotion graph: environments
 
 Each edge line names the [equivalence-ladder
 rung](../architecture.md#the-equivalence-ladder) that settled the edge —
-in parentheses — including edges fully in sync, which produce no action.
-An edge whose destination is a backflow source also carries the backflow
-counts: how many downstream-only commits remain to return and how many
-were excluded, with the excluding rung:
+in parentheses — including edges fully in sync, which usually produce no
+action. Any edge whose destination has content the source lacks shows a
+`downstream-only` count; when that destination is a backflow source, the
+line also carries the backflow counts — how many of those commits remain
+to return and how many were excluded, with the excluding rung (on such
+an edge the `downstream-only` count itself is the *returnable* count:
+merge and empty commits, which cherry-pick cannot return, are already
+filtered out):
 
 ```
   edge production-stage-1 -> main: in sync (reachability), 3 downstream-only, 1 to return, 2 excluded (1 skip, 1 patch-id)
