@@ -128,6 +128,59 @@ environment-specific overlays committed directly to it).
 > says "this content is fine to keep"). Validation rejects the
 > combination.
 
+#### Transit branches and merge residue
+
+There is a second, subtler reason to reach for `drift: expected`: the
+merge method your forge uses for promotion pull requests.
+
+Oiax decides whether a destination has diverged **by reachability**
+(`git rev-list <source>..<destination>`), not by content. When a
+promotion PR is merged with **squash** or a **merge commit** — the two
+default buttons on most forges — the destination gains a commit that
+exists on no upstream branch: the squash commit, or the merge node. Its
+*content* is fully represented upstream, so the promotion direction stays
+in sync: the [equivalence
+ladder](../architecture.md#the-equivalence-ladder) only asks whether the
+commits unique to the *source* are represented in the destination, and
+downstream-only commits never enter that question. But as a *commit* the
+residue is unique to the destination, so Oiax reports it as
+downstream-only — one line of the plan output:
+
+```text
+  report   development -> test (1): test has 1 commits not represented in development
+```
+
+Only a **fast-forward** merge leaves the destination a strict subset with
+nothing unique:
+
+| Promotion PR merged as | commits unique to the destination |
+| --- | --- |
+| Merge commit | 1 (the merge node) |
+| Squash | 1 (the squash commit) |
+| Rebase | 1 per replayed commit (new SHAs) |
+| Fast-forward | 0 |
+
+So a **transit branch** — one that only ever receives content through
+promotion (a mid-graph `test` or `qa`, never a hotfix target) — will
+accumulate this benign residue on every squash/rebase/merge-commit
+promotion. You have two clean options:
+
+- **Enforce fast-forward-only promotions** (via your forge's API, the
+  CLI, or a merge queue) and keep every branch `forbidden`. The graph
+  stays a clean chain of subsets, and genuine accidental drift is still
+  caught.
+- **Mark the transit branches `drift: expected`.** This is the pragmatic
+  choice when promotions merge as squash/rebase/merge commits (the
+  standard forge buttons do not fast-forward). The trade-off is that
+  real accidental drift on those branches is no longer flagged — which is
+  usually acceptable, because in a promotion graph the branches where
+  downstream content *matters* are the backflow sources, and those stay
+  `forbidden` and are handled by backflow.
+
+Do not use `expected` on a backflow source: its downstream-only content
+is a hotfix to be **returned**, not ignored (and validation rejects the
+combination, as above).
+
 ## Promotion edges
 
 `spec.promotions` is a list of directed edges. Each edge names a `from`
