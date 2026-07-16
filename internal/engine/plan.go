@@ -31,6 +31,16 @@ func BuildPlan(g *Graph, edges []EdgeState) Plan {
 		Actions: make([]Action, 0, len(edges)),
 	}
 
+	// Per-edge diagnostics: which rung settled each edge and the counts the
+	// observability surfaces render, for every edge — in-sync edges produce
+	// no action, so without this the settling rung would be invisible.
+	if len(edges) > 0 {
+		plan.Edges = make([]EdgeSummary, 0, len(edges))
+		for _, e := range edges {
+			plan.Edges = append(plan.Edges, summarizeEdge(e))
+		}
+	}
+
 	// A backflow source can have several incoming promotion edges; each yields
 	// an EdgeState with the same To, and thus the same backflow (source, target)
 	// pair and branch name. Emit exactly one backflow action per pair — two would
@@ -69,6 +79,23 @@ func BuildPlan(g *Graph, edges []EdgeState) Plan {
 		}
 	}
 	return plan
+}
+
+// summarizeEdge reduces one evaluated EdgeState to the per-edge diagnostic
+// record the plan carries: the settling rung, sync status, and counts. The
+// Excluded slice is shared, not copied — EdgeState is not mutated after
+// evaluation.
+func summarizeEdge(e EdgeState) EdgeSummary {
+	return EdgeSummary{
+		From:           e.From.Name,
+		To:             e.To.Name,
+		Equivalence:    e.Equivalence,
+		InSync:         len(e.Unpromoted) == 0,
+		Unpromoted:     len(e.Unpromoted),
+		DownstreamOnly: len(e.DownstreamOnly),
+		ToReturn:       len(e.ToReturn),
+		Excluded:       e.Excluded,
+	}
 }
 
 func planPromotion(e EdgeState) []Action {

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
@@ -225,6 +226,48 @@ func TestBuildPlanDedupsBackflowAcrossIncomingEdges(t *testing.T) {
 	// apply cherry-picks and pushes the full union.
 	if surviving.Unpromoted != 2 {
 		t.Errorf("Unpromoted = %d, want 2 (union of both incoming edges)", surviving.Unpromoted)
+	}
+}
+
+// TestBuildPlanEdgeSummaries confirms the plan carries one diagnostic
+// summary per evaluated edge, in input order — including in-sync edges that
+// produce no action, whose settling rung would otherwise be invisible.
+func TestBuildPlanEdgeSummaries(t *testing.T) {
+	g := FromConfig(validGraph())
+
+	inSync := edge("development", "test")
+	inSync.Equivalence = EquivalencePatchIdentity
+	inSync.DownstreamOnly = []Commit{{SHA: "x"}}
+
+	diverged := edge("test", "qa")
+	diverged.Equivalence = EquivalenceReachability
+	diverged.Unpromoted = []Commit{{SHA: "d"}, {SHA: "e"}}
+
+	backflow := edge("production-stage-1", "main")
+	backflow.Equivalence = EquivalenceReachability
+	backflow.DownstreamOnly = []Commit{{SHA: "h1"}, {SHA: "h2"}, {SHA: "h3"}}
+	backflow.ToReturn = []Commit{{SHA: "h1"}}
+	backflow.Excluded = []BackflowExclusion{
+		{SHA: "h2", Reason: BackflowExcludedSkip},
+		{SHA: "h3", Reason: BackflowExcludedPatchID},
+	}
+	backflow.SourceHeadShort = "abc1234"
+
+	plan := BuildPlan(g, []EdgeState{inSync, diverged, backflow})
+
+	want := []EdgeSummary{
+		{From: "development", To: "test", Equivalence: EquivalencePatchIdentity, InSync: true, DownstreamOnly: 1},
+		{From: "test", To: "qa", Equivalence: EquivalenceReachability, InSync: false, Unpromoted: 2},
+		{From: "production-stage-1", To: "main", Equivalence: EquivalenceReachability, InSync: true,
+			DownstreamOnly: 3, ToReturn: 1, Excluded: backflow.Excluded},
+	}
+	if len(plan.Edges) != len(want) {
+		t.Fatalf("edges = %+v, want %d summaries", plan.Edges, len(want))
+	}
+	for i := range want {
+		if !reflect.DeepEqual(plan.Edges[i], want[i]) {
+			t.Errorf("edges[%d] = %+v, want %+v", i, plan.Edges[i], want[i])
+		}
 	}
 }
 

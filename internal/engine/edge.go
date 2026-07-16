@@ -34,11 +34,13 @@ type EdgeObservation struct {
 	// patch-id is here has already been returned (handles cherry-picks whose
 	// SHAs were rewritten and independent re-application).
 	ReturnedPatchIDs map[string]struct{}
-	// AlreadyReturned is the set of DownstreamOnly SHAs the reconcile layer has
-	// resolved as already returned by identity rather than content: the source
-	// SHA recorded in a target commit's 'git cherry-pick -x' provenance trailer
-	// and any downstream commit carrying the O6 'Oiax-Backflow: skip' trailer.
-	AlreadyReturned map[string]struct{}
+	// SkippedByTrailer is the set of DownstreamOnly SHAs carrying the O6
+	// 'Oiax-Backflow: skip' trailer — intentionally not backflowed.
+	SkippedByTrailer map[string]struct{}
+	// ReturnedByProvenance is the set of DownstreamOnly SHAs a backflow-target
+	// commit's 'git cherry-pick -x' provenance trailer names — already
+	// returned by identity even when conflict resolution rewrote the patch-id.
+	ReturnedByProvenance map[string]struct{}
 
 	// CandidatePatchIDs maps each candidate SHA to its stable patch-id.
 	CandidatePatchIDs map[string]string
@@ -76,11 +78,13 @@ type EdgeObservation struct {
 //     sourceHead are promoted (squash after the source advanced).
 //  5. Promotion required: any survivors are the unpromoted commits.
 func EvaluateEdge(obs EdgeObservation) EdgeState {
+	toReturn, excluded := backflowToReturn(obs)
 	state := EdgeState{
 		From:            obs.From,
 		To:              obs.To,
 		DownstreamOnly:  obs.DownstreamOnly,
-		ToReturn:        backflowToReturn(obs),
+		ToReturn:        toReturn,
+		Excluded:        excluded,
 		SourceHeadShort: obs.SourceHeadShort,
 		ManagedRequest:  obs.ManagedRequest,
 		Mergeable:       obs.Mergeable,
@@ -136,30 +140,42 @@ func EvaluateEdge(obs EdgeObservation) EdgeState {
 }
 
 // backflowToReturn purely filters DownstreamOnly down to the commits that
-// still need returning to the backflow target. A downstream commit is dropped
-// when the reconcile layer resolved its SHA as already returned (cherry-pick -x
-// provenance or the O6 'Oiax-Backflow: skip' trailer) or when its patch-id is
-// already present on the target. Order is preserved (newest first); the result
-// is nil when nothing remains, matching the Unpromoted convention so identical
-// observations yield DeepEqual EdgeStates.
-func backflowToReturn(obs EdgeObservation) []Commit {
+// still need returning to the backflow target, and records why each dropped
+// commit was excluded. A downstream commit is excluded when its SHA was
+// resolved as intentionally withheld (the O6 'Oiax-Backflow: skip' trailer),
+// already returned by identity (cherry-pick -x provenance), or already
+// returned by content (its patch-id is present on the target) — reported in
+// that precedence order when several apply. Order is preserved (newest
+// first); both results are nil when empty, matching the Unpromoted
+// convention so identical observations yield DeepEqual EdgeStates.
+func backflowToReturn(obs EdgeObservation) ([]Commit, []BackflowExclusion) {
 	if len(obs.DownstreamOnly) == 0 {
-		return nil
+		return nil, nil
 	}
 	toReturn := make([]Commit, 0, len(obs.DownstreamOnly))
+	var excluded []BackflowExclusion
+	exclude := func(c Commit, reason BackflowExclusionReason) {
+		excluded = append(excluded, BackflowExclusion{SHA: c.SHA, Subject: c.Subject, Reason: reason})
+	}
 	for _, c := range obs.DownstreamOnly {
-		if _, ok := obs.AlreadyReturned[c.SHA]; ok {
+		if _, ok := obs.SkippedByTrailer[c.SHA]; ok {
+			exclude(c, BackflowExcludedSkip)
+			continue
+		}
+		if _, ok := obs.ReturnedByProvenance[c.SHA]; ok {
+			exclude(c, BackflowExcludedProvenance)
 			continue
 		}
 		if pid, ok := obs.DownstreamPatchIDs[c.SHA]; ok {
 			if _, present := obs.ReturnedPatchIDs[pid]; present {
+				exclude(c, BackflowExcludedPatchID)
 				continue
 			}
 		}
 		toReturn = append(toReturn, c)
 	}
 	if len(toReturn) == 0 {
-		return nil
+		toReturn = nil
 	}
-	return toReturn
+	return toReturn, excluded
 }

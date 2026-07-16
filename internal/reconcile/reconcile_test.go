@@ -574,6 +574,25 @@ func TestPlanBackflowAlreadyReturnedByContent(t *testing.T) {
 			t.Errorf("already-returned hotfix must not backflow, got %+v", a)
 		}
 	}
+	// The edge diagnostics name the excluding rung: returned by content.
+	assertExclusionReason(t, plan, hotfix, engine.BackflowExcludedPatchID)
+}
+
+// assertExclusionReason finds the backflow exclusion for sha in the plan's
+// edge diagnostics and asserts the rung that excluded it.
+func assertExclusionReason(t *testing.T, plan engine.Plan, sha string, want engine.BackflowExclusionReason) {
+	t.Helper()
+	for _, e := range plan.Edges {
+		for _, x := range e.Excluded {
+			if x.SHA == sha {
+				if x.Reason != want {
+					t.Errorf("exclusion reason for %s = %q, want %q", sha, x.Reason, want)
+				}
+				return
+			}
+		}
+	}
+	t.Errorf("no exclusion recorded for %s in edges %+v", sha, plan.Edges)
 }
 
 func TestPlanBackflowSkipTrailerSuppresses(t *testing.T) {
@@ -582,7 +601,7 @@ func TestPlanBackflowSkipTrailerSuppresses(t *testing.T) {
 	// is empty and no backflow action is planned.
 	r, commit := gitHarness(t)
 	checkout(t, r, "main")
-	commit("hotfix.txt", "urgent\n", "hotfix on main\n\nOiax-Backflow: skip")
+	skipped := commit("hotfix.txt", "urgent\n", "hotfix on main\n\nOiax-Backflow: skip")
 
 	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
 	plan, err := c.Plan(context.Background())
@@ -594,6 +613,8 @@ func TestPlanBackflowSkipTrailerSuppresses(t *testing.T) {
 			t.Errorf("skip-trailer hotfix must not backflow, got %+v", a)
 		}
 	}
+	// The edge diagnostics name the excluding rung: the skip trailer.
+	assertExclusionReason(t, plan, skipped, engine.BackflowExcludedSkip)
 }
 
 // TestPlanBackflowIdentityLookupResolvesOriginTrackingRefs reproduces the exact
@@ -746,12 +767,16 @@ func TestApplyBackflowSupersedesOnlyStrictlyOlderRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
-	if _, err := c.Apply(context.Background(), plan); err != nil {
+	res, err := c.Apply(context.Background(), plan)
+	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
 	if len(f.closed) != 1 || f.closed[0] != forge.RequestID("older") {
 		t.Fatalf("closed = %v, want only the strictly-older request %q", f.closed, "older")
+	}
+	if res.Superseded != 1 {
+		t.Errorf("Superseded = %d, want 1 (the strictly-older request)", res.Superseded)
 	}
 	// L11: superseding the older request also deletes its oiax/ head branch, so
 	// orphan refs do not accumulate. The unrelated (non-ancestor) request is left

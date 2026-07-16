@@ -62,6 +62,9 @@ type Coordinator struct {
 type Result struct {
 	// Applied counts the create/update/close actions performed.
 	Applied int
+	// Superseded counts the stale managed backflow requests closed during
+	// apply — superseded by a newer head or orphaned by a history rewrite.
+	Superseded int
 	// Divergence is true when the plan reported any divergence requiring
 	// human attention (drives reconcile's exit code 3).
 	Divergence bool
@@ -102,14 +105,59 @@ func (c *Coordinator) Plan(ctx context.Context) (engine.Plan, error) {
 	}
 
 	edges := make([]engine.EdgeState, 0, len(c.Graph.Promotions))
+	candidates := 0
 	for _, p := range c.Graph.Promotions {
 		obs, err := c.observe(ctx, p.From, p.To, open, merged)
 		if err != nil {
 			return engine.Plan{}, err
 		}
+		candidates += len(obs.Candidates)
 		edges = append(edges, engine.EvaluateEdge(obs))
 	}
-	return engine.BuildPlan(c.Graph, edges), nil
+	plan := engine.BuildPlan(c.Graph, edges)
+	c.logPlanCounts(plan, candidates)
+	return plan, nil
+}
+
+// logPlanCounts emits the per-run observability counts (SKA-600): how many
+// edges each ladder rung settled, how many promotion candidates were
+// inspected, and how the backflow exclusion ladder classified downstream
+// commits. One structured record per run, so a log pipeline can track
+// convergence without parsing plan JSON.
+func (c *Coordinator) logPlanCounts(plan engine.Plan, candidates int) {
+	inSync := 0
+	settledBy := make(map[engine.Equivalence]int)
+	toReturn := 0
+	excludedBy := make(map[engine.BackflowExclusionReason]int)
+	for _, e := range plan.Edges {
+		if e.InSync {
+			inSync++
+		}
+		settledBy[e.Equivalence]++
+		toReturn += e.ToReturn
+		for _, x := range e.Excluded {
+			excludedBy[x.Reason]++
+		}
+	}
+	c.log().Info("plan built",
+		"graph", plan.Graph,
+		"edges", len(plan.Edges),
+		"inSync", inSync,
+		"actions", len(plan.Actions),
+		"candidates", candidates,
+		slog.Group("settledBy",
+			"reachability", settledBy[engine.EquivalenceReachability],
+			"patchIdentity", settledBy[engine.EquivalencePatchIdentity],
+			"headTree", settledBy[engine.EquivalenceHeadTree],
+			"baseline", settledBy[engine.EquivalenceBaseline],
+		),
+		slog.Group("backflow",
+			"toReturn", toReturn,
+			"excludedSkip", excludedBy[engine.BackflowExcludedSkip],
+			"excludedProvenance", excludedBy[engine.BackflowExcludedProvenance],
+			"excludedPatchID", excludedBy[engine.BackflowExcludedPatchID],
+		),
+	)
 }
 
 // observe assembles the pure EdgeObservation the engine consumes for one
@@ -245,14 +293,17 @@ func (c *Coordinator) observe(ctx context.Context, from, to string, open, merged
 		}
 		obs.ReturnedPatchIDs = returned
 
-		// SHAs resolved as already returned by identity rather than content:
-		// the source SHA named in a target commit's cherry-pick -x provenance
-		// trailer, and any downstream commit carrying the O6 skip trailer.
-		already, err := c.backflowAlreadyReturned(ctx, from, to, target, tmb)
+		// SHAs resolved as already returned (or withheld) by identity rather
+		// than content: any downstream commit carrying the O6 skip trailer,
+		// and the source SHA named in a target commit's cherry-pick -x
+		// provenance trailer. Kept as two sets so the plan's per-commit
+		// exclusion diagnostics can name which rung excluded each commit.
+		skips, provenance, err := c.backflowAlreadyReturned(ctx, from, to, target, tmb)
 		if err != nil {
 			return engine.EdgeObservation{}, wrap(err)
 		}
-		obs.AlreadyReturned = already
+		obs.SkippedByTrailer = skips
+		obs.ReturnedByProvenance = provenance
 
 		// The trailing segment of the deterministic backflow branch name is the
 		// short SHA of the downstream (source) head.
@@ -275,19 +326,18 @@ func (c *Coordinator) isBackflowSource(branch string) bool {
 }
 
 // backflowAlreadyReturned resolves, by identity, which downstream-only SHAs
-// have already been returned to the backflow target:
+// need no backflow, keeping the two identity signals separate so per-commit
+// exclusion diagnostics can name the rung:
 //
-//   - a downstream commit carrying the O6 'Oiax-Backflow: skip' trailer is
-//     treated as intentionally not backflowed;
-//   - a target commit's 'cherry picked from commit <sha>' provenance names a
-//     downstream SHA that has already been returned.
+//   - skips: downstream commits carrying the O6 'Oiax-Backflow: skip' trailer,
+//     intentionally not backflowed;
+//   - provenance: SHAs a target commit's 'cherry picked from commit <sha>'
+//     provenance names — already returned.
 //
 // It reads commit message bodies, which the git.Runner does not expose, so it
 // shells out directly following the same no-shell posture: the range endpoints
 // reach git as operands after --end-of-options, never as a shell string.
-func (c *Coordinator) backflowAlreadyReturned(ctx context.Context, from, to, target, targetMergeBase string) (map[string]struct{}, error) {
-	already := make(map[string]struct{})
-
+func (c *Coordinator) backflowAlreadyReturned(ctx context.Context, from, to, target, targetMergeBase string) (skips, provenance map[string]struct{}, err error) {
 	// Resolve each branch endpoint to the ref that actually holds it. Under
 	// actions/checkout only the triggering branch is a local head; every other
 	// branch in a promotion graph exists solely as an origin-tracking ref. These
@@ -297,11 +347,11 @@ func (c *Coordinator) backflowAlreadyReturned(ctx context.Context, from, to, tar
 	// hard-coding refs/heads/<name>, which failed on every non-triggering branch.
 	fromRef, err := c.Git.ResolveRev(ctx, from)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	toRef, err := c.Git.ResolveRev(ctx, to)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// O6 skip trailer on the downstream-only range (from..to). This is a git
@@ -309,25 +359,23 @@ func (c *Coordinator) backflowAlreadyReturned(ctx context.Context, from, to, tar
 	// own trailer semantics — not a whole-body line match — so a commit that
 	// merely quotes 'Oiax-Backflow: skip' in prose elsewhere in its body does
 	// not falsely suppress a legitimate hotfix.
-	skips, err := c.backflowSkipTrailers(ctx, fromRef+".."+toRef)
+	skips, err = c.backflowSkipTrailers(ctx, fromRef+".."+toRef)
 	if err != nil {
-		return nil, err
-	}
-	for sha := range skips {
-		already[sha] = struct{}{}
+		return nil, nil, err
 	}
 
 	// Cherry-pick -x provenance on the target's commits since it diverged from
 	// the source (targetMergeBase..target). targetMergeBase is already an object
 	// id from a prior MergeBase call; target still needs resolving to its ref.
+	provenance = make(map[string]struct{})
 	if targetMergeBase != "" {
 		targetRef, err := c.Git.ResolveRev(ctx, target)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		targetBodies, err := c.commitBodies(ctx, targetMergeBase+".."+targetRef)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, body := range targetBodies {
 			// `git cherry-pick -x` appends the "(cherry picked from commit <sha>)"
@@ -337,11 +385,11 @@ func (c *Coordinator) backflowAlreadyReturned(ctx context.Context, from, to, tar
 			// even quotes a provenance line, in earlier prose does not falsely mark
 			// that source commit already-returned and silently drop a live hotfix.
 			for _, m := range cherryPickedFromRE.FindAllStringSubmatch(lastParagraph(body), -1) {
-				already[m[1]] = struct{}{}
+				provenance[m[1]] = struct{}{}
 			}
 		}
 	}
-	return already, nil
+	return skips, provenance, nil
 }
 
 // commitBodies returns the full commit message body of every commit in the
@@ -497,6 +545,14 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 			return res, fmt.Errorf("apply: unknown action type %q", a.Type)
 		}
 	}
+	// Per-run apply counts (SKA-600), the mutation-side complement of "plan
+	// built": one structured record per run.
+	c.log().Info("apply complete",
+		"graph", plan.Graph,
+		"applied", res.Applied,
+		"superseded", res.Superseded,
+		"divergence", res.Divergence,
+	)
 	return res, nil
 }
 
@@ -625,7 +681,7 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 	// Supersede: at most one active managed backflow request per (source,
 	// target). A new hotfix advanced the branch, so close any strictly older
 	// one.
-	if err := c.supersedeBackflow(ctx, a, branch); err != nil {
+	if err := c.supersedeBackflow(ctx, a, branch, res); err != nil {
 		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
 	}
 	return nil
@@ -729,7 +785,7 @@ func (c *Coordinator) backflowActionState(ctx context.Context, a engine.Action) 
 // same conservative "leave it alone" default as an operational CommitExists
 // error, exactly as M5's Plan warning already flags this condition as
 // unreliable.
-func (c *Coordinator) supersedeBackflow(ctx context.Context, a engine.Action, branch string) error {
+func (c *Coordinator) supersedeBackflow(ctx context.Context, a engine.Action, branch string, res *Result) error {
 	open, err := c.Forge.ListManagedRequests(ctx, forge.RequestFilter{
 		Graph: c.Graph.Name,
 		Type:  engine.RequestTypeBackflow,
@@ -789,6 +845,9 @@ func (c *Coordinator) supersedeBackflow(ctx context.Context, a engine.Action, br
 			if err := c.Forge.CloseRequest(ctx, forge.RequestID(r.ID), reason); err != nil {
 				return err
 			}
+			res.Superseded++
+			c.log().Info("closed orphaned backflow request",
+				"request", r.ID, "branch", r.Source, "encodedHead", encoded)
 			continue
 		}
 
@@ -823,6 +882,9 @@ func (c *Coordinator) supersedeBackflow(ctx context.Context, a engine.Action, br
 		if err := c.Forge.CloseRequest(ctx, forge.RequestID(r.ID), reason); err != nil {
 			return err
 		}
+		res.Superseded++
+		c.log().Info("superseded backflow request",
+			"request", r.ID, "stale", r.Source, "current", branch)
 	}
 	return nil
 }

@@ -237,27 +237,28 @@ func TestEvaluateEdgeToReturn(t *testing.T) {
 				DownstreamOnly: commits("skip", "picked", "fresh"),
 				// "skip" carries Oiax-Backflow: skip; "picked" already returned
 				// via cherry-pick -x provenance. Both resolved to SHAs upstream.
-				AlreadyReturned: idSet("skip", "picked"),
+				SkippedByTrailer:     idSet("skip"),
+				ReturnedByProvenance: idSet("picked"),
 			},
 			wantToReturn: commits("fresh"),
 		},
 		{
 			name: "order is preserved (newest first) after filtering",
 			obs: EdgeObservation{
-				From:            BranchState{Name: "prod", Head: "h-prod"},
-				To:              BranchState{Name: "main", Head: "h-main"},
-				DownstreamOnly:  commits("c", "b", "a"),
-				AlreadyReturned: idSet("b"),
+				From:                 BranchState{Name: "prod", Head: "h-prod"},
+				To:                   BranchState{Name: "main", Head: "h-main"},
+				DownstreamOnly:       commits("c", "b", "a"),
+				ReturnedByProvenance: idSet("b"),
 			},
 			wantToReturn: commits("c", "a"),
 		},
 		{
 			name: "everything already returned yields nil, not empty slice",
 			obs: EdgeObservation{
-				From:            BranchState{Name: "prod", Head: "h-prod"},
-				To:              BranchState{Name: "main", Head: "h-main"},
-				DownstreamOnly:  commits("x", "y"),
-				AlreadyReturned: idSet("x", "y"),
+				From:                 BranchState{Name: "prod", Head: "h-prod"},
+				To:                   BranchState{Name: "main", Head: "h-main"},
+				DownstreamOnly:       commits("x", "y"),
+				ReturnedByProvenance: idSet("x", "y"),
 			},
 			wantToReturn: nil,
 		},
@@ -273,6 +274,88 @@ func TestEvaluateEdgeToReturn(t *testing.T) {
 			// The promotion ladder must never mutate DownstreamOnly.
 			if !reflect.DeepEqual(got.DownstreamOnly, tt.obs.DownstreamOnly) {
 				t.Errorf("DownstreamOnly = %v, want %v", got.DownstreamOnly, tt.obs.DownstreamOnly)
+			}
+		})
+	}
+}
+
+// TestEvaluateEdgeExclusionReasons exercises the per-commit exclusion
+// diagnostics: every downstream-only commit dropped from ToReturn is recorded
+// with the rung that excluded it, in DownstreamOnly order, with the skip →
+// provenance → patch-id precedence when several rungs match one commit.
+func TestEvaluateEdgeExclusionReasons(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		obs          EdgeObservation
+		wantExcluded []BackflowExclusion
+	}{
+		{
+			name: "nothing excluded yields nil",
+			obs: EdgeObservation{
+				From:           BranchState{Name: "prod", Head: "h-prod"},
+				To:             BranchState{Name: "main", Head: "h-main"},
+				DownstreamOnly: commits("x"),
+			},
+			wantExcluded: nil,
+		},
+		{
+			name: "each rung names its reason, in DownstreamOnly order",
+			obs: EdgeObservation{
+				From:                 BranchState{Name: "prod", Head: "h-prod"},
+				To:                   BranchState{Name: "main", Head: "h-main"},
+				DownstreamOnly:       commits("skipped", "picked", "matched", "fresh"),
+				SkippedByTrailer:     idSet("skipped"),
+				ReturnedByProvenance: idSet("picked"),
+				DownstreamPatchIDs:   patchIDs("matched", "fresh"),
+				ReturnedPatchIDs:     idSet("p-matched"),
+			},
+			wantExcluded: []BackflowExclusion{
+				{SHA: "skipped", Reason: BackflowExcludedSkip},
+				{SHA: "picked", Reason: BackflowExcludedProvenance},
+				{SHA: "matched", Reason: BackflowExcludedPatchID},
+			},
+		},
+		{
+			name: "skip wins over provenance and patch-id when all match",
+			obs: EdgeObservation{
+				From:                 BranchState{Name: "prod", Head: "h-prod"},
+				To:                   BranchState{Name: "main", Head: "h-main"},
+				DownstreamOnly:       commits("x"),
+				SkippedByTrailer:     idSet("x"),
+				ReturnedByProvenance: idSet("x"),
+				DownstreamPatchIDs:   patchIDs("x"),
+				ReturnedPatchIDs:     idSet("p-x"),
+			},
+			wantExcluded: []BackflowExclusion{{SHA: "x", Reason: BackflowExcludedSkip}},
+		},
+		{
+			name: "provenance wins over patch-id",
+			obs: EdgeObservation{
+				From:                 BranchState{Name: "prod", Head: "h-prod"},
+				To:                   BranchState{Name: "main", Head: "h-main"},
+				DownstreamOnly:       commits("x"),
+				ReturnedByProvenance: idSet("x"),
+				DownstreamPatchIDs:   patchIDs("x"),
+				ReturnedPatchIDs:     idSet("p-x"),
+			},
+			wantExcluded: []BackflowExclusion{{SHA: "x", Reason: BackflowExcludedProvenance}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := EvaluateEdge(tt.obs)
+			if !reflect.DeepEqual(got.Excluded, tt.wantExcluded) {
+				t.Errorf("Excluded = %v, want %v", got.Excluded, tt.wantExcluded)
+			}
+			// ToReturn and Excluded partition the returnable downstream set:
+			// every DownstreamOnly commit is in exactly one of the two.
+			if len(got.ToReturn)+len(got.Excluded) != len(tt.obs.DownstreamOnly) {
+				t.Errorf("ToReturn (%d) + Excluded (%d) != DownstreamOnly (%d)",
+					len(got.ToReturn), len(got.Excluded), len(tt.obs.DownstreamOnly))
 			}
 		})
 	}
