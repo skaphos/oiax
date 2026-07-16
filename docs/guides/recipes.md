@@ -152,6 +152,38 @@ constraint: a repository has exactly one graph document. Multiple
 supported (the loader rejects multi-document files). See
 [Modeling — multiple independent paths](promotion-graphs.md#multiple-independent-paths).
 
+## Roll back a promotion that landed
+
+**Scenario.** A managed promotion PR merged into a target branch and the
+change turns out to be bad.
+
+**How.** Decide first *where* the change is wrong, because that decides
+where the revert goes:
+
+- **Bad everywhere → revert at the source and promote the revert.**
+  Revert the offending commit(s) on the **source** branch (via a normal
+  PR), and let Oiax carry the revert forward through the graph like any
+  other change. Every branch ends up consistent, and the promotion
+  record shows both the change and its retraction.
+
+  ```bash
+  git revert -m 1 <merge-sha>    # if it landed as a merge commit
+  git revert <sha>               # if it landed squashed or rebased
+  ```
+
+- **Reverting only on the target is a stopgap, not a fix.** It takes
+  the change out of that environment *now*, but the source still
+  carries it — divergence detection is history-based, so Oiax will not
+  re-propose the old commits, yet the **next** promotion of anything
+  newer brings the source's tree along and reintroduces the change over
+  your revert. Use a target-only revert to stop the bleeding, then land
+  the real revert at the source before the next promotion.
+
+The same logic applies to a merged **backflow** return: revert it on the
+target (the source branch of the graph) and the revert promotes forward;
+Oiax will not re-propose the returned commits, because their provenance
+and patch identity remain in history even after the revert.
+
 ## Next steps
 
 - [Operating Oiax day to day](operating.md)

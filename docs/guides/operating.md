@@ -205,6 +205,12 @@ event-driven run catch up. Re-running is always safe.
   because their first result may be unknown and replaying them could
   duplicate an effect. A run that cannot progress exits non-zero; the
   next reconcile converges.
+- **On large repositories, checkout usually dominates** — not Oiax's
+  API calls or git work. A blobless partial clone (`fetch-depth: 0`
+  plus `filter: blob:none`) keeps full-history correctness while
+  deferring blob download; see [the Action
+  guide](github-action.md#large-repositories-partial-clone) for the
+  trade-offs.
 - **Merged-request lookback is 180 days.** To recover a promotion
   baseline (rung 4 of the [equivalence
   ladder](../architecture.md#the-equivalence-ladder)), Oiax scans merged
