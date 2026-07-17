@@ -59,6 +59,10 @@ func (f *fakeForge) RepoMergeMethods(context.Context) (forge.MergeMethods, error
 	return forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, nil
 }
 
+func (f *fakeForge) TargetMergeMethods(context.Context, string) (forge.MergeMethods, error) {
+	return forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, nil
+}
+
 func (f *fakeForge) DeleteBranch(_ context.Context, name string) error {
 	f.deleted = append(f.deleted, name)
 	return nil

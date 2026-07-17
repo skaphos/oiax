@@ -661,6 +661,115 @@ func (p *Provider) RepoMergeMethods(ctx context.Context) (forge.MergeMethods, er
 	}, nil
 }
 
+// TargetMergeMethods reports the merge methods permitted for a specific target
+// branch: the repository's allow_* settings (via RepoMergeMethods) composed
+// with the branch's required-linear-history signal. A branch that requires
+// linear history forbids merge commits regardless of the repo-level buttons, a
+// blind spot RepoMergeMethods alone cannot see. It is GET-only and never
+// mutates. Errors carry GitHub's message and status, never the token.
+func (p *Provider) TargetMergeMethods(ctx context.Context, branch string) (forge.MergeMethods, error) {
+	methods, err := p.RepoMergeMethods(ctx)
+	if err != nil {
+		return forge.MergeMethods{}, err
+	}
+	linear, err := p.requiresLinearHistory(ctx, branch)
+	if err != nil {
+		return forge.MergeMethods{}, fmt.Errorf("read target merge rules: %w", err)
+	}
+	methods.RequiresLinearHistory = linear
+	return methods, nil
+}
+
+// requiresLinearHistory reports whether the target branch forbids merge commits
+// via a repository ruleset or classic branch protection. It first consults the
+// branch-rules endpoint (repository rulesets) for a "required_linear_history"
+// rule, then falls back to classic branch protection's
+// required_linear_history.enabled. A missing ruleset or unprotected branch
+// answers 404, which means "no such rule", not a failure. The branch is escaped
+// per ref-path segment so a multi-segment name (release/1.x) reaches the API
+// intact.
+func (p *Provider) requiresLinearHistory(ctx context.Context, branch string) (bool, error) {
+	esc := escapeRefPath(branch)
+
+	// Repository rulesets: this endpoint returns every active rule applying to
+	// the branch. A "required_linear_history" rule forbids merge commits. The
+	// applicable-rules list paginates — layered org + repo rulesets can push the
+	// count past a single page — so follow the Link header the way
+	// ListManagedRequests does. A single-page read could miss a linear-history
+	// rule sitting on page 2 and wrongly clear the merge-commit fence for a
+	// branch GitHub will reject at push time.
+	rulesURL := p.url(fmt.Sprintf("/repos/%s/%s/rules/branches/%s?per_page=100",
+		url.PathEscape(p.Owner), url.PathEscape(p.Repo), esc))
+	for rulesURL != "" {
+		var rules []struct {
+			Type string `json:"type"`
+		}
+		hdr, err := p.do(ctx, http.MethodGet, rulesURL, nil, &rules)
+		if err != nil {
+			if isNotFound(err) {
+				break
+			}
+			return false, err
+		}
+		for _, r := range rules {
+			if r.Type == "required_linear_history" {
+				return true, nil
+			}
+		}
+		next := nextLink(hdr.Get("Link"))
+		// The bearer token rides on the next-page request too; never follow a
+		// server-supplied pagination link off the API origin (L2).
+		if next != "" && !p.sameOrigin(next) {
+			return false, fmt.Errorf("refusing cross-origin pagination to %q", next)
+		}
+		rulesURL = next
+	}
+
+	// Classic branch protection: required_linear_history.enabled. An unprotected
+	// branch answers 404 — no such rule. This endpoint also requires admin
+	// rights, so a least-privilege token or App installation is refused with 403
+	// ("Resource not accessible by integration") even where merge commits are
+	// allowed. That 403 is "cannot read the setting", not "target forbids merge
+	// commits", so it is treated as benign like the 404 — the read-scoped rules
+	// endpoint above is the authoritative signal, and failing the plan here
+	// would break every non-admin caller on a branch that actually permits
+	// merges.
+	var prot struct {
+		RequiredLinearHistory struct {
+			Enabled bool `json:"enabled"`
+		} `json:"required_linear_history"`
+	}
+	protURL := p.url(fmt.Sprintf("/repos/%s/%s/branches/%s/protection",
+		url.PathEscape(p.Owner), url.PathEscape(p.Repo), esc))
+	if _, err := p.do(ctx, http.MethodGet, protURL, nil, &prot); err != nil {
+		if isNotFound(err) || isForbidden(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return prot.RequiredLinearHistory.Enabled, nil
+}
+
+// isNotFound reports whether err is a GitHub 404, which the merge-rules read
+// treats as "no such rule" rather than a failure. It mirrors the errors.As
+// posture of refDeleteMeansAbsent.
+func isNotFound(err error) bool {
+	var ae *apiError
+	return errors.As(err, &ae) && ae.StatusCode == http.StatusNotFound
+}
+
+// isForbidden reports whether err is a GitHub 403. The classic
+// branch-protection read requires admin rights, so a least-privilege caller is
+// refused with 403 even when merge commits are permitted; requiresLinearHistory
+// treats that "cannot read the setting" the same as a 404 "no such rule" rather
+// than failing the merge-method fence. A rate-limit 403 is retried before it
+// reaches a caller (see retryableStatus), so a 403 that surfaces here is a
+// genuine permission denial, not throttling.
+func isForbidden(err error) bool {
+	var ae *apiError
+	return errors.As(err, &ae) && ae.StatusCode == http.StatusForbidden
+}
+
 func (p *Provider) getPull(ctx context.Context, number int) (ghPull, error) {
 	var pr ghPull
 	if _, err := p.do(ctx, http.MethodGet, p.pullURL(number), nil, &pr); err != nil {

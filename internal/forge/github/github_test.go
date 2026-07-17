@@ -154,6 +154,159 @@ func TestRepoMergeMethods(t *testing.T) {
 	}
 }
 
+// TestTargetMergeMethods pins the live target-branch read: the repo allow_*
+// settings composed with the branch's required-linear-history signal from a
+// ruleset or classic protection, with a 404 normalized to "no such rule". It
+// asserts both the raw MergeMethods and the MergeCommitAllowed() fence verdict.
+func TestTargetMergeMethods(t *testing.T) {
+	t.Parallel()
+	const branch = "development"
+	tests := []struct {
+		name          string
+		allowMerge    bool
+		rules         []map[string]any // rules/branches body (200)
+		protection    map[string]any   // branches/{b}/protection body; nil => 404
+		protForbidden bool             // branches/{b}/protection answers 403
+		want          forge.MergeMethods
+		wantAllowed   bool
+	}{
+		{
+			name:        "merge allowed, no linear rule",
+			allowMerge:  true,
+			rules:       []map[string]any{},
+			protection:  nil,
+			want:        forge.MergeMethods{Merge: true, Squash: true, Rebase: true},
+			wantAllowed: true,
+		},
+		{
+			name:        "ruleset requires linear history",
+			allowMerge:  true,
+			rules:       []map[string]any{{"type": "pull_request"}, {"type": "required_linear_history"}},
+			protection:  nil,
+			want:        forge.MergeMethods{Merge: true, Squash: true, Rebase: true, RequiresLinearHistory: true},
+			wantAllowed: false,
+		},
+		{
+			name:        "classic protection requires linear history",
+			allowMerge:  true,
+			rules:       []map[string]any{},
+			protection:  map[string]any{"required_linear_history": map[string]any{"enabled": true}},
+			want:        forge.MergeMethods{Merge: true, Squash: true, Rebase: true, RequiresLinearHistory: true},
+			wantAllowed: false,
+		},
+		{
+			name:        "squash/rebase only repo",
+			allowMerge:  false,
+			rules:       []map[string]any{},
+			protection:  nil,
+			want:        forge.MergeMethods{Merge: false, Squash: true, Rebase: true},
+			wantAllowed: false,
+		},
+		{
+			// A least-privilege token lacks admin, so the classic-protection
+			// probe answers 403. That is "cannot read the setting", not "target
+			// forbids merge commits" — the fence must stay clear when merges are
+			// actually allowed, not error out.
+			name:          "classic protection unreadable (403) is benign",
+			allowMerge:    true,
+			rules:         []map[string]any{},
+			protForbidden: true,
+			want:          forge.MergeMethods{Merge: true, Squash: true, Rebase: true},
+			wantAllowed:   true,
+		},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assertAuth(t, r)
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/widgets":
+					writeJSON(t, w, http.StatusOK, map[string]any{
+						"allow_merge_commit": tc.allowMerge,
+						"allow_squash_merge": true,
+						"allow_rebase_merge": true,
+					})
+				case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/widgets/rules/branches/"+branch:
+					writeJSON(t, w, http.StatusOK, tc.rules)
+				case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/widgets/branches/"+branch+"/protection":
+					if tc.protForbidden {
+						writeJSON(t, w, http.StatusForbidden, map[string]any{"message": "Resource not accessible by integration"})
+						return
+					}
+					if tc.protection == nil {
+						writeJSON(t, w, http.StatusNotFound, map[string]any{"message": "Branch not protected"})
+						return
+					}
+					writeJSON(t, w, http.StatusOK, tc.protection)
+				default:
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+			}))
+			defer srv.Close()
+
+			got, err := newProvider(t, srv).TargetMergeMethods(context.Background(), branch)
+			if err != nil {
+				t.Fatalf("TargetMergeMethods: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("TargetMergeMethods = %+v, want %+v", got, tc.want)
+			}
+			if got.MergeCommitAllowed() != tc.wantAllowed {
+				t.Errorf("MergeCommitAllowed() = %v, want %v", got.MergeCommitAllowed(), tc.wantAllowed)
+			}
+		})
+	}
+}
+
+// TestTargetMergeMethodsPaginatesRules pins that the applicable-rules read
+// follows the Link header: a required_linear_history rule that sorts onto page
+// 2 (layered org + repo rulesets can push the count past one page) must still
+// be seen, or the merge-commit fence would wrongly clear on a branch GitHub
+// rejects at push time.
+func TestTargetMergeMethodsPaginatesRules(t *testing.T) {
+	t.Parallel()
+	const branch = "development"
+	rulesPath := "/repos/acme/widgets/rules/branches/" + branch
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertAuth(t, r)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/widgets":
+			writeJSON(t, w, http.StatusOK, map[string]any{
+				"allow_merge_commit": true,
+				"allow_squash_merge": true,
+				"allow_rebase_merge": true,
+			})
+		case r.Method == http.MethodGet && r.URL.Path == rulesPath:
+			if r.URL.Query().Get("page") == "2" {
+				// Page 2 carries the linear-history rule.
+				writeJSON(t, w, http.StatusOK, []map[string]any{{"type": "required_linear_history"}})
+				return
+			}
+			// Page 1 has only unrelated rules and points at page 2.
+			w.Header().Set("Link", "<http://"+r.Host+rulesPath+"?page=2>; rel=\"next\"")
+			writeJSON(t, w, http.StatusOK, []map[string]any{{"type": "pull_request"}})
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	got, err := newProvider(t, srv).TargetMergeMethods(context.Background(), branch)
+	if err != nil {
+		t.Fatalf("TargetMergeMethods: %v", err)
+	}
+	if !got.RequiresLinearHistory {
+		t.Error("RequiresLinearHistory = false, want true (linear rule on page 2)")
+	}
+	if got.MergeCommitAllowed() {
+		t.Error("MergeCommitAllowed() = true, want false (linear history required)")
+	}
+}
+
 // assertAuth verifies every request carries the expected headers.
 func assertAuth(t *testing.T, r *http.Request) {
 	t.Helper()

@@ -100,6 +100,16 @@ type Forge interface {
 	// contradicts it. It reads settings only and never modifies them.
 	RepoMergeMethods(ctx context.Context) (MergeMethods, error)
 
+	// TargetMergeMethods reports the merge methods actually permitted for a
+	// specific target branch: the repository's allow_* settings composed with
+	// the branch's required-linear-history signal from a ruleset or classic
+	// branch protection. A branch that forbids merge commits (linear history
+	// required) cannot receive a --no-ff merge no matter what the repo-level
+	// buttons allow — a blind spot RepoMergeMethods alone cannot see. The
+	// backflow merge-method fence reads this live every plan. It is GET-only
+	// and never mutates.
+	TargetMergeMethods(ctx context.Context, branch string) (MergeMethods, error)
+
 	// DeleteBranch removes a branch in the oiax/ namespace (a superseded or
 	// closed backflow request's head branch). Deletion is confined to that
 	// namespace — Oiax owns it, so removing an orphaned ref is in-contract;
@@ -116,6 +126,20 @@ type MergeMethods struct {
 	Merge  bool
 	Squash bool
 	Rebase bool
+	// RequiresLinearHistory is true when the target branch forbids merge
+	// commits via a repository ruleset or classic branch protection. It is set
+	// only by the target-branch-scoped read (TargetMergeMethods); repo-level
+	// reads leave it false because repository settings cannot express it.
+	RequiresLinearHistory bool
+}
+
+// MergeCommitAllowed reports whether a merge commit can actually land on the
+// branch these methods describe: the repository permits merge commits AND the
+// branch does not require linear history. It backs the backflow merge-method
+// fence (ADR-0006 Amendment 1), which must see a linear-history rule that the
+// advisory promotion path's Allows() — deliberately unchanged — does not.
+func (m MergeMethods) MergeCommitAllowed() bool {
+	return m.Merge && !m.RequiresLinearHistory
 }
 
 // Allows reports whether the repository permits the named merge method
