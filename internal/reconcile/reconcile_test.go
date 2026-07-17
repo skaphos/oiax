@@ -1291,6 +1291,46 @@ func TestApplyExecutesMergeBackflowAndSettlesByAncestry(t *testing.T) {
 	}
 }
 
+// TestPlanMergeBackflowRunsWhenEdgeLocalRangeEmpty guards that merge backflow is
+// evaluated from the TARGET-relative range (target..source), not the edge-local
+// promotion range (from..to). The pipeline is development -> test -> main, so the
+// only promotion edge into the backflow source `main` is test..main. When `test`
+// has already caught up to `main`, test..main is empty while development..main
+// still holds the hotfix. A gate on the edge-local range would skip merge
+// backflow (and its fence and skip scan) entirely and the hotfix would never
+// return to development; the target-relative gate proposes the return.
+func TestPlanMergeBackflowRunsWhenEdgeLocalRangeEmpty(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+	// The intermediate branch catches up to main, so the observed promotion edge
+	// into main (test..main) is empty; development stays behind (development..main
+	// = {hotfix}).
+	gitExec(t, r.Dir, "branch", "-f", "test", "main")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: mergeGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	var found *engine.Action
+	for i := range plan.Actions {
+		if a := &plan.Actions[i]; a.Type == engine.ActionCreateBackflowRequest && a.To == "development" {
+			found = a
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected a merge createBackflowRequest returning the hotfix to development even though test..main is empty; got actions %+v", plan.Actions)
+	}
+	if found.Strategy != v1.BackflowStrategyMerge {
+		t.Errorf("action strategy = %q, want %q", found.Strategy, v1.BackflowStrategyMerge)
+	}
+	if found.Unpromoted < 1 {
+		t.Errorf("unpromoted = %d, want >= 1 (the hotfix)", found.Unpromoted)
+	}
+}
+
 // seedMergeAndEmptyBackflow builds a repo whose backflow source (main) carries,
 // downstream of the backflow target (development): an ordinary diff-carrying
 // hotfix, a real two-parent merge commit, and an empty commit. It returns the

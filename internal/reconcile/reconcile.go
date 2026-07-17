@@ -269,26 +269,36 @@ func (c *Coordinator) observe(ctx context.Context, from, to string, open, merged
 	// authoritative. The two strategies gather different inputs: cherry-pick
 	// walks the per-commit identity ladder, merge returns the range wholesale by
 	// ancestry (ADR-0006).
-	if c.isBackflowSource(to) && len(downstream) > 0 {
+	if c.isBackflowSource(to) {
 		target := c.Graph.Backflow.Target
+		merge := c.Graph.Backflow.Strategy == v1.BackflowStrategyMerge
 
-		if c.Graph.Backflow.Strategy == v1.BackflowStrategyMerge {
-			if err := c.observeMergeBackflow(ctx, to, target, &obs); err != nil {
+		// cherry-pick draws its candidates from the edge-local from..to range, so
+		// it runs only when that range is non-empty. merge is target-relative
+		// (target..source, computed inside observeMergeBackflow) and MUST run even
+		// when this edge's from..to is empty — otherwise a source reached only by
+		// an edge whose from..to is empty (e.g. an intermediate branch that has
+		// already caught up) would skip the fence, the skip scan, and the
+		// wholesale return while target..source is still non-empty.
+		if merge || len(downstream) > 0 {
+			var obsErr error
+			if merge {
+				obsErr = c.observeMergeBackflow(ctx, to, target, &obs)
+			} else {
+				obsErr = c.observeCherryPickBackflow(ctx, from, to, target, &obs)
+			}
+			if obsErr != nil {
+				return engine.EdgeObservation{}, wrap(obsErr)
+			}
+
+			// The trailing segment of the deterministic backflow branch name is
+			// the short SHA of the downstream (source) head.
+			short, err := c.Git.ShortSHA(ctx, to)
+			if err != nil {
 				return engine.EdgeObservation{}, wrap(err)
 			}
-		} else {
-			if err := c.observeCherryPickBackflow(ctx, from, to, target, &obs); err != nil {
-				return engine.EdgeObservation{}, wrap(err)
-			}
+			obs.SourceHeadShort = short
 		}
-
-		// The trailing segment of the deterministic backflow branch name is the
-		// short SHA of the downstream (source) head.
-		short, err := c.Git.ShortSHA(ctx, to)
-		if err != nil {
-			return engine.EdgeObservation{}, wrap(err)
-		}
-		obs.SourceHeadShort = short
 	}
 
 	return obs, nil
@@ -391,6 +401,15 @@ func (c *Coordinator) observeMergeBackflow(ctx context.Context, to, target strin
 		return err
 	}
 	obs.DownstreamOnly = toEngineCommits(downstream)
+	if len(downstream) == 0 {
+		// Converged by ancestry: the source head is already reachable from the
+		// target, so there is nothing to return. Skip the live fence read and the
+		// skip scan — both are moot with nothing to merge, and reading the fence
+		// here would let a squash-only target report a spurious divergence on a
+		// settled edge (planMergeBackflow evaluates the fence only when
+		// TargetCanMergeCommit is non-nil, which this early return leaves unset).
+		return nil
+	}
 
 	// Amendment 1 (live merge-commit fence). Read the target branch's actual
 	// permitted merge methods every plan. A FETCH error propagates loudly (an
