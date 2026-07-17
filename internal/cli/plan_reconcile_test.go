@@ -418,6 +418,75 @@ func TestReconcileBackflowConflictExitsThree(t *testing.T) {
 	}
 }
 
+// TestReconcileMergeBackflowExitsZero exercises the FULL CLI plan->apply path
+// for a merge-strategy backflow edge: a hotfix on main is returned to
+// development as a single two-parent merge commit, the managed backflow request
+// is opened, and reconcile exits 0. This is the merge-strategy analogue of
+// TestReconcileBackflowsHotfixExitsZero.
+func TestReconcileMergeBackflowExitsZero(t *testing.T) {
+	git := setupRepo(t)
+	git("write", ".oiax.yaml", mergeExampleConfig)
+	git("checkout", "-q", "main")
+	git("write", "hotfix.txt", "urgent\n")
+	git("add", "hotfix.txt")
+	git("commit", "-q", "-m", "hotfix")
+	f := &fakeForge{}
+	useForge(t, f)
+
+	out, code := runCode(t, "reconcile")
+	if code != 0 {
+		t.Fatalf("reconcile exit = %d, want 0\n%s", code, out)
+	}
+	if len(f.pushed) != 1 {
+		t.Fatalf("want 1 push, got %d", len(f.pushed))
+	}
+	var backflow int
+	for _, c := range f.created {
+		if c.Type == engine.RequestTypeBackflow {
+			backflow++
+			if !strings.Contains(c.Body, "by merge commit") {
+				t.Errorf("backflow body = %q, want it to mention 'by merge commit'", c.Body)
+			}
+		}
+	}
+	if backflow != 1 {
+		t.Fatalf("want 1 backflow create, got %d: %+v", backflow, f.created)
+	}
+}
+
+// TestReconcileMergeBackflowConflictExitsThree covers a merge-strategy backflow
+// whose wholesale merge conflicts: development and main edit the same file
+// divergently, so the merge of main onto development cannot apply. Like a
+// cherry-pick conflict it is a reported divergence — exit 3, nothing pushed, no
+// request opened.
+func TestReconcileMergeBackflowConflictExitsThree(t *testing.T) {
+	git := setupRepo(t)
+	git("write", ".oiax.yaml", mergeExampleConfig)
+	git("checkout", "-q", "development")
+	git("write", "app.txt", "dev-change\n")
+	git("add", "app.txt")
+	git("commit", "-q", "-m", "dev edit")
+	git("checkout", "-q", "main")
+	git("write", "app.txt", "hotfix-change\n")
+	git("add", "app.txt")
+	git("commit", "-q", "-m", "hotfix")
+	f := &fakeForge{}
+	useForge(t, f)
+
+	out, code := runCode(t, "reconcile")
+	if code != 3 {
+		t.Fatalf("reconcile exit = %d, want 3\n%s", code, out)
+	}
+	if len(f.pushed) != 0 {
+		t.Errorf("conflict must push nothing, got %d", len(f.pushed))
+	}
+	for _, c := range f.created {
+		if c.Type == engine.RequestTypeBackflow {
+			t.Errorf("backflow request created despite merge conflict: %+v", c)
+		}
+	}
+}
+
 // TestReconcileJSONAnnotationNotOnStdout guards the GitHub Actions
 // combination M7 fixed: reconcile -o json used to route the Actions
 // ::warning:: annotation for a reported divergence to the same stdout

@@ -789,6 +789,158 @@ func TestCherryPickDropsRedundant(t *testing.T) {
 	}
 }
 
+func TestMergeHappyPath(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+
+	// base is shared; target branches from it. main (the backflow source) then
+	// gains downstream-only commits to be returned to target by a merge commit.
+	base := writeCommit(t, dir, "base.txt", "base\n", "base")
+	runGit(t, dir, "branch", "target")
+	writeCommit(t, dir, "hotfix1.txt", "one\n", "first hotfix")
+	sourceHead := writeCommit(t, dir, "hotfix2.txt", "two\n", "second hotfix")
+
+	wt, cleanup, err := r.Worktree(ctx, "target")
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	defer cleanup()
+
+	head, err := wt.Merge(ctx, sourceHead)
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if head == base || head == sourceHead {
+		t.Fatalf("Merge returned %q, want a fresh merge commit distinct from base %q and source %q", head, base, sourceHead)
+	}
+
+	// --no-ff produced a real two-parent merge commit whose parents are the
+	// target head (base) and the source head.
+	parents := strings.Fields(runGit(t, wt.Dir, "rev-list", "--parents", "-n", "1", head))
+	if len(parents) != 3 {
+		t.Fatalf("merge commit parents = %v, want two parents (three fields incl. self)", parents)
+	}
+	if parents[1] != base || parents[2] != sourceHead {
+		t.Fatalf("merge parents = [%s %s], want [%s %s]", parents[1], parents[2], base, sourceHead)
+	}
+
+	// Both source commits' content is present after the merge.
+	for _, f := range []struct{ name, want string }{
+		{"hotfix1.txt", "one\n"},
+		{"hotfix2.txt", "two\n"},
+	} {
+		got, err := os.ReadFile(filepath.Join(wt.Dir, f.name))
+		if err != nil {
+			t.Fatalf("read %s: %v", f.name, err)
+		}
+		if string(got) != f.want {
+			t.Fatalf("%s = %q, want %q", f.name, got, f.want)
+		}
+	}
+
+	// Identity is pinned to the source head's committer for byte-identical
+	// determinism: BOTH the committer and the author of the merge commit carry
+	// the source head's committer name, email and date, not "now".
+	wantName := runGit(t, dir, "show", "-s", "--format=%cn", sourceHead)
+	wantEmail := runGit(t, dir, "show", "-s", "--format=%ce", sourceHead)
+	wantDate := runGit(t, dir, "show", "-s", "--format=%cI", sourceHead)
+	for _, f := range []struct{ format, want, role string }{
+		{"%cn", wantName, "committer name"},
+		{"%ce", wantEmail, "committer email"},
+		{"%cI", wantDate, "committer date"},
+		{"%an", wantName, "author name"},
+		{"%ae", wantEmail, "author email"},
+		{"%aI", wantDate, "author date"},
+	} {
+		if got := runGit(t, wt.Dir, "show", "-s", "--format="+f.format, head); got != f.want {
+			t.Errorf("merge %s = %q, want the source head's committer value %q", f.role, got, f.want)
+		}
+	}
+
+	// Env was reset after the merge (not left pinned on the Runner).
+	if wt.Env != nil {
+		t.Errorf("Runner.Env = %v after Merge, want nil", wt.Env)
+	}
+
+	// Replaying the same merge onto the same target head in a second worktree
+	// yields the same HEAD SHA — the whole point of pinning identity+date.
+	wt2, cleanup2, err := r.Worktree(ctx, "target")
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	defer cleanup2()
+	head2, err := wt2.Merge(ctx, sourceHead)
+	if err != nil {
+		t.Fatalf("Merge (second run): %v", err)
+	}
+	if head2 != head {
+		t.Fatalf("merge not deterministic: %q vs %q", head, head2)
+	}
+}
+
+func TestMergeConflict(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+
+	writeCommit(t, dir, "conflict.txt", "base\n", "base")
+	runGit(t, dir, "branch", "target")
+
+	// main (source) edits a line that target will have changed independently.
+	sourceHead := writeCommit(t, dir, "conflict.txt", "main-change\n", "conflicting edit")
+
+	// target diverges the same line so the merge cannot apply cleanly.
+	runGit(t, dir, "switch", "-q", "target")
+	writeCommit(t, dir, "conflict.txt", "target-change\n", "target edit")
+	runGit(t, dir, "switch", "-q", "main")
+
+	wt, cleanup, err := r.Worktree(ctx, "target")
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	defer cleanup()
+
+	_, err = wt.Merge(ctx, sourceHead)
+	var conflict *git.MergeConflict
+	if !errors.As(err, &conflict) {
+		t.Fatalf("Merge error = %v, want *MergeConflict", err)
+	}
+	if conflict.SHA != sourceHead {
+		t.Errorf("conflict SHA = %q, want %q", conflict.SHA, sourceHead)
+	}
+	if conflict.Subject != "conflicting edit" {
+		t.Errorf("conflict Subject = %q, want %q", conflict.Subject, "conflicting edit")
+	}
+
+	// The worktree was aborted back to a clean state: no conflict markers or
+	// staged changes, and no in-progress merge (MERGE_HEAD resolves to nothing,
+	// which `rev-parse --verify` reports as exit 1 / empty output).
+	if status := runGit(t, wt.Dir, "status", "--porcelain"); status != "" {
+		t.Fatalf("worktree not clean after abort:\n%s", status)
+	}
+	mergeHead := exec.Command("git", "rev-parse", "-q", "--verify", "MERGE_HEAD")
+	mergeHead.Dir = wt.Dir
+	mergeHead.Env = gittest.Env()
+	if out, _ := mergeHead.Output(); strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("MERGE_HEAD still present after abort: %s", out)
+	}
+
+	// Env was reset even on the conflict path.
+	if wt.Env != nil {
+		t.Errorf("Runner.Env = %v after conflicting Merge, want nil", wt.Env)
+	}
+}
+
+func TestMergeRejectsNonOID(t *testing.T) {
+	t.Parallel()
+	r, dir := newRepo(t)
+	writeCommit(t, dir, "a.txt", "a\n", "A")
+	if _, err := r.Merge(context.Background(), "main"); err == nil {
+		t.Fatal("Merge accepted a branch name as source head")
+	}
+}
+
 // TestRequireMinVersion exercises the startup floor assertion end to end
 // against the system git (Version + checkMinVersion). The test suite already
 // requires a git executable, and the whole point of the floor is that oiax's

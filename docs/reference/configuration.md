@@ -64,7 +64,8 @@ warning to stderr. Migrate by changing the `apiVersion` string to
 | --- | --- | --- | --- |
 | `sources` | list | yes | Downstream branches whose downstream-only commits are returned to `target`. |
 | `target` | string | yes | The authoritative branch commits are returned to. Must be declared, have role `source`, and not appear in `sources`. Exactly one target per graph in v1. |
-| `strategy` | string | `cherry-pick` | Return mechanism. v1 supports only `cherry-pick` (with `-x` provenance trailers). |
+| `strategy` | string | `cherry-pick` | Return mechanism: `cherry-pick` (with `-x` provenance trailers) or `merge` (a wholesale `--no-ff` merge commit). See the [backflow guide — choosing a strategy](../guides/backflow.md#choosing-a-strategy). |
+| `expectedMergeMethod` | string | `merge` (when `strategy: merge`) | Only meaningful with `strategy: merge`, where it must be `merge`: it records that the return request lands as a merge commit. A `squash` or `rebase` value is rejected — it would erase the ancestry link the merge strategy relies on. Ignored (and need not be set) under `strategy: cherry-pick`. |
 
 ## Flags
 

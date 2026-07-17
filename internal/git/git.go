@@ -734,3 +734,84 @@ func (r *Runner) CherryPick(ctx context.Context, shas []string) (string, error) 
 	}
 	return r.run(ctx, "rev-parse", "HEAD")
 }
+
+// MergeConflict reports that a `git merge --no-ff` of the backflow source head
+// stopped because its content genuinely conflicts with the target (git exit
+// code 1). It is the merge analog of CherryPickConflict: it carries enough to
+// surface a reported divergence without any git state — the source head object
+// id and its subject line. The worktree has been reset with `git merge --abort`
+// by the time this error is returned, leaving it clean. Operational failures (a
+// killed subprocess, a cancelled context, any structural refusal) are NOT
+// MergeConflicts — they propagate as ordinary errors so a transient problem is
+// not misreported as a human-actionable content conflict.
+type MergeConflict struct {
+	// SHA is the object id of the source head that failed to merge.
+	SHA string
+	// Subject is the source head's subject line (git show -s --format=%s).
+	Subject string
+}
+
+func (e *MergeConflict) Error() string {
+	return fmt.Sprintf("merge conflict merging %s %q", e.SHA, e.Subject)
+}
+
+// Merge performs a `git merge --no-ff --no-edit` of sourceHead onto the
+// Runner's checked-out HEAD, producing a two-parent merge commit. It is the
+// execution primitive behind backflow.strategy: merge (ADR-0006) and is
+// intended to run against a Runner bound to an ephemeral Worktree, never the
+// caller's checkout.
+//
+// Both the committer AND the author identity+date are pinned to sourceHead's
+// committer identity+date, so the resulting merge commit is a deterministic
+// function of its inputs (ADR-0004 byte-identical determinism): git otherwise
+// stamps the committer date — and, for a merge commit it creates, the author
+// date — to "now", giving a different HEAD SHA on every run and making the
+// force-push that follows never a no-op (it would churn the managed branch and
+// the open request's head on every reconcile).
+//
+// On success it returns the new HEAD object id (the merge commit). On a genuine
+// content conflict (git exit code 1) it runs `git merge --abort` (leaving the
+// worktree clean) and returns a *MergeConflict naming the source head and its
+// subject; nothing is pushed. Any other failure (exit code other than 1: a
+// cancelled context, a killed subprocess, a structural refusal) is best-effort
+// aborted and propagates as an ordinary error rather than a *MergeConflict.
+// sourceHead is guarded with oidPattern before use.
+func (r *Runner) Merge(ctx context.Context, sourceHead string) (string, error) {
+	if !oidPattern.MatchString(sourceHead) {
+		return "", fmt.Errorf("invalid commit oid %q", sourceHead)
+	}
+	// Pin both committer and author to the source head's committer name, email
+	// and date so the merge commit is reproducible across runs and environments.
+	ci, err := r.run(ctx, "show", "-s", "--format=%cn%x1f%ce%x1f%cI", "--end-of-options", sourceHead)
+	if err != nil {
+		return "", fmt.Errorf("read committer of %s: %w", sourceHead, err)
+	}
+	name, rest, _ := strings.Cut(ci, "\x1f")
+	email, date, _ := strings.Cut(rest, "\x1f")
+	r.Env = []string{
+		"GIT_COMMITTER_NAME=" + name,
+		"GIT_COMMITTER_EMAIL=" + email,
+		"GIT_COMMITTER_DATE=" + date,
+		"GIT_AUTHOR_NAME=" + name,
+		"GIT_AUTHOR_EMAIL=" + email,
+		"GIT_AUTHOR_DATE=" + date,
+	}
+	_, err = r.run(ctx, "merge", "--no-ff", "--no-edit", "--end-of-options", sourceHead)
+	r.Env = nil
+	if err == nil {
+		return r.run(ctx, "rev-parse", "HEAD")
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		// Exit 1 is git's genuine-content-conflict signal. Capture the subject
+		// before aborting (the commit object survives the abort).
+		subject, _ := r.run(ctx, "show", "-s", "--format=%s", "--end-of-options", sourceHead)
+		_, _ = r.run(ctx, "merge", "--abort")
+		return "", &MergeConflict{SHA: sourceHead, Subject: subject}
+	}
+	// Any other exit code is an operational or structural failure, not a
+	// content conflict. Best-effort abort with a fresh context (the caller's
+	// may be cancelled), then surface the real error.
+	_, _ = r.run(context.Background(), "merge", "--abort")
+	return "", fmt.Errorf("merge %s: %w", sourceHead, err)
+}

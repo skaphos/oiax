@@ -64,6 +64,7 @@ present in the JSON, even when its value is the type's zero value (e.g.
 | `equivalence` | string, [enum](#equivalence) | `omitempty` | Present only on `createPromotionRequest` and `updateManagedRequest`, always alongside a populated `unpromoted`. Currently always `reachability`; see [`equivalence`](#equivalence) below. |
 | `request` | object, [`Request`](#request) | `omitempty` | The managed request the action reads or acts on. Present only on `updateManagedRequest` and `closeObsoleteRequest`. |
 | `branch` | string | `omitempty` | The deterministic backflow branch name. Present only on `createBackflowRequest`. |
+| `strategy` | string, [enum](#strategy) | `omitempty` | The backflow return mechanism. Present **only** on a `createBackflowRequest` for a `merge`-strategy edge; absent on every cherry-pick action (see [`strategy`](#strategy)). |
 | `reason` | string | always | Human-readable explanation of why the action exists. |
 
 ### `type`
@@ -150,6 +151,23 @@ is being returned. See
 [Architecture — Backflow](../architecture.md#backflow) and
 [ADR 0004](../adr/0004-backflow-execution.md).
 
+### `strategy`
+
+Present **only** on a `createBackflowRequest` whose backflow edge is
+configured with `strategy: merge`. It is a closed enum:
+
+| Value | Meaning |
+| --- | --- |
+| `merge` | The downstream-only range is returned wholesale by a single `--no-ff` merge commit. |
+
+The default `cherry-pick` strategy **never** emits this field. The value
+`"cherry-pick"` is non-empty, so tagging cherry-pick actions with it would
+change the JSON of every existing plan — a de-facto format break. It is
+therefore left off, and `strategy`'s absence means cherry-pick. This is why
+`strategy` is a purely additive `omitempty` field within version 1: a plan
+produced before the field existed, and every cherry-pick plan produced
+after, are byte-identical.
+
 ### `reason`
 
 Always present. A human-readable, one-line explanation of why the
@@ -175,6 +193,8 @@ tolerate its absence (a plan produced by an older oiax).
 | `downstreamOnly` | int | `omitempty` | Destination commits not represented in the source. On an edge whose destination **is** a backflow source, this is the *returnable* count: merge commits and empty commits — which cherry-pick cannot return — are filtered out before evaluation, so it can be smaller than a raw `git rev-list --count from..to`. Absent when zero. |
 | `toReturn` | int | `omitempty` | Downstream-only commits still to backflow. Populated only when `to` is a configured backflow source; absent when zero — in particular, always absent on edges whose destination is not a backflow source, however far their destination is ahead. |
 | `excluded` | array of [`Exclusion`](#exclusion) | `omitempty` | The downstream-only commits the backflow exclusion ladder resolved as not needing return. Populated only when `to` is a configured backflow source; absent when nothing was excluded. |
+| `strategy` | string, enum (`merge`) | `omitempty` | The backflow return mechanism. Present **only** on a `merge`-strategy backflow-source edge; absent (not `"cherry-pick"`) otherwise, for the same byte-identical-format reason as the action-level [`strategy`](#strategy). |
+| `returned` | array of [`Commit`](#commit) | `omitempty` | The downstream-only commits a `merge`-strategy edge returns **wholesale** (all-or-nothing — a merge cannot withhold individual commits). Present only on a `merge`-strategy backflow-source edge; absent otherwise. Makes the all-or-nothing scope visible. |
 
 ### `Exclusion`
 
@@ -196,12 +216,26 @@ first in this order wins:
 | `provenance` | A backflow-target commit's `git cherry-pick -x` provenance line names this commit — returned by identity, even if conflict resolution rewrote its diff. |
 | `patch-id` | The commit's stable patch-id is already present on the backflow target — returned by content. |
 
+### `Commit`
+
+One returned commit, as listed in a `merge`-strategy edge's
+[`returned`](#edge) set. Order follows the downstream-only listing (newest
+first).
+
+| Field | Type | Presence | Meaning |
+| --- | --- | --- | --- |
+| `sha` | string | always | The commit's SHA on the backflow source. |
+| `subject` | string | always | The commit's subject line. |
+
 ## Compatibility
 
 `planFormatVersion: 1` will not gain required fields, change a field's
 JSON type, rename a field, or turn an always-present field `omitempty`.
-Additive `omitempty` fields on `Plan` and `Action` are permitted within
-version 1 (the top-level [`edges`](#edge) diagnostics were added this
-way); strict consumers should ignore unrecognized fields rather than
-reject the document. A change that breaks any of the above ships as
+Additive `omitempty` fields on `Plan`, `Action`, and `Edge` are permitted
+within version 1 (the top-level [`edges`](#edge) diagnostics, and the
+merge-strategy [`strategy`](#strategy)/[`returned`](#edge) fields, were all
+added this way); strict consumers should ignore unrecognized fields rather
+than reject the document. A field that is populated only in a new scenario
+— like `strategy`, emitted only on `merge`-strategy edges — does not change
+any plan a prior release would have produced. A change that breaks any of the above ships as
 `planFormatVersion: 2`.

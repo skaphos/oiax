@@ -1,5 +1,7 @@
 package engine
 
+import v1 "github.com/skaphos/oiax/pkg/api/v1"
+
 // Equivalence names the rung of the equivalence ladder that settled
 // whether source content is represented in a destination. Detection is
 // by content, not only by commit ancestry, so it survives squash and
@@ -123,6 +125,18 @@ type EdgeState struct {
 	// asynchronously and may report unknown (nil). The planner treats
 	// unknown as "proceed and let the request surface the conflict."
 	Mergeable *bool `json:"mergeable,omitempty"`
+	// TargetCanMergeCommit passes through the live forge merge-commit
+	// capability of the backflow target for a merge-strategy edge (nil for
+	// non-merge or non-source edges). When non-nil and false, planDownstream
+	// reports divergence — the return merge cannot land on a target that
+	// forbids merge commits (ADR-0006 Amendment 1).
+	TargetCanMergeCommit *bool `json:"targetCanMergeCommit,omitempty"`
+	// SkippedInRange passes through the downstream-only commits carrying the
+	// 'Oiax-Backflow: skip' trailer inside a merge-strategy edge's returnable
+	// range (nil when none). Any entry is a hard error — a merge cannot honor
+	// per-commit exclusion, so planDownstream reports divergence (ADR-0006
+	// Amendment 2).
+	SkippedInRange []Commit `json:"skippedInRange,omitempty"`
 }
 
 // ActionType enumerates everything a plan can do.
@@ -156,6 +170,12 @@ type Action struct {
 	// action pushes to (oiax/backflow/<source>-to-<target>/<shortSHA>);
 	// empty for promotion actions.
 	Branch string `json:"branch,omitempty"`
+	// Strategy names the backflow mechanism for a create-backflow action. Set
+	// ONLY on ActionCreateBackflowRequest for a merge-strategy edge; the
+	// "cherry-pick" default is left empty so omitempty keeps existing plan JSON
+	// byte-identical (the value "cherry-pick" is non-empty and would otherwise
+	// appear on every existing plan).
+	Strategy v1.BackflowStrategy `json:"strategy,omitempty"`
 	// Reason is a human-readable explanation of why the action exists.
 	Reason string `json:"reason"`
 }
@@ -192,6 +212,14 @@ type EdgeSummary struct {
 	// when To is a configured backflow source; absent when nothing was
 	// excluded.
 	Excluded []BackflowExclusion `json:"excluded,omitempty"`
+	// Strategy names the backflow mechanism for this edge. Set ONLY for a
+	// merge-strategy backflow-source edge; the "cherry-pick" default is left
+	// empty so omitempty keeps existing plan JSON byte-identical.
+	Strategy v1.BackflowStrategy `json:"strategy,omitempty"`
+	// Returned lists the downstream-only commits a merge-strategy edge returns
+	// wholesale (all-or-nothing, ADR-0006). Populated ONLY for merge-strategy
+	// backflow-source edges, making the returned set visible; absent otherwise.
+	Returned []Commit `json:"returned,omitempty"`
 }
 
 // Plan is the ordered set of actions required to converge the graph.

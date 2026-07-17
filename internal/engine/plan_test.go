@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
@@ -313,6 +314,174 @@ func TestBuildPlanEdgesJSONShape(t *testing.T) {
 			t.Fatalf("len(edges) = %d, want 1", len(edges))
 		}
 	})
+}
+
+// mergeGraph is the canonical graph with the backflow strategy flipped to
+// merge (ExpectedMergeMethod defaults to merge in FromConfig).
+func mergeGraph() *Graph {
+	cfg := validGraph()
+	cfg.Spec.Backflow.Strategy = v1.BackflowStrategyMerge
+	return FromConfig(cfg)
+}
+
+// mergeBackflowEdge is a merge-strategy backflow edge with n commits to return
+// wholesale (ToReturn == DownstreamOnly, since merge edges skip the returnable
+// patch-id filter).
+func mergeBackflowEdge() EdgeState {
+	e := edge("production-stage-1", "main")
+	e.DownstreamOnly = []Commit{{SHA: "h1", Subject: "hotfix a"}, {SHA: "h2", Subject: "hotfix b"}}
+	e.ToReturn = []Commit{{SHA: "h1", Subject: "hotfix a"}, {SHA: "h2", Subject: "hotfix b"}}
+	e.SourceHeadShort = "abc1234"
+	return e
+}
+
+// TestPlanMergeBackflowCleanEmitsCreateWithStrategy: a clean merge edge (no
+// skip in range, target allows merge commits) emits a single
+// ActionCreateBackflowRequest carrying Strategy: merge and the wholesale count,
+// and the edge summary publishes Strategy + the Returned set.
+func TestPlanMergeBackflowCleanEmitsCreateWithStrategy(t *testing.T) {
+	g := mergeGraph()
+	e := mergeBackflowEdge()
+	allow := true
+	e.TargetCanMergeCommit = &allow
+
+	plan := BuildPlan(g, []EdgeState{e})
+	if len(plan.Actions) != 1 {
+		t.Fatalf("actions = %+v, want exactly one backflow action", plan.Actions)
+	}
+	a := plan.Actions[0]
+	if a.Type != ActionCreateBackflowRequest {
+		t.Fatalf("type = %q, want %q", a.Type, ActionCreateBackflowRequest)
+	}
+	if a.Strategy != v1.BackflowStrategyMerge {
+		t.Errorf("action Strategy = %q, want %q", a.Strategy, v1.BackflowStrategyMerge)
+	}
+	if a.From != "main" || a.To != "development" {
+		t.Errorf("from/to = %q -> %q, want main -> development", a.From, a.To)
+	}
+	if a.Unpromoted != 2 {
+		t.Errorf("Unpromoted = %d, want 2 (wholesale ToReturn count)", a.Unpromoted)
+	}
+	if a.Branch != BackflowBranchName("main", "development", "abc1234") {
+		t.Errorf("Branch = %q, want deterministic backflow branch", a.Branch)
+	}
+
+	if len(plan.Edges) != 1 {
+		t.Fatalf("edges = %+v, want one summary", plan.Edges)
+	}
+	s := plan.Edges[0]
+	if s.Strategy != v1.BackflowStrategyMerge {
+		t.Errorf("summary Strategy = %q, want %q", s.Strategy, v1.BackflowStrategyMerge)
+	}
+	if !reflect.DeepEqual(s.Returned, e.ToReturn) {
+		t.Errorf("summary Returned = %+v, want %+v (wholesale returned set)", s.Returned, e.ToReturn)
+	}
+}
+
+// TestPlanMergeBackflowFenceFailReportsDivergence: the live forge signal says
+// the target forbids merge commits (TargetCanMergeCommit false), so the edge
+// diverges (ADR-0006 Amendment 1) instead of opening a backflow request.
+func TestPlanMergeBackflowFenceFailReportsDivergence(t *testing.T) {
+	g := mergeGraph()
+	e := mergeBackflowEdge()
+	forbid := false
+	e.TargetCanMergeCommit = &forbid
+
+	plan := BuildPlan(g, []EdgeState{e})
+	if len(plan.Actions) != 1 {
+		t.Fatalf("actions = %+v, want exactly one divergence action", plan.Actions)
+	}
+	a := plan.Actions[0]
+	if a.Type != ActionReportDivergence {
+		t.Fatalf("type = %q, want %q", a.Type, ActionReportDivergence)
+	}
+	if a.Strategy != "" {
+		t.Errorf("divergence Strategy = %q, want empty (only create actions are tagged)", a.Strategy)
+	}
+	if !strings.Contains(a.Reason, "forbid") {
+		t.Errorf("Reason = %q, want a merge-commit fence explanation", a.Reason)
+	}
+}
+
+// TestPlanMergeBackflowSkipInRangeReportsDivergence: a merge edge cannot honor
+// an Oiax-Backflow: skip trailer inside the returnable range, so it is a hard
+// error (ADR-0006 Amendment 2), NOT a silent exclusion. The skip check
+// precedes the fence check.
+func TestPlanMergeBackflowSkipInRangeReportsDivergence(t *testing.T) {
+	g := mergeGraph()
+	e := mergeBackflowEdge()
+	allow := true
+	e.TargetCanMergeCommit = &allow
+	e.SkippedInRange = []Commit{{SHA: "h2abcdef0123", Subject: "hotfix b"}}
+
+	plan := BuildPlan(g, []EdgeState{e})
+	if len(plan.Actions) != 1 {
+		t.Fatalf("actions = %+v, want exactly one divergence action", plan.Actions)
+	}
+	a := plan.Actions[0]
+	if a.Type != ActionReportDivergence {
+		t.Fatalf("type = %q, want %q", a.Type, ActionReportDivergence)
+	}
+	if a.Unpromoted != 1 {
+		t.Errorf("Unpromoted = %d, want 1 (offending skip count)", a.Unpromoted)
+	}
+	if !strings.Contains(a.Reason, "skip") || !strings.Contains(a.Reason, "h2abcde") {
+		t.Errorf("Reason = %q, want it to name the skip trailer and short SHA h2abcde", a.Reason)
+	}
+}
+
+// TestPlanMergeBackflowSkipPrecedesFence confirms skip-in-range wins over a
+// simultaneous fence failure: both would diverge, but the skip Reason is the
+// more actionable, so it is reported.
+func TestPlanMergeBackflowSkipPrecedesFence(t *testing.T) {
+	g := mergeGraph()
+	e := mergeBackflowEdge()
+	forbid := false
+	e.TargetCanMergeCommit = &forbid
+	e.SkippedInRange = []Commit{{SHA: "h2", Subject: "hotfix b"}}
+
+	plan := BuildPlan(g, []EdgeState{e})
+	if len(plan.Actions) != 1 || plan.Actions[0].Type != ActionReportDivergence {
+		t.Fatalf("actions = %+v, want one divergence action", plan.Actions)
+	}
+	if !strings.Contains(plan.Actions[0].Reason, "skip") {
+		t.Errorf("Reason = %q, want the skip-in-range explanation to win over the fence", plan.Actions[0].Reason)
+	}
+}
+
+// TestPlanMergeBackflowConvergedEmitsNothing: once the return merges, the
+// source head is an ancestor of the target so the downstream range empties and
+// the edge produces no action (ancestry settles a merge edge).
+func TestPlanMergeBackflowConvergedEmitsNothing(t *testing.T) {
+	g := mergeGraph()
+	e := edge("production-stage-1", "main")
+	// Downstream range empty ⇒ nothing to return.
+	plan := BuildPlan(g, []EdgeState{e})
+	if len(plan.Actions) != 0 {
+		t.Fatalf("actions = %+v, want none (merge edge converged by ancestry)", plan.Actions)
+	}
+}
+
+// TestPlanCherryPickJSONUnchanged pins the frozen-format invariant: a
+// cherry-pick backflow plan's JSON must NOT gain any of the merge-only fields.
+// "cherry-pick" is non-empty, so Strategy is deliberately left off cherry-pick
+// actions/summaries — setting it would change every existing plan's bytes.
+func TestPlanCherryPickJSONUnchanged(t *testing.T) {
+	g := FromConfig(validGraph()) // cherry-pick strategy
+	e := edge("production-stage-1", "main")
+	e.DownstreamOnly = []Commit{{SHA: "x", Subject: "hotfix"}}
+	e.ToReturn = []Commit{{SHA: "x", Subject: "hotfix"}}
+	e.SourceHeadShort = "abc1234"
+
+	got, err := json.Marshal(BuildPlan(g, []EdgeState{e}))
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	for _, key := range []string{"strategy", "returned", "targetCanMergeCommit", "skippedInRange"} {
+		if strings.Contains(string(got), key) {
+			t.Errorf("cherry-pick plan JSON contains merge-only key %q; the frozen format must stay byte-identical:\n%s", key, got)
+		}
+	}
 }
 
 func TestBuildPlanActionsJSONShape(t *testing.T) {
