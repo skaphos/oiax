@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
@@ -226,6 +227,92 @@ func TestBuildPlanDedupsBackflowAcrossIncomingEdges(t *testing.T) {
 	if surviving.Unpromoted != 2 {
 		t.Errorf("Unpromoted = %d, want 2 (union of both incoming edges)", surviving.Unpromoted)
 	}
+}
+
+// TestBuildPlanEdgeSummaries confirms the plan carries one diagnostic
+// summary per evaluated edge, in input order — including in-sync edges that
+// produce no action, whose settling rung would otherwise be invisible.
+func TestBuildPlanEdgeSummaries(t *testing.T) {
+	g := FromConfig(validGraph())
+
+	// "test" is NOT a backflow source, so the degenerate ToReturn/Excluded
+	// views EvaluateEdge computes there (its exclusion inputs are never
+	// observed) must not be published — only the downstream-only count is.
+	inSync := edge("development", "test")
+	inSync.Equivalence = EquivalencePatchIdentity
+	inSync.DownstreamOnly = []Commit{{SHA: "x"}}
+	inSync.ToReturn = []Commit{{SHA: "x"}}
+	inSync.Excluded = []BackflowExclusion{{SHA: "y", Reason: BackflowExcludedPatchID}}
+
+	diverged := edge("test", "qa")
+	diverged.Equivalence = EquivalenceReachability
+	diverged.Unpromoted = []Commit{{SHA: "d"}, {SHA: "e"}}
+
+	backflow := edge("production-stage-1", "main")
+	backflow.Equivalence = EquivalenceReachability
+	backflow.DownstreamOnly = []Commit{{SHA: "h1"}, {SHA: "h2"}, {SHA: "h3"}}
+	backflow.ToReturn = []Commit{{SHA: "h1"}}
+	backflow.Excluded = []BackflowExclusion{
+		{SHA: "h2", Reason: BackflowExcludedSkip},
+		{SHA: "h3", Reason: BackflowExcludedPatchID},
+	}
+	backflow.SourceHeadShort = "abc1234"
+
+	plan := BuildPlan(g, []EdgeState{inSync, diverged, backflow})
+
+	want := []EdgeSummary{
+		{From: "development", To: "test", Equivalence: EquivalencePatchIdentity, InSync: true, DownstreamOnly: 1},
+		{From: "test", To: "qa", Equivalence: EquivalenceReachability, InSync: false, Unpromoted: 2},
+		{From: "production-stage-1", To: "main", Equivalence: EquivalenceReachability, InSync: true,
+			DownstreamOnly: 3, ToReturn: 1, Excluded: backflow.Excluded},
+	}
+	if len(plan.Edges) != len(want) {
+		t.Fatalf("edges = %+v, want %d summaries", plan.Edges, len(want))
+	}
+	for i := range want {
+		if !reflect.DeepEqual(plan.Edges[i], want[i]) {
+			t.Errorf("edges[%d] = %+v, want %+v", i, plan.Edges[i], want[i])
+		}
+	}
+}
+
+// TestBuildPlanEdgesJSONShape pins the additive-field contract for "edges":
+// absent (not null, not []) when no edges were evaluated, a JSON array when
+// they were.
+func TestBuildPlanEdgesJSONShape(t *testing.T) {
+	g := FromConfig(validGraph())
+
+	t.Run("no evaluated edges omits the edges key", func(t *testing.T) {
+		got, err := json.Marshal(BuildPlan(g, nil))
+		if err != nil {
+			t.Fatalf("Marshal() error = %v", err)
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(got, &raw); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		if edgesRaw, ok := raw["edges"]; ok {
+			t.Fatalf(`"edges" = %s, want the key absent when no edges were evaluated (never null)`, edgesRaw)
+		}
+	})
+
+	t.Run("evaluated edges serialize as an array of objects", func(t *testing.T) {
+		got, err := json.Marshal(BuildPlan(g, []EdgeState{edge("development", "test")}))
+		if err != nil {
+			t.Fatalf("Marshal() error = %v", err)
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(got, &raw); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		var edges []json.RawMessage
+		if err := json.Unmarshal(raw["edges"], &edges); err != nil {
+			t.Fatalf(`"edges" did not unmarshal as a JSON array: %v (raw: %s)`, err, raw["edges"])
+		}
+		if len(edges) != 1 {
+			t.Fatalf("len(edges) = %d, want 1", len(edges))
+		}
+	})
 }
 
 func TestBuildPlanActionsJSONShape(t *testing.T) {

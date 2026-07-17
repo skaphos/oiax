@@ -3,6 +3,7 @@ package reconcile
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -574,6 +575,137 @@ func TestPlanBackflowAlreadyReturnedByContent(t *testing.T) {
 			t.Errorf("already-returned hotfix must not backflow, got %+v", a)
 		}
 	}
+	// The edge diagnostics name the excluding rung: returned by content.
+	assertExclusionReason(t, plan, hotfix, engine.BackflowExcludedPatchID)
+}
+
+// assertExclusionReason finds the backflow exclusion for sha in the plan's
+// edge diagnostics and asserts the rung that excluded it.
+func assertExclusionReason(t *testing.T, plan engine.Plan, sha string, want engine.BackflowExclusionReason) {
+	t.Helper()
+	for _, e := range plan.Edges {
+		for _, x := range e.Excluded {
+			if x.SHA == sha {
+				if x.Reason != want {
+					t.Errorf("exclusion reason for %s = %q, want %q", sha, x.Reason, want)
+				}
+				return
+			}
+		}
+	}
+	t.Errorf("no exclusion recorded for %s in edges %+v", sha, plan.Edges)
+}
+
+// findLogRecord scans a JSON-handler log buffer for the record with the given
+// msg and returns it decoded; it fails the test when no such record exists.
+func findLogRecord(t *testing.T, buf *bytes.Buffer, msg string) map[string]any {
+	t.Helper()
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("log line is not JSON: %v\n%s", err, line)
+		}
+		if rec["msg"] == msg {
+			return rec
+		}
+	}
+	t.Fatalf("no %q record in logs:\n%s", msg, buf.String())
+	return nil
+}
+
+// TestPlanEmitsPlanBuiltRecord asserts the per-run observability record: one
+// "plan built" structured line with the edge, rung, and backflow counts.
+func TestPlanEmitsPlanBuiltRecord(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	var buf bytes.Buffer
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph(),
+		Log: slog.New(slog.NewJSONHandler(&buf, nil))}
+	if _, err := c.Plan(context.Background()); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	rec := findLogRecord(t, &buf, "plan built")
+	if got := rec["edges"]; got != float64(2) {
+		t.Errorf("edges = %v, want 2", got)
+	}
+	settled, _ := rec["settledBy"].(map[string]any)
+	if settled["reachability"] != float64(2) {
+		t.Errorf("settledBy = %v, want reachability=2", rec["settledBy"])
+	}
+	backflow, _ := rec["backflow"].(map[string]any)
+	if backflow["toReturn"] != float64(1) {
+		t.Errorf("backflow = %v, want toReturn=1 (the hotfix)", rec["backflow"])
+	}
+}
+
+// TestLogPlanCountsDedupesFanInBackflow guards the union semantics of the
+// run-level backflow tallies: a backflow source with several incoming
+// promotion edges carries the SAME downstream commit in each edge's view, and
+// apply returns the union — so the "plan built" record must count each SHA
+// once, not once per edge. A non-source destination's stale ToReturn view
+// must not be counted at all.
+func TestLogPlanCountsDedupesFanInBackflow(t *testing.T) {
+	g := testGraph()
+	hotfix := engine.Commit{SHA: "h1", Subject: "hotfix"}
+	skipped := engine.BackflowExclusion{SHA: "s1", Subject: "skipped", Reason: engine.BackflowExcludedSkip}
+	intoMain := func(from string) engine.EdgeState {
+		return engine.EdgeState{
+			From:           engine.BranchState{Name: from, Head: "h-" + from},
+			To:             engine.BranchState{Name: "main", Head: "h-main"},
+			Equivalence:    engine.EquivalenceReachability,
+			DownstreamOnly: []engine.Commit{hotfix, {SHA: "s1", Subject: "skipped"}},
+			ToReturn:       []engine.Commit{hotfix},
+			Excluded:       []engine.BackflowExclusion{skipped},
+		}
+	}
+	// A destination that is NOT a backflow source, with the degenerate
+	// ToReturn view EvaluateEdge produces there: must not reach the tallies.
+	nonSource := engine.EdgeState{
+		From:           engine.BranchState{Name: "development", Head: "h-development"},
+		To:             engine.BranchState{Name: "test", Head: "h-test"},
+		Equivalence:    engine.EquivalenceReachability,
+		DownstreamOnly: []engine.Commit{{SHA: "drift"}},
+		ToReturn:       []engine.Commit{{SHA: "drift"}},
+	}
+	edges := []engine.EdgeState{intoMain("test"), intoMain("development"), nonSource}
+	plan := engine.BuildPlan(g, edges)
+
+	var buf bytes.Buffer
+	c := &Coordinator{Graph: g, Log: slog.New(slog.NewJSONHandler(&buf, nil))}
+	c.logPlanCounts(plan, edges, 7)
+
+	rec := findLogRecord(t, &buf, "plan built")
+	if rec["candidates"] != float64(7) {
+		t.Errorf("candidates = %v, want 7", rec["candidates"])
+	}
+	backflow, _ := rec["backflow"].(map[string]any)
+	if backflow["toReturn"] != float64(1) {
+		t.Errorf("backflow.toReturn = %v, want 1 (union across fan-in edges, non-source ignored)", backflow["toReturn"])
+	}
+	if backflow["excludedSkip"] != float64(1) {
+		t.Errorf("backflow.excludedSkip = %v, want 1 (deduped by SHA)", backflow["excludedSkip"])
+	}
+}
+
+// TestApplyEmitsApplyCompleteRecord asserts the mutation-side per-run record
+// and its field names.
+func TestApplyEmitsApplyCompleteRecord(t *testing.T) {
+	var buf bytes.Buffer
+	c := &Coordinator{Forge: &fakeForge{},
+		Log: slog.New(slog.NewJSONHandler(&buf, nil))}
+	if _, err := c.Apply(context.Background(), engine.Plan{Graph: "environments"}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	rec := findLogRecord(t, &buf, "apply complete")
+	if rec["applied"] != float64(0) || rec["superseded"] != float64(0) || rec["divergence"] != false {
+		t.Errorf("record = %v, want applied=0 superseded=0 divergence=false", rec)
+	}
 }
 
 func TestPlanBackflowSkipTrailerSuppresses(t *testing.T) {
@@ -582,7 +714,7 @@ func TestPlanBackflowSkipTrailerSuppresses(t *testing.T) {
 	// is empty and no backflow action is planned.
 	r, commit := gitHarness(t)
 	checkout(t, r, "main")
-	commit("hotfix.txt", "urgent\n", "hotfix on main\n\nOiax-Backflow: skip")
+	skipped := commit("hotfix.txt", "urgent\n", "hotfix on main\n\nOiax-Backflow: skip")
 
 	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
 	plan, err := c.Plan(context.Background())
@@ -594,6 +726,8 @@ func TestPlanBackflowSkipTrailerSuppresses(t *testing.T) {
 			t.Errorf("skip-trailer hotfix must not backflow, got %+v", a)
 		}
 	}
+	// The edge diagnostics name the excluding rung: the skip trailer.
+	assertExclusionReason(t, plan, skipped, engine.BackflowExcludedSkip)
 }
 
 // TestPlanBackflowIdentityLookupResolvesOriginTrackingRefs reproduces the exact
@@ -746,12 +880,16 @@ func TestApplyBackflowSupersedesOnlyStrictlyOlderRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
-	if _, err := c.Apply(context.Background(), plan); err != nil {
+	res, err := c.Apply(context.Background(), plan)
+	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
 	if len(f.closed) != 1 || f.closed[0] != forge.RequestID("older") {
 		t.Fatalf("closed = %v, want only the strictly-older request %q", f.closed, "older")
+	}
+	if res.Superseded != 1 {
+		t.Errorf("Superseded = %d, want 1 (the strictly-older request)", res.Superseded)
 	}
 	// L11: superseding the older request also deletes its oiax/ head branch, so
 	// orphan refs do not accumulate. The unrelated (non-ancestor) request is left
@@ -998,6 +1136,8 @@ func TestPlanBackflowProvenanceMatchesTrailerNotProse(t *testing.T) {
 	if backflow != 1 {
 		t.Fatalf("planned %d backflow actions, want 1 (the prose-mentioned hotfix still returns)", backflow)
 	}
+	// The edge diagnostics name the excluding rung: genuine provenance.
+	assertExclusionReason(t, plan, hProv, engine.BackflowExcludedProvenance)
 
 	// The complete return set contains hProse (prose mention ignored) and not
 	// hProv (genuine trailer provenance honored).
@@ -1255,7 +1395,8 @@ func TestApplyBackflowClosesOrphanedRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
-	if _, err := c.Apply(context.Background(), plan); err != nil {
+	res, err := c.Apply(context.Background(), plan)
+	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	if len(f.closed) != 1 || f.closed[0] != forge.RequestID("orphan") {
@@ -1263,6 +1404,11 @@ func TestApplyBackflowClosesOrphanedRequest(t *testing.T) {
 	}
 	if len(f.deleted) != 1 || f.deleted[0] != orphanBranch {
 		t.Fatalf("deleted = %v, want the orphan head branch %q deleted", f.deleted, orphanBranch)
+	}
+	// The orphan close counts toward the run's Superseded tally, same as an
+	// ancestry supersede.
+	if res.Superseded != 1 {
+		t.Errorf("Superseded = %d, want 1 (the orphan close)", res.Superseded)
 	}
 }
 

@@ -226,9 +226,15 @@ func TestPlanJSONShape(t *testing.T) {
 	git("commit", "-q", "-m", "c1")
 	useForge(t, &fakeForge{})
 
-	out, code := runCode(t, "plan", "--output", "json")
-	if code != 0 {
-		t.Fatalf("plan json exit = %d, want 0\n%s", code, out)
+	// Distinct buffers: structured logs land on stderr by design, and stdout
+	// alone must parse as the frozen plan JSON document.
+	root := NewRootCommand()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"plan", "--output", "json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("plan --output json: %v\nstderr:\n%s", err, stderr.String())
 	}
 	var plan struct {
 		PlanFormatVersion int    `json:"planFormatVersion"`
@@ -238,15 +244,34 @@ func TestPlanJSONShape(t *testing.T) {
 			From string `json:"from"`
 			To   string `json:"to"`
 		} `json:"actions"`
+		Edges []struct {
+			From        string `json:"from"`
+			To          string `json:"to"`
+			Equivalence string `json:"equivalence"`
+			InSync      bool   `json:"inSync"`
+			Unpromoted  int    `json:"unpromoted"`
+		} `json:"edges"`
 	}
-	if err := json.Unmarshal([]byte(out), &plan); err != nil {
-		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, stdout.String())
 	}
 	if plan.PlanFormatVersion != 1 {
 		t.Errorf("planFormatVersion = %d, want 1", plan.PlanFormatVersion)
 	}
 	if len(plan.Actions) != 1 || plan.Actions[0].Type != "createPromotionRequest" {
 		t.Errorf("actions = %+v", plan.Actions)
+	}
+	// Every promotion edge appears in the additive edges diagnostics, with the
+	// settling rung named — including the in-sync edge that yields no action.
+	if len(plan.Edges) != 2 {
+		t.Fatalf("edges = %+v, want one summary per promotion edge", plan.Edges)
+	}
+	diverged, inSync := plan.Edges[0], plan.Edges[1]
+	if diverged.From != "development" || diverged.To != "test" || diverged.InSync || diverged.Unpromoted != 1 {
+		t.Errorf("diverged edge summary = %+v", diverged)
+	}
+	if !inSync.InSync || inSync.Equivalence == "" {
+		t.Errorf("in-sync edge summary = %+v, want inSync with a settling rung", inSync)
 	}
 }
 

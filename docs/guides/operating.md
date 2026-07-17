@@ -7,14 +7,37 @@ like and how to handle the cases that need a human.
 ## Reading a plan
 
 `plan` and `reconcile` both print the plan first. The text format is one
-header line plus one line per action:
+header line, one line per evaluated edge, then one line per action:
 
 ```
 Promotion graph: environments
+  edge development -> test: 3 unpromoted (reachability)
+  edge test -> qa: 1 unpromoted (reachability)
+  edge qa -> production-stage-1: in sync (patch-identity)
   create   development -> test (3): 3 unpromoted commits and no managed promotion request
   update   test -> qa (1): source branch advanced; record the new head as the promotion baseline
   close    qa -> production-stage-1 (0): edge synchronized out-of-band; the open managed request proposes nothing
 ```
+
+Each edge line names the [equivalence-ladder
+rung](../architecture.md#the-equivalence-ladder) that settled the edge —
+in parentheses — including edges fully in sync, which usually produce no
+action. Any edge whose destination has content the source lacks shows a
+`downstream-only` count; when that destination is a backflow source, the
+line also carries the backflow counts — how many of those commits remain
+to return and how many were excluded, with the excluding rung (on such
+an edge the `downstream-only` count itself is the *returnable* count:
+merge and empty commits, which cherry-pick cannot return, are already
+filtered out):
+
+```
+  edge production-stage-1 -> main: in sync (reachability), 3 downstream-only, 1 to return, 2 excluded (1 skip, 1 patch-id)
+```
+
+Here one commit still backflows, one carries the [`Oiax-Backflow: skip`
+trailer](backflow.md), and one was already returned by content. Like
+action reasons, the edge-line wording is human-facing — script against
+the [plan JSON](../reference/plan-format.md#edge) instead.
 
 Each action line is `<verb> <from> -> <to> (<count>): <reason>`. The
 count is the number of commits the action moves (or, for backflow,
@@ -223,8 +246,23 @@ event-driven run catch up. Re-running is always safe.
 
 - **Logs** — structured, controlled by `OIAX_LOG_FORMAT` (`text` or
   `json`). Credential values never appear in output.
-- **Step summary** — under GitHub Actions, a Markdown table of the plan is
-  appended to the run's summary page.
+- **Per-run counts** — every plan emits one `plan built` record with the
+  run's diagnostic counts: edges evaluated and in sync, promotion
+  candidates inspected, how many edges each equivalence rung settled
+  (`settledBy.*`), and the backflow return/exclusion tallies
+  (`backflow.*`). Every reconcile additionally emits `apply complete`
+  with the actions applied, stale backflow requests superseded, and
+  whether divergence was reported. A log pipeline can track convergence
+  from these two records without parsing plan JSON.
+- **Explaining a plan** — to see *why* an edge is (or is not) in sync,
+  read the per-edge lines of the text output ([Reading a
+  plan](#reading-a-plan)) or the `edges` array of the [plan
+  JSON](../reference/plan-format.md#edge): both name the equivalence
+  rung that settled each edge and, for backflow sources, which commits
+  were excluded from return and by which rung.
+- **Step summary** — under GitHub Actions, a Markdown table of the
+  evaluated edges and a table of the plan's actions are appended to the
+  run's summary page.
 - **Annotations** — warnings and errors appear inline on the run as
   `::warning::` / `::error::` (on stderr, so `-o json` on stdout stays
   clean).

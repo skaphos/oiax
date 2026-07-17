@@ -23,6 +23,33 @@ const (
 	EquivalenceBaseline Equivalence = "baseline"
 )
 
+// BackflowExclusionReason names the rung of the backflow exclusion ladder
+// that resolved a downstream-only commit as already returned (or intentionally
+// withheld), so it needs no backflow. Values are part of the plan JSON
+// contract (additive within planFormatVersion 1).
+type BackflowExclusionReason string
+
+const (
+	// BackflowExcludedSkip: the commit carries the 'Oiax-Backflow: skip'
+	// trailer — the author declared it intentionally not backflowed.
+	BackflowExcludedSkip BackflowExclusionReason = "skip"
+	// BackflowExcludedProvenance: a backflow-target commit's
+	// 'git cherry-pick -x' provenance line names this commit — it was
+	// returned by identity even if conflict resolution rewrote its patch-id.
+	BackflowExcludedProvenance BackflowExclusionReason = "provenance"
+	// BackflowExcludedPatchID: the commit's stable patch-id is already
+	// present on the backflow target — it was returned by content.
+	BackflowExcludedPatchID BackflowExclusionReason = "patch-id"
+)
+
+// BackflowExclusion records one downstream-only commit the backflow
+// exclusion ladder resolved as not needing return, and why.
+type BackflowExclusion struct {
+	SHA     string                  `json:"sha"`
+	Subject string                  `json:"subject"`
+	Reason  BackflowExclusionReason `json:"reason"`
+}
+
 // Commit is one observed commit.
 type Commit struct {
 	SHA     string `json:"sha"`
@@ -76,6 +103,12 @@ type EdgeState struct {
 	// skip' trailer). It is meaningful only when To is a backflow source;
 	// nil when nothing remains to return.
 	ToReturn []Commit `json:"toReturn,omitempty"`
+	// Excluded holds the downstream-only commits the backflow exclusion
+	// ladder resolved as already returned or intentionally withheld, each
+	// with the reason that excluded it. Order follows DownstreamOnly (newest
+	// first). Populated only when To is a backflow source; nil when nothing
+	// was excluded.
+	Excluded []BackflowExclusion `json:"excluded,omitempty"`
 	// SourceHeadShort is the short SHA of the backflow source head (the
 	// downstream head, i.e. To.Head abbreviated). It is the trailing segment
 	// of the deterministic backflow branch name and is populated by the
@@ -130,9 +163,44 @@ type Action struct {
 // PlanFormatVersion is the JSON plan compatibility version.
 const PlanFormatVersion = 1
 
+// EdgeSummary is the per-edge diagnostic record a plan carries for every
+// promotion edge — including edges fully in sync, which usually produce no
+// action (the exception: closing an obsolete request). It answers "which
+// equivalence rung settled this edge" and carries the counts the
+// observability surfaces render.
+type EdgeSummary struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	// Equivalence is the ladder rung that settled the edge.
+	Equivalence Equivalence `json:"equivalence"`
+	// InSync is true when no unpromoted commits survived the ladder.
+	InSync bool `json:"inSync"`
+	// Unpromoted counts the source commits not represented in the
+	// destination after the ladder. Absent when zero.
+	Unpromoted int `json:"unpromoted,omitempty"`
+	// DownstreamOnly counts destination content absent from the source. On
+	// an edge whose destination is a backflow source this is the RETURNABLE
+	// count — merge and empty commits, which cherry-pick cannot return, are
+	// already filtered out by observation. Absent when zero.
+	DownstreamOnly int `json:"downstreamOnly,omitempty"`
+	// ToReturn counts the downstream-only commits still to backflow.
+	// Populated only when To is a configured backflow source (see
+	// summarizeEdge); absent when zero.
+	ToReturn int `json:"toReturn,omitempty"`
+	// Excluded lists the downstream-only commits the backflow exclusion
+	// ladder resolved as not needing return, with reasons. Populated only
+	// when To is a configured backflow source; absent when nothing was
+	// excluded.
+	Excluded []BackflowExclusion `json:"excluded,omitempty"`
+}
+
 // Plan is the ordered set of actions required to converge the graph.
 type Plan struct {
 	PlanFormatVersion int      `json:"planFormatVersion"`
 	Graph             string   `json:"graph"`
 	Actions           []Action `json:"actions"`
+	// Edges summarizes every evaluated promotion edge, in graph declaration
+	// order — diagnostics only, additive within planFormatVersion 1. Absent
+	// (never null) when no edges were evaluated.
+	Edges []EdgeSummary `json:"edges,omitempty"`
 }

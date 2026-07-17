@@ -26,6 +26,21 @@ func samplePlan() engine.Plan {
 				Unpromoted: 1, Reason: "main has 1 commits not represented in test",
 			},
 		},
+		Edges: []engine.EdgeSummary{
+			{
+				From: "development", To: "test",
+				Equivalence: engine.EquivalenceReachability, Unpromoted: 3,
+			},
+			{
+				From: "test", To: "main",
+				Equivalence: engine.EquivalencePatchIdentity, InSync: true,
+				DownstreamOnly: 3, ToReturn: 1,
+				Excluded: []engine.BackflowExclusion{
+					{SHA: "aaa", Subject: "skipped hotfix", Reason: engine.BackflowExcludedSkip},
+					{SHA: "bbb", Subject: "returned hotfix", Reason: engine.BackflowExcludedPatchID},
+				},
+			},
+		},
 	}
 }
 
@@ -78,6 +93,110 @@ func TestRenderTextListsActions(t *testing.T) {
 	}
 }
 
+// TestRenderTextEdgeDiagnostics asserts the per-edge lines: sync status, the
+// settling rung, and the backflow counts with per-reason exclusion terms.
+func TestRenderTextEdgeDiagnostics(t *testing.T) {
+	var buf bytes.Buffer
+	if err := RenderText(&buf, samplePlan()); err != nil {
+		t.Fatalf("render text: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"edge development -> test: 3 unpromoted (reachability)",
+		"edge test -> main: in sync (patch-identity), 3 downstream-only, 1 to return, 2 excluded (1 skip, 1 patch-id)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("text missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestRenderTextWithoutEdgeSummaries confirms a plan carrying no edge
+// diagnostics (hand-built, or from a future producer that omits them) still
+// renders the header and actions.
+func TestRenderTextWithoutEdgeSummaries(t *testing.T) {
+	plan := samplePlan()
+	plan.Edges = nil
+	var buf bytes.Buffer
+	if err := RenderText(&buf, plan); err != nil {
+		t.Fatalf("render text: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "edge ") {
+		t.Errorf("unexpected edge lines:\n%s", out)
+	}
+	if !strings.Contains(out, "create") {
+		t.Errorf("actions missing:\n%s", out)
+	}
+}
+
+// TestRenderMarkdownWithoutEdgeSummaries is the markdown analogue of the text
+// test above: a plan carrying no edge diagnostics renders no edges table but
+// still renders the header and the actions table.
+func TestRenderMarkdownWithoutEdgeSummaries(t *testing.T) {
+	plan := samplePlan()
+	plan.Edges = nil
+	var buf bytes.Buffer
+	if err := RenderMarkdown(&buf, plan); err != nil {
+		t.Fatalf("render markdown: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "| Edge |") {
+		t.Errorf("unexpected edges table:\n%s", out)
+	}
+	for _, want := range []string{"## Oiax plan: environments", "| create | development | test |"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("markdown missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestRenderMarkdownEscapesTableCells guards the step-summary table against a
+// branch name containing '|'. Such a name is legal — `git check-ref-format`
+// accepts it and engine.validateRefName rejects only " ~^:?*[\" and control
+// characters — so unescaped it would open extra columns and corrupt the table,
+// in both the edges rows and the actions rows.
+func TestRenderMarkdownEscapesTableCells(t *testing.T) {
+	plan := engine.Plan{
+		Graph: "environments",
+		Actions: []engine.Action{{
+			Type: engine.ActionCreatePromotionRequest, From: "feat|bar", To: "test",
+			Unpromoted: 1, Reason: "1 unpromoted commits on feat|bar",
+		}},
+		Edges: []engine.EdgeSummary{{
+			From: "feat|bar", To: "test",
+			Equivalence: engine.EquivalenceReachability, Unpromoted: 1,
+		}},
+	}
+	var buf bytes.Buffer
+	if err := RenderMarkdown(&buf, plan); err != nil {
+		t.Fatalf("render markdown: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, `feat|bar`) {
+		t.Errorf("unescaped '|' in a table cell:\n%s", out)
+	}
+	for _, want := range []string{
+		`| feat\|bar -> test | 1 unpromoted | reachability | 0 | 0 |  |`,
+		`| create | feat\|bar | test | 1 | 1 unpromoted commits on feat\|bar |`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("markdown missing %q:\n%s", want, out)
+		}
+	}
+	// Every row must keep its column count: 6 edge columns and 5 action
+	// columns mean 7 and 6 pipes respectively once escaped pipes are removed.
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		bare := strings.ReplaceAll(line, `\|`, "")
+		if n := strings.Count(bare, "|"); n != 7 && n != 6 {
+			t.Errorf("row has %d column separators, table is malformed: %q", n, line)
+		}
+	}
+}
+
 // failingWriter fails every write, standing in for a broken pipe or full
 // disk so the renderers' error propagation can be exercised.
 type failingWriter struct{}
@@ -106,7 +225,14 @@ func TestRenderMarkdownTable(t *testing.T) {
 		t.Fatalf("render markdown: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"## Oiax plan: environments", "| Action | From | To |", "| create | development | test |"} {
+	for _, want := range []string{
+		"## Oiax plan: environments",
+		"| Action | From | To |",
+		"| create | development | test |",
+		"| Edge | State | Settled by |",
+		"| development -> test | 3 unpromoted | reachability | 0 | 0 |  |",
+		"| test -> main | in sync | patch-identity | 3 | 1 | 1 skip, 1 patch-id |",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("markdown missing %q:\n%s", want, out)
 		}

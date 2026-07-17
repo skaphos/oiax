@@ -29,14 +29,23 @@ should treat this page as authoritative.
 | `planFormatVersion` | int | always | Format version. `1` for this page. |
 | `graph` | string | always | The graph's `metadata.name` (see the [configuration reference](configuration.md)). |
 | `actions` | array of [`Action`](#action) | always | The ordered actions required to converge the graph. **Always a JSON array, never `null`** — including when the graph is fully in sync, in which case it is `[]`. |
+| `edges` | array of [`Edge`](#edge) | `omitempty` | Per-edge diagnostics: one summary per evaluated promotion edge, in graph declaration order — including edges fully in sync, which usually produce no action (the exception is `closeObsoleteRequest`). Additive within version 1; absent (never `null`) when no edges were evaluated. |
 
-Example, fully in sync:
+Example, fully in sync (a one-edge graph):
 
 ```json
 {
   "planFormatVersion": 1,
   "graph": "environments",
-  "actions": []
+  "actions": [],
+  "edges": [
+    {
+      "from": "development",
+      "to": "test",
+      "equivalence": "patch-identity",
+      "inSync": true
+    }
+  ]
 }
 ```
 
@@ -102,7 +111,10 @@ settle the edge as fully in sync instead — producing no action, or
 three values can never appear on `createPromotionRequest` or
 `updateManagedRequest`. They are reserved for a future
 `planFormatVersion` in which some rung other than reachability might
-settle an edge that still carries an action:
+settle an edge that still carries an action. To see which rung settled
+an edge — including the in-sync edges that carry no action — read the
+per-edge [`edges`](#edge) diagnostics instead, where all four values
+are observable:
 
 | Value | Ladder rung |
 | --- | --- |
@@ -145,11 +157,51 @@ action exists. Its exact wording is not part of the frozen contract —
 only its presence and type (string) are; do not pattern-match on its
 text.
 
+## `Edge`
+
+One per-edge diagnostic summary, answering "which equivalence-ladder rung
+settled this edge" — for every evaluated edge, including in-sync edges
+that usually produce no action. `edges` is an **additive** version-1 field:
+consumers written before it existed ignore it; consumers that use it must
+tolerate its absence (a plan produced by an older oiax).
+
+| Field | Type | Presence | Meaning |
+| --- | --- | --- | --- |
+| `from` | string | always | The edge's source branch. |
+| `to` | string | always | The edge's destination branch. |
+| `equivalence` | string, [enum](#equivalence) | always | The ladder rung that settled the edge. Unlike the action-level `equivalence`, **all four values are observable here** — an edge settled in sync by `patch-identity`, `head-tree`, or `baseline` appears with that rung. |
+| `inSync` | bool | always | `true` when no unpromoted commits survived the ladder. |
+| `unpromoted` | int | `omitempty` | Source commits not represented in the destination after the ladder. Absent (not `0`) when the edge is in sync. |
+| `downstreamOnly` | int | `omitempty` | Destination commits not represented in the source. On an edge whose destination **is** a backflow source, this is the *returnable* count: merge commits and empty commits — which cherry-pick cannot return — are filtered out before evaluation, so it can be smaller than a raw `git rev-list --count from..to`. Absent when zero. |
+| `toReturn` | int | `omitempty` | Downstream-only commits still to backflow. Populated only when `to` is a configured backflow source; absent when zero — in particular, always absent on edges whose destination is not a backflow source, however far their destination is ahead. |
+| `excluded` | array of [`Exclusion`](#exclusion) | `omitempty` | The downstream-only commits the backflow exclusion ladder resolved as not needing return. Populated only when `to` is a configured backflow source; absent when nothing was excluded. |
+
+### `Exclusion`
+
+One downstream-only commit that needs no backflow, and why. Order
+follows the downstream-only listing (newest first).
+
+| Field | Type | Presence | Meaning |
+| --- | --- | --- | --- |
+| `sha` | string | always | The excluded commit's SHA on the backflow source. |
+| `subject` | string | always | The commit's subject line. |
+| `reason` | string, enum below | always | The exclusion-ladder rung that resolved the commit. |
+
+`reason` is a closed enum. When several rungs match one commit, the
+first in this order wins:
+
+| Value | Meaning |
+| --- | --- |
+| `skip` | The commit carries the `Oiax-Backflow: skip` trailer — the author declared it intentionally not backflowed. |
+| `provenance` | A backflow-target commit's `git cherry-pick -x` provenance line names this commit — returned by identity, even if conflict resolution rewrote its diff. |
+| `patch-id` | The commit's stable patch-id is already present on the backflow target — returned by content. |
+
 ## Compatibility
 
 `planFormatVersion: 1` will not gain required fields, change a field's
 JSON type, rename a field, or turn an always-present field `omitempty`.
-Additive `omitempty` fields on `Action` are permitted within version 1
-(new optional metadata for future action types); strict consumers should
-ignore unrecognized fields rather than reject the document. A change
-that breaks any of the above ships as `planFormatVersion: 2`.
+Additive `omitempty` fields on `Plan` and `Action` are permitted within
+version 1 (the top-level [`edges`](#edge) diagnostics were added this
+way); strict consumers should ignore unrecognized fields rather than
+reject the document. A change that breaks any of the above ships as
+`planFormatVersion: 2`.

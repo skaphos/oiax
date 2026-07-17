@@ -34,3 +34,8 @@ Thumbs.db
 
 # Graphify: outputs are committed; internal caches and temp files are not.
 .graphify_*
+
+# graphify local artifacts (regenerated per-run; only the flat cache, report, graph, and manifest are tracked)
+graphify-out/cache/ast/
+graphify-out/cache/stat-index.json
+graphify-out/20*/
