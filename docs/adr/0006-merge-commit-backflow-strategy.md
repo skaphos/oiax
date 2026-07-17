@@ -1,7 +1,8 @@
 # 0006 — Merge-commit backflow strategy
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-07-16
+- Accepted: 2026-07-17 (with amendments — see Decision)
 
 ## Context
 
@@ -54,9 +55,10 @@ or ordering.
 
 ## Decision
 
-*Proposed, not accepted — this ADR records the design so it can be
-weighed; implementation is deliberately deferred until the consequences
-below are accepted or the demand disappears.*
+*Accepted 2026-07-17. The consequences below were weighed and accepted;
+the two amendments recorded here (the live merge-method fence, and the
+skip-in-range error) sharpen the two consequences that were correctness
+risks rather than product tradeoffs. Implementation tracked as SKA-599.*
 
 Extend `backflow.strategy` with `merge`. Per (source, target) edge:
 
@@ -75,17 +77,33 @@ Extend `backflow.strategy` with `merge`. Per (source, target) edge:
   run. (This is the ancestry computation that *produces* the
   downstream-only set, not rung 1 of the forward promotion ladder, which
   tests the opposite range.)
-- **Validation must fence the merge method.** The strategy only works
-  if the managed request itself merges as a **merge commit** — squash
-  or rebase at that moment destroys the ancestry the identity model
-  depends on, and the same content would be re-proposed forever. This
-  is **new enforcement, not a stricter version of an existing check**:
-  `mergeMethod` today lives on `Expectations`, which hangs off a
-  `Promotion` only, and `warnMergeMethodMismatch` walks `Promotions`
-  alone — neither reaches a backflow edge. Adopting `merge` therefore
-  requires a new config surface for the backflow edge's expected merge
-  method, plus a reconcile-time check that fences it. Cost to be
-  budgeted with SKA-562, not absorbed by it.
+- **A live merge-method fence, checked every reconcile (amendment).**
+  The strategy only works if the managed request itself merges as a
+  **merge commit** — squash or rebase at that moment destroys the
+  ancestry the identity model depends on, and the same content would be
+  re-proposed forever. This is **new enforcement, not a stricter version
+  of an existing check**: `mergeMethod` today lives on `Expectations`,
+  which hangs off a `Promotion` only, and `warnMergeMethodMismatch`
+  walks `Promotions` alone — neither reaches a backflow edge. Adopting
+  `merge` therefore requires a new config surface for the backflow
+  edge's expected merge method **and** a reconcile-time check against
+  the **live forge merge settings**, not merely the static config field.
+  A config-only fence would validate intent while an org-policy flip to
+  squash-only behind it silently re-proposed forever; because we cannot
+  assume the target's merge policy is pinned, the fence reads the forge's
+  actual allowed/enforced merge method each run and, on drift, fails
+  loud (exit 3, plus the SKA-601 conflict artifact once it lands) rather
+  than pushing. This pulls the forge merge-settings read from SKA-562
+  **into SKA-599's scope**; it is no longer merely budgeted alongside it.
+- **Skip-marked commits in the merge range are a hard error
+  (amendment).** A merge cannot honor per-commit exclusion, so an
+  `Oiax-Backflow: skip` commit inside the downstream-only range would be
+  swept back up in contradiction of an explicit operator declaration —
+  distinct from an unmarked downstream-only commit, which merge returns
+  by design (see Consequences). When the downstream-only set for a
+  `merge` edge contains any skip-marked commit, `plan` fails with a
+  directive to unmark it or use `cherry-pick` on that edge, rather than
+  silently overriding the marker.
 
 ## Consequences
 
@@ -93,16 +111,26 @@ Extend `backflow.strategy` with `merge`. Per (source, target) edge:
   durable "hotfix X was returned" traceability, and identity that is
   exact rather than best-effort. History matches merge-commit promotion
   edges.
-- **Negative:** the return is all-or-nothing. There is no per-commit
-  selectivity: `Oiax-Backflow: skip` is inapplicable under `merge` (you
-  cannot exclude one commit from a merge without rewriting it), so a
-  deliberately downstream-only commit forces the edge back to
-  cherry-pick or manual handling. Everything downstream-only comes
-  back, including commits a reviewer might have wanted to hold.
-- **Negative:** correctness now depends on forge-side merge behavior.
-  A repository that later enables squash-only merging silently breaks
-  the identity model; the validation fence catches the config, not an
-  org-policy change made behind it.
+- **Accepted tradeoff:** the return is all-or-nothing. There is no
+  per-commit selectivity: `Oiax-Backflow: skip` is inapplicable under
+  `merge` (you cannot exclude one commit from a merge without rewriting
+  it), so everything downstream-only comes back wholesale — including
+  audit-log or environment-specific commits a reviewer might otherwise
+  hold. This is accepted as the strategy's semantics rather than
+  engineered around: the returned set is surfaced in the plan output so
+  it is visible, not silent, and `cherry-pick` remains available on any
+  edge that needs selectivity. The one case where merge would override
+  an *explicit* human instruction — a `skip`-marked commit in the range
+  — is fenced as a hard error (see Decision), so the accepted sweep
+  covers only unmarked commits.
+- **Mitigated (was a correctness risk):** correctness depends on
+  forge-side merge behavior — a target later switched to squash-only
+  breaks the ancestry identity. Because the fence checks the **live**
+  forge merge settings every reconcile (not just static config), such a
+  policy flip surfaces as a loud failure on the next run instead of an
+  endless silent re-propose. The residual exposure is a policy change
+  and a return landing between two runs, bounded to a single reconcile
+  cycle.
 - **Negative:** a second execution path through the most
   correctness-sensitive code (worktree replay, conflict handling,
   supersede), roughly doubling the backflow test matrix.
