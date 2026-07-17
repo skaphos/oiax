@@ -685,11 +685,19 @@ func (p *Provider) TargetMergeMethods(ctx context.Context, branch string) (forge
 // branch-rules endpoint (repository rulesets) for a "required_linear_history"
 // rule, then falls back to classic branch protection's
 // required_linear_history.enabled. A missing ruleset or unprotected branch
-// answers 404, which means "no such rule", not a failure. The branch is escaped
-// per ref-path segment so a multi-segment name (release/1.x) reaches the API
-// intact.
+// answers 404, which means "no such rule", not a failure. The branch name is
+// escaped differently per endpoint (see below) so a multi-segment name
+// (release/1.x) reaches each API route intact.
 func (p *Provider) requiresLinearHistory(ctx context.Context, branch string) (bool, error) {
-	esc := escapeRefPath(branch)
+	// The rules endpoint takes the branch as a trailing catch-all path, so its
+	// "/" separators are preserved (escapeRefPath escapes each segment). Classic
+	// branch protection takes the branch as a single {branch} path parameter
+	// before a fixed /protection suffix, so any "/" must be percent-encoded
+	// (url.PathEscape) — a literal slash routes GitHub to a different path and
+	// 404s (release/1.x -> .../branches/release/1.x/protection). google/go-github
+	// escapes these two endpoints the same two ways.
+	rulesBranch := escapeRefPath(branch)
+	protBranch := url.PathEscape(branch)
 
 	// Repository rulesets: this endpoint returns every active rule applying to
 	// the branch. A "required_linear_history" rule forbids merge commits. The
@@ -699,7 +707,7 @@ func (p *Provider) requiresLinearHistory(ctx context.Context, branch string) (bo
 	// rule sitting on page 2 and wrongly clear the merge-commit fence for a
 	// branch GitHub will reject at push time.
 	rulesURL := p.url(fmt.Sprintf("/repos/%s/%s/rules/branches/%s?per_page=100",
-		url.PathEscape(p.Owner), url.PathEscape(p.Repo), esc))
+		url.PathEscape(p.Owner), url.PathEscape(p.Repo), rulesBranch))
 	for rulesURL != "" {
 		var rules []struct {
 			Type string `json:"type"`
@@ -740,7 +748,7 @@ func (p *Provider) requiresLinearHistory(ctx context.Context, branch string) (bo
 		} `json:"required_linear_history"`
 	}
 	protURL := p.url(fmt.Sprintf("/repos/%s/%s/branches/%s/protection",
-		url.PathEscape(p.Owner), url.PathEscape(p.Repo), esc))
+		url.PathEscape(p.Owner), url.PathEscape(p.Repo), protBranch))
 	if _, err := p.do(ctx, http.MethodGet, protURL, nil, &prot); err != nil {
 		if isNotFound(err) || isForbidden(err) {
 			return false, nil

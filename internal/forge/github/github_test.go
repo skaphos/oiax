@@ -261,6 +261,56 @@ func TestTargetMergeMethods(t *testing.T) {
 	}
 }
 
+// TestRequiresLinearHistoryEscapesSlashedBranch pins the per-endpoint branch
+// escaping for a slash-containing branch name (release/1.x). Classic branch
+// protection takes the branch as a middle {branch} path parameter before a
+// fixed /protection suffix, so a literal "/" would route GitHub to a different
+// path and 404 — it must be percent-encoded (release%2F1.x), matching
+// google/go-github. The rules endpoint takes the branch as a trailing
+// catch-all, so its slashes are preserved. Asserting on EscapedPath is
+// essential: net/http decodes %2F in r.URL.Path, so a Path-only check cannot
+// tell the encoded and literal forms apart.
+func TestRequiresLinearHistoryEscapesSlashedBranch(t *testing.T) {
+	t.Parallel()
+	const branch = "release/1.x"
+	var sawRules, sawProtection bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertAuth(t, r)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/widgets":
+			writeJSON(t, w, http.StatusOK, map[string]any{
+				"allow_merge_commit": true,
+				"allow_squash_merge": true,
+				"allow_rebase_merge": true,
+			})
+		case r.Method == http.MethodGet && r.URL.EscapedPath() == "/repos/acme/widgets/rules/branches/release/1.x":
+			sawRules = true
+			writeJSON(t, w, http.StatusOK, []map[string]any{})
+		case r.Method == http.MethodGet && r.URL.EscapedPath() == "/repos/acme/widgets/branches/release%2F1.x/protection":
+			sawProtection = true
+			writeJSON(t, w, http.StatusNotFound, map[string]any{"message": "Branch not protected"})
+		default:
+			t.Errorf("unexpected request %s escaped=%s", r.Method, r.URL.EscapedPath())
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	got, err := newProvider(t, srv).TargetMergeMethods(context.Background(), branch)
+	if err != nil {
+		t.Fatalf("TargetMergeMethods: %v", err)
+	}
+	if !got.MergeCommitAllowed() {
+		t.Errorf("MergeCommitAllowed() = false, want true for a merge-allowed branch with no linear rule")
+	}
+	if !sawRules {
+		t.Error("rules endpoint was never reached with the slash-preserved path")
+	}
+	if !sawProtection {
+		t.Error("protection endpoint was never reached with the %2F-encoded path (literal slash would 404 on GitHub)")
+	}
+}
+
 // TestTargetMergeMethodsPaginatesRules pins that the applicable-rules read
 // follows the Link header: a required_linear_history rule that sorts onto page
 // 2 (layered org + repo rulesets can push the count past one page) must still
