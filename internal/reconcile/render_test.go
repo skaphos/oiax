@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/skaphos/oiax/internal/engine"
+	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
 func samplePlan() engine.Plan {
@@ -193,6 +194,77 @@ func TestRenderMarkdownEscapesTableCells(t *testing.T) {
 		bare := strings.ReplaceAll(line, `\|`, "")
 		if n := strings.Count(bare, "|"); n != 7 && n != 6 {
 			t.Errorf("row has %d column separators, table is malformed: %q", n, line)
+		}
+	}
+}
+
+// mergePlan is samplePlan's merge-strategy analogue: the test -> main edge is a
+// merge-strategy backflow source that returns its downstream-only set wholesale,
+// so its summary carries Strategy and the Returned set.
+func mergePlan() engine.Plan {
+	return engine.Plan{
+		PlanFormatVersion: engine.PlanFormatVersion,
+		Graph:             "environments",
+		Actions: []engine.Action{{
+			Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+			Unpromoted: 2, Strategy: v1.BackflowStrategyMerge,
+			Reason: "2 downstream-only commits on main to return to development",
+		}},
+		Edges: []engine.EdgeSummary{{
+			From: "test", To: "main",
+			Equivalence: engine.EquivalenceReachability, InSync: true,
+			DownstreamOnly: 2, ToReturn: 2,
+			Strategy: v1.BackflowStrategyMerge,
+			Returned: []engine.Commit{
+				{SHA: "aaa", Subject: "urgent hotfix"},
+				{SHA: "bbb", Subject: "config tweak"},
+			},
+		}},
+	}
+}
+
+// TestRenderTextMergeStrategyEdge asserts the human text names the merge
+// mechanism and the wholesale return set for a merge-strategy backflow edge.
+func TestRenderTextMergeStrategyEdge(t *testing.T) {
+	var buf bytes.Buffer
+	if err := RenderText(&buf, mergePlan()); err != nil {
+		t.Fatalf("render text: %v", err)
+	}
+	out := buf.String()
+	want := "edge test -> main: in sync (reachability), 2 downstream-only, 2 to return, strategy: merge — returning 2 wholesale: urgent hotfix, config tweak"
+	if !strings.Contains(out, want) {
+		t.Errorf("text missing merge strategy line %q:\n%s", want, out)
+	}
+}
+
+// TestRenderMarkdownMergeStrategyEdge asserts the step-summary State cell notes
+// the merge strategy and its wholesale return count.
+func TestRenderMarkdownMergeStrategyEdge(t *testing.T) {
+	var buf bytes.Buffer
+	if err := RenderMarkdown(&buf, mergePlan()); err != nil {
+		t.Fatalf("render markdown: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "| test -> main | in sync (merge: returns 2) | reachability |") {
+		t.Errorf("markdown missing merge strategy note:\n%s", out)
+	}
+}
+
+// TestRenderCherryPickEdgeOmitsStrategy proves cherry-pick edges (Strategy
+// empty) render exactly as before: no strategy tag in text, no strategy note in
+// the markdown State cell. This is the human-output half of the frozen-format
+// invariant asserted for JSON in engine.TestPlanCherryPickJSONUnchanged.
+func TestRenderCherryPickEdgeOmitsStrategy(t *testing.T) {
+	var text, md bytes.Buffer
+	if err := RenderText(&text, samplePlan()); err != nil {
+		t.Fatalf("render text: %v", err)
+	}
+	if err := RenderMarkdown(&md, samplePlan()); err != nil {
+		t.Fatalf("render markdown: %v", err)
+	}
+	for _, out := range []string{text.String(), md.String()} {
+		if strings.Contains(out, "strategy") || strings.Contains(out, "returns") || strings.Contains(out, "wholesale") {
+			t.Errorf("cherry-pick output must not mention merge strategy:\n%s", out)
 		}
 	}
 }

@@ -279,6 +279,50 @@ func TestEvaluateEdgeToReturn(t *testing.T) {
 	}
 }
 
+// TestEvaluateEdgeMergePassthrough confirms EvaluateEdge threads the two
+// merge-strategy observation fields — TargetCanMergeCommit (the live forge
+// merge-commit signal) and SkippedInRange (skip trailers inside the returnable
+// range) — straight through to EdgeState without inspecting them, keeping the
+// fence and skip decisions pure for planDownstream.
+func TestEvaluateEdgeMergePassthrough(t *testing.T) {
+	t.Parallel()
+
+	forbid := false
+	obs := EdgeObservation{
+		From:                 BranchState{Name: "main", Head: "h-main"},
+		To:                   BranchState{Name: "production-stage-1", Head: "h-prod"},
+		DownstreamOnly:       commits("x", "y"),
+		TargetCanMergeCommit: &forbid,
+		SkippedInRange:       commits("y"),
+	}
+	got := EvaluateEdge(obs)
+	if got.TargetCanMergeCommit != &forbid {
+		t.Errorf("TargetCanMergeCommit = %v, want the injected pointer passed through unchanged", got.TargetCanMergeCommit)
+	}
+	if !reflect.DeepEqual(got.SkippedInRange, commits("y")) {
+		t.Errorf("SkippedInRange = %v, want %v", got.SkippedInRange, commits("y"))
+	}
+}
+
+// TestEvaluateEdgeMergeFieldsDefaultNil confirms the two merge-strategy fields
+// are nil on an observation that does not set them, so identical non-merge
+// observations still yield DeepEqual EdgeStates.
+func TestEvaluateEdgeMergeFieldsDefaultNil(t *testing.T) {
+	t.Parallel()
+
+	got := EvaluateEdge(EdgeObservation{
+		From:           BranchState{Name: "prod", Head: "h-prod"},
+		To:             BranchState{Name: "main", Head: "h-main"},
+		DownstreamOnly: commits("x"),
+	})
+	if got.TargetCanMergeCommit != nil {
+		t.Errorf("TargetCanMergeCommit = %v, want nil", got.TargetCanMergeCommit)
+	}
+	if got.SkippedInRange != nil {
+		t.Errorf("SkippedInRange = %v, want nil", got.SkippedInRange)
+	}
+}
+
 // TestEvaluateEdgeExclusionReasons exercises the per-commit exclusion
 // diagnostics: every downstream-only commit dropped from ToReturn is recorded
 // with the rung that excluded it, in DownstreamOnly order, with the skip →

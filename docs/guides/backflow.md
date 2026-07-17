@@ -40,13 +40,75 @@ spec:
 | --- | --- |
 | `sources` | The downstream branches to watch for downstream-only commits. |
 | `target` | The authoritative branch commits are returned to. Must be a declared branch with `role: source`, and must not appear in `sources`. v1 allows exactly one target. |
-| `strategy` | The return mechanism. v1 supports only `cherry-pick`; it is also the default if you omit it. |
+| `strategy` | The return mechanism: `cherry-pick` (the default if you omit it) or `merge`. See [Choosing a strategy](#choosing-a-strategy). |
+| `expectedMergeMethod` | Only meaningful with `strategy: merge`, where it must be `merge` (the default). It records that the return request is intended to land as a merge commit; a `squash` or `rebase` value is rejected because it would erase the ancestry link the merge strategy depends on. |
 
 > A backflow source must not also declare `drift: expected`. That would
 > say "return this content" and "this content is fine to keep" at the same
 > time — validation rejects it. Use `drift: expected` for branches whose
 > local commits should *stay* local; use `sources` for branches whose
 > local commits should come *back*.
+
+## Choosing a strategy
+
+Backflow returns downstream-only commits by one of two mechanisms, chosen
+per edge with `strategy`. They differ in what they preserve and what they
+demand of the target branch:
+
+| | `cherry-pick` (default) | `merge` |
+| --- | --- | --- |
+| **Optimizes for** | Precision — a clean, replayed patch series on the source. | Traceability — the returned commits keep their original identity and ancestry. |
+| **Granularity** | Selective: per-commit. `Oiax-Backflow: skip` withholds individual commits; already-returned commits are filtered out by content. | All-or-nothing: the entire downstream-only range returns together in one `--no-ff` merge. Per-commit exclusion is not possible. |
+| **Identity check** | Content-based: patch-id, cherry-pick `-x` provenance, and the skip trailer (survives squash and rebase rewrites). | Ancestry-based: once the merge lands, the source head is an ancestor of the target, so the edge settles by reachability and never re-proposes. |
+| **Target merge policy** | Any: the return PR can be squashed, rebased, or merged. | Requires merge commits: the target branch must allow merge commits and must not require linear history. |
+
+Reach for `merge` when downstream and upstream history must stay
+connected — audits, `git log --graph` readability, or tools that follow
+merge ancestry. Stay on `cherry-pick` (the default) when you want a tidy
+linear source history, need to withhold individual commits, or the target
+branch enforces squash-only or linear history.
+
+### All-or-nothing (the merge strategy)
+
+A merge returns the **whole** downstream-only range in a single `--no-ff`
+merge of the source head onto the target head. It cannot honor per-commit
+exclusion the way cherry-pick does, so every downstream-only commit — even
+unmarked, incidental ones — comes back together. The plan makes this scope
+visible: a merge edge's `edges` summary lists the exact `returned` set, and
+the human summary prints `strategy: merge — returning N wholesale: …`.
+
+Because the return is a real merge, the committer and author identity and
+dates are pinned to the source head's committer, so the merge commit is
+byte-identical on every run (ADR-0004 determinism), and the deterministic
+`oiax/backflow/<source>-to-<target>/<shortSHA>` branch name is keyed to the
+source head exactly as for cherry-pick.
+
+### Two fences that stop a merge backflow
+
+A merge backflow is refused — surfaced as a **reported divergence**
+(`reconcile` exits 3), pushing nothing and opening no request — in two
+cases a cherry-pick would tolerate:
+
+1. **The target forbids merge commits (live check).** Every plan reads the
+   target branch's *live* merge policy from the forge — repo-level
+   `allow_merge_commit` **and** the branch's own ruleset or classic
+   protection (a required-linear-history rule a repo-level read cannot
+   see). If merge commits are disallowed, the wholesale merge cannot land,
+   so Oiax reports divergence rather than opening a request that could
+   never merge. This is a live read on every run, not static config: a
+   protection rule added after you configured backflow is caught the next
+   plan. (A genuine failure to *read* the policy is a loud operational
+   error — exit 1 — never silently treated as "not allowed".)
+2. **An `Oiax-Backflow: skip` trailer inside the returned range.** Under
+   cherry-pick the skip trailer silently withholds that one commit. A merge
+   cannot withhold one commit from a wholesale range, so a skip trailer in
+   range is a **hard error**, not a silent exclusion — Oiax reports
+   divergence and names the offending commits. Either unmark those commits,
+   or set `strategy: cherry-pick` on the edge if you need per-commit
+   control.
+
+See [ADR 0006](../adr/0006-merge-commit-backflow-strategy.md) for the full
+rationale behind the merge strategy and both fences.
 
 ## What Oiax does
 

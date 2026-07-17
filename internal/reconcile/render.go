@@ -64,7 +64,30 @@ func edgeSummaryText(e engine.EdgeSummary) string {
 	if len(e.Excluded) > 0 {
 		fmt.Fprintf(&b, ", %d excluded (%s)", len(e.Excluded), exclusionCounts(e.Excluded))
 	}
+	// A merge-strategy edge returns its downstream-only set wholesale
+	// (all-or-nothing, ADR-0006). Strategy is populated only for such edges —
+	// cherry-pick edges leave it empty, so their text is byte-identical to
+	// before the merge strategy existed. Name the mechanism and, when there is
+	// something to return, the wholesale set so the operator sees the
+	// all-or-nothing scope at a glance.
+	if e.Strategy != "" {
+		fmt.Fprintf(&b, ", strategy: %s", e.Strategy)
+		if len(e.Returned) > 0 {
+			fmt.Fprintf(&b, " — returning %d wholesale: %s", len(e.Returned), returnedSubjects(e.Returned))
+		}
+	}
 	return b.String()
+}
+
+// returnedSubjects renders a merge-strategy edge's wholesale return set as a
+// comma-separated list of commit subjects, for the human-facing
+// (non-contractual) plan summary.
+func returnedSubjects(returned []engine.Commit) string {
+	subjects := make([]string, len(returned))
+	for i, c := range returned {
+		subjects[i] = c.Subject
+	}
+	return strings.Join(subjects, ", ")
 }
 
 // exclusionCounts summarizes a backflow exclusion list as "N <reason>" terms
@@ -101,6 +124,13 @@ func RenderMarkdown(w io.Writer, plan engine.Plan) error {
 			state := "in sync"
 			if !e.InSync {
 				state = fmt.Sprintf("%d unpromoted", e.Unpromoted)
+			}
+			// Note the merge strategy and its wholesale return count inside the
+			// State cell rather than as a new column, so cherry-pick rows (whose
+			// Strategy is empty) stay byte-identical and the table keeps its
+			// column count.
+			if e.Strategy != "" {
+				state += fmt.Sprintf(" (%s: returns %d)", e.Strategy, len(e.Returned))
 			}
 			excluded := ""
 			if len(e.Excluded) > 0 {

@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
@@ -105,6 +106,14 @@ func summarizeEdge(g *Graph, e EdgeState) EdgeSummary {
 	if g.isBackflowSource(e.To.Name) {
 		s.ToReturn = len(e.ToReturn)
 		s.Excluded = e.Excluded
+		// Publish the strategy tag and the wholesale returned set only for a
+		// merge-strategy edge: "cherry-pick" is non-empty, so tagging every
+		// edge would change existing plan JSON (a de-facto format break under
+		// the frozen planFormatVersion 1).
+		if g.Backflow.Strategy == v1.BackflowStrategyMerge {
+			s.Strategy = g.Backflow.Strategy
+			s.Returned = e.ToReturn
+		}
 	}
 	return s
 }
@@ -162,6 +171,13 @@ func planDownstream(g *Graph, e EdgeState) []Action {
 	// Evaluation order per the design: backflow source first, then drift
 	// policy, then report.
 	if g.isBackflowSource(e.To.Name) {
+		source, target := e.To.Name, g.Backflow.Target
+		// A merge-strategy edge returns the downstream-only set wholesale, so
+		// two conditions a cherry-pick tolerates are hard divergences here,
+		// surfaced BEFORE any create-backflow action.
+		if g.Backflow.Strategy == v1.BackflowStrategyMerge {
+			return planMergeBackflow(e, source, target)
+		}
 		// The destination is a downstream backflow source: its
 		// downstream-only commits are returned to the backflow target by
 		// cherry-pick. When every commit is already returned (matched by
@@ -170,7 +186,6 @@ func planDownstream(g *Graph, e EdgeState) []Action {
 		if len(e.ToReturn) == 0 {
 			return nil
 		}
-		source, target := e.To.Name, g.Backflow.Target
 		return []Action{{
 			Type:       ActionCreateBackflowRequest,
 			From:       source,
@@ -192,6 +207,75 @@ func planDownstream(g *Graph, e EdgeState) []Action {
 		Unpromoted: len(e.DownstreamOnly),
 		Reason:     fmt.Sprintf("%s has %d commits not represented in %s", e.To.Name, len(e.DownstreamOnly), e.From.Name),
 	}}
+}
+
+// planMergeBackflow plans the downstream return for a merge-strategy backflow
+// edge. A merge returns the downstream-only set wholesale (all-or-nothing,
+// ADR-0006), so two conditions a cherry-pick tolerates become hard
+// divergences, surfaced BEFORE any create-backflow action:
+//
+//   - an Oiax-Backflow: skip trailer inside the returnable range — a merge
+//     cannot honor per-commit exclusion (ADR-0006 Amendment 2); and
+//   - a target branch that forbids merge commits, per the live forge signal —
+//     the return merge cannot land (ADR-0006 Amendment 1).
+//
+// Both map to ActionReportDivergence (exit 3, same plumbing as any other
+// divergence). Otherwise the whole set is merged back, with Strategy recorded
+// so the plan JSON distinguishes the two mechanisms. This function is pure: it
+// decides only from the injected EdgeState fields, never from git or a forge.
+func planMergeBackflow(e EdgeState, source, target string) []Action {
+	// Amendment 2: a skip trailer in range cannot be honored by a merge. Its
+	// directive Reason names the offending short SHAs and the two ways out.
+	if len(e.SkippedInRange) > 0 {
+		return []Action{{
+			Type:       ActionReportDivergence,
+			From:       source,
+			To:         target,
+			Unpromoted: len(e.SkippedInRange),
+			Reason: fmt.Sprintf(
+				"backflow %s->%s: strategy merge cannot honor the Oiax-Backflow: skip trailer on %d in-range commit(s) (%s); unmark those commits or set strategy: cherry-pick on this edge",
+				source, target, len(e.SkippedInRange), shortSHAList(e.SkippedInRange)),
+		}}
+	}
+	// Amendment 1: the live forge read says the target forbids merge commits.
+	if e.TargetCanMergeCommit != nil && !*e.TargetCanMergeCommit {
+		return []Action{{
+			Type: ActionReportDivergence,
+			From: source,
+			To:   target,
+			Reason: fmt.Sprintf(
+				"backflow %s->%s: strategy merge requires merge commits on %s, but the target branch forbids them (merge commits disabled or linear history required); allow merge commits on %s or set strategy: cherry-pick on this edge",
+				source, target, target, target),
+		}}
+	}
+	// Converged: nothing left to return (ancestry settles a merge edge once the
+	// return lands).
+	if len(e.ToReturn) == 0 {
+		return nil
+	}
+	return []Action{{
+		Type:       ActionCreateBackflowRequest,
+		From:       source,
+		To:         target,
+		Unpromoted: len(e.ToReturn),
+		Strategy:   v1.BackflowStrategyMerge,
+		Branch:     BackflowBranchName(source, target, e.SourceHeadShort),
+		Reason:     fmt.Sprintf("%d downstream-only commits on %s to return to %s", len(e.ToReturn), source, target),
+	}}
+}
+
+// shortSHAList renders a comma-separated list of 7-character short SHAs for a
+// human-readable divergence Reason.
+func shortSHAList(cs []Commit) string {
+	parts := make([]string, len(cs))
+	for i, c := range cs {
+		sha := c.SHA
+		if len(sha) > 7 {
+			sha = sha[:7]
+		}
+		parts[i] = sha
+	}
+	return strings.Join(parts, ", ")
 }
 
 // BackflowBranchName builds the deterministic branch Oiax pushes a backflow

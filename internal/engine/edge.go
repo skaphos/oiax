@@ -61,6 +61,24 @@ type EdgeObservation struct {
 	ManagedRequest *ChangeRequest
 	// Mergeable is advisory forge mergeability, passed through.
 	Mergeable *bool
+
+	// TargetCanMergeCommit is the live forge merge-commit capability of the
+	// backflow TARGET branch (methods.MergeCommitAllowed()), injected by
+	// reconcile.observe only for merge-strategy backflow-source edges; nil for
+	// non-merge or non-source edges. When non-nil and false, planDownstream
+	// reports divergence: the return merge cannot land on a target that forbids
+	// merge commits (ADR-0006 Amendment 1). Passed straight through to
+	// EdgeState.
+	TargetCanMergeCommit *bool
+	// SkippedInRange are downstream-only commits carrying the
+	// 'Oiax-Backflow: skip' trailer that fall inside the returnable range of a
+	// merge-strategy edge (newest first, nil when none), injected by
+	// reconcile.observe only for merge-strategy edges. A merge returns the
+	// range wholesale and cannot honor per-commit exclusion, so any skip in
+	// range is a hard error, not an exclusion (ADR-0006 Amendment 2) — it is
+	// deliberately NOT routed through SkippedByTrailer. Passed straight through
+	// to EdgeState.
+	SkippedInRange []Commit
 }
 
 // EvaluateEdge applies the content-based equivalence ladder and returns the
@@ -88,7 +106,11 @@ func EvaluateEdge(obs EdgeObservation) EdgeState {
 		SourceHeadShort: obs.SourceHeadShort,
 		ManagedRequest:  obs.ManagedRequest,
 		Mergeable:       obs.Mergeable,
-		Equivalence:     EquivalenceReachability,
+
+		TargetCanMergeCommit: obs.TargetCanMergeCommit,
+		SkippedInRange:       obs.SkippedInRange,
+
+		Equivalence: EquivalenceReachability,
 	}
 
 	// Rung 1: reachability. Nothing reachable-only on the source ⇒ in sync.

@@ -31,6 +31,7 @@ import (
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
 	"github.com/skaphos/oiax/internal/git"
+	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
 // cherryPickedFromRE captures the source object id recorded by
@@ -261,69 +262,25 @@ func (c *Coordinator) observe(ctx context.Context, from, to string, open, merged
 		obs.PromotedByBaseline = promoted
 	}
 
-	// Backflow identity-ladder inputs. When the destination is a backflow
-	// source, its downstream-only commits are returned to the backflow target;
-	// gather the content and identity signals the engine's ToReturn filter
-	// consumes. Direction: `to` is the downstream source (e.g. main), the
-	// backflow target (e.g. development) is authoritative.
+	// Backflow inputs. When the destination is a backflow source, its
+	// downstream-only commits are returned to the backflow target; gather the
+	// signals the engine's ToReturn filter consumes. Direction: `to` is the
+	// downstream source (e.g. main), the backflow target (e.g. development) is
+	// authoritative. The two strategies gather different inputs: cherry-pick
+	// walks the per-commit identity ladder, merge returns the range wholesale by
+	// ancestry (ADR-0006).
 	if c.isBackflowSource(to) && len(downstream) > 0 {
 		target := c.Graph.Backflow.Target
 
-		// Patch-ids of the downstream range (from..to), keyed by commit SHA:
-		// the content fingerprint of each downstream-only commit. PatchIDs
-		// omits merge commits and empty commits (neither has a diff).
-		dpid, err := c.Git.PatchIDs(ctx, from, to)
-		if err != nil {
-			return engine.EdgeObservation{}, wrap(err)
-		}
-		obs.DownstreamPatchIDs = dpid
-
-		// Restrict the returnable set to commits that carry a diff. The raw
-		// downstream range includes merge commits (from an ordinary promotion
-		// merged into the source, the common case) and any empty commits, and
-		// cherry-pick can return neither: a merge has no mainline (`git
-		// cherry-pick` of it fails outright) and an empty commit no content.
-		// Keeping only commits with a patch-id drops both, so an ordinary merge
-		// on the source cannot become a permanent false divergence that blocks
-		// genuine hotfixes batched behind it.
-		returnable := make([]engine.Commit, 0, len(obs.DownstreamOnly))
-		for _, cm := range obs.DownstreamOnly {
-			if _, ok := dpid[cm.SHA]; ok {
-				returnable = append(returnable, cm)
-			}
-		}
-		obs.DownstreamOnly = returnable
-
-		// Patch-ids already present on the backflow target since it diverged
-		// from the source: a downstream commit whose diff is here has already
-		// been returned by content.
-		returned := make(map[string]struct{})
-		tmb, err := c.Git.MergeBase(ctx, to, target)
-		if err != nil {
-			return engine.EdgeObservation{}, wrap(err)
-		}
-		if tmb != "" {
-			rp, err := c.Git.PatchIDs(ctx, tmb, target)
-			if err != nil {
+		if c.Graph.Backflow.Strategy == v1.BackflowStrategyMerge {
+			if err := c.observeMergeBackflow(ctx, to, target, &obs); err != nil {
 				return engine.EdgeObservation{}, wrap(err)
 			}
-			for _, pid := range rp {
-				returned[pid] = struct{}{}
+		} else {
+			if err := c.observeCherryPickBackflow(ctx, from, to, target, &obs); err != nil {
+				return engine.EdgeObservation{}, wrap(err)
 			}
 		}
-		obs.ReturnedPatchIDs = returned
-
-		// SHAs resolved as already returned (or withheld) by identity rather
-		// than content: any downstream commit carrying the O6 skip trailer,
-		// and the source SHA named in a target commit's cherry-pick -x
-		// provenance trailer. Kept as two sets so the plan's per-commit
-		// exclusion diagnostics can name which rung excluded each commit.
-		skips, provenance, err := c.backflowAlreadyReturned(ctx, from, to, target, tmb)
-		if err != nil {
-			return engine.EdgeObservation{}, wrap(err)
-		}
-		obs.SkippedByTrailer = skips
-		obs.ReturnedByProvenance = provenance
 
 		// The trailing segment of the deterministic backflow branch name is the
 		// short SHA of the downstream (source) head.
@@ -335,6 +292,143 @@ func (c *Coordinator) observe(ctx context.Context, from, to string, open, merged
 	}
 
 	return obs, nil
+}
+
+// observeCherryPickBackflow gathers the identity-ladder inputs a cherry-pick
+// backflow edge needs and writes them into obs: the returnable (diff-carrying)
+// subset of the downstream range, the patch-ids already present on the target,
+// and the skip/provenance identity sets. Errors are returned unwrapped; the
+// caller adds the edge context. (Extracted from observe so the merge strategy,
+// which returns the range wholesale by ancestry, takes a separate path.)
+func (c *Coordinator) observeCherryPickBackflow(ctx context.Context, from, to, target string, obs *engine.EdgeObservation) error {
+	// Patch-ids of the downstream range (from..to), keyed by commit SHA: the
+	// content fingerprint of each downstream-only commit. PatchIDs omits merge
+	// commits and empty commits (neither has a diff).
+	dpid, err := c.Git.PatchIDs(ctx, from, to)
+	if err != nil {
+		return err
+	}
+	obs.DownstreamPatchIDs = dpid
+
+	// Restrict the returnable set to commits that carry a diff. The raw
+	// downstream range includes merge commits (from an ordinary promotion
+	// merged into the source, the common case) and any empty commits, and
+	// cherry-pick can return neither: a merge has no mainline (`git
+	// cherry-pick` of it fails outright) and an empty commit no content.
+	// Keeping only commits with a patch-id drops both, so an ordinary merge
+	// on the source cannot become a permanent false divergence that blocks
+	// genuine hotfixes batched behind it.
+	returnable := make([]engine.Commit, 0, len(obs.DownstreamOnly))
+	for _, cm := range obs.DownstreamOnly {
+		if _, ok := dpid[cm.SHA]; ok {
+			returnable = append(returnable, cm)
+		}
+	}
+	obs.DownstreamOnly = returnable
+
+	// Patch-ids already present on the backflow target since it diverged
+	// from the source: a downstream commit whose diff is here has already
+	// been returned by content.
+	returned := make(map[string]struct{})
+	tmb, err := c.Git.MergeBase(ctx, to, target)
+	if err != nil {
+		return err
+	}
+	if tmb != "" {
+		rp, err := c.Git.PatchIDs(ctx, tmb, target)
+		if err != nil {
+			return err
+		}
+		for _, pid := range rp {
+			returned[pid] = struct{}{}
+		}
+	}
+	obs.ReturnedPatchIDs = returned
+
+	// SHAs resolved as already returned (or withheld) by identity rather
+	// than content: any downstream commit carrying the O6 skip trailer,
+	// and the source SHA named in a target commit's cherry-pick -x
+	// provenance trailer. Kept as two sets so the plan's per-commit
+	// exclusion diagnostics can name which rung excluded each commit.
+	skips, provenance, err := c.backflowAlreadyReturned(ctx, from, to, target, tmb)
+	if err != nil {
+		return err
+	}
+	obs.SkippedByTrailer = skips
+	obs.ReturnedByProvenance = provenance
+	return nil
+}
+
+// observeMergeBackflow gathers the inputs a merge-strategy backflow edge needs
+// and writes them into obs. Unlike cherry-pick, a merge returns the downstream
+// set WHOLESALE onto the target, so identity is by ancestry alone (ADR-0006):
+// the returnable set is the target-relative range target..source, and once the
+// return merges the source becomes an ancestor of the target and that range
+// empties — no patch-id or provenance rung runs. Errors are returned unwrapped;
+// the caller adds the edge context.
+//
+// It reads two live signals the pure engine turns into exit-3 divergences:
+//
+//   - Amendment 1 (fence): the TARGET branch's live merge-commit capability,
+//     read every plan and NOT swallowed on error — a fetch failure is an
+//     operational error (exit 1), while a successful read that forbids merge
+//     commits becomes the exit-3 divergence via TargetCanMergeCommit;
+//   - Amendment 2 (skip-in-range): any Oiax-Backflow: skip trailer inside the
+//     returnable range, which a wholesale merge cannot honor, routed to
+//     SkippedInRange — deliberately NOT SkippedByTrailer, which
+//     engine.backflowToReturn would use to silently exclude the commit.
+//
+// It leaves DownstreamPatchIDs/ReturnedPatchIDs/SkippedByTrailer/
+// ReturnedByProvenance nil so engine.backflowToReturn returns the whole set.
+func (c *Coordinator) observeMergeBackflow(ctx context.Context, to, target string, obs *engine.EdgeObservation) error {
+	// The returnable set is the target-relative range (commits on the source
+	// not yet on the backflow target), newest first. Using target..source — not
+	// the promotion edge's from..to — is what lets ancestry settle the edge:
+	// once the wholesale return merges, the source head is an ancestor of the
+	// target and this range is empty, so the next plan proposes nothing.
+	downstream, err := c.Git.UniqueCommits(ctx, target, to)
+	if err != nil {
+		return err
+	}
+	obs.DownstreamOnly = toEngineCommits(downstream)
+
+	// Amendment 1 (live merge-commit fence). Read the target branch's actual
+	// permitted merge methods every plan. A FETCH error propagates loudly (an
+	// operational failure) rather than being swallowed to "not allowed"; a
+	// successful read that forbids merge commits becomes the exit-3 divergence
+	// the pure engine emits from TargetCanMergeCommit.
+	mm, err := c.Forge.TargetMergeMethods(ctx, target)
+	if err != nil {
+		return fmt.Errorf("read target merge methods for %s: %w", target, err)
+	}
+	can := mm.MergeCommitAllowed()
+	obs.TargetCanMergeCommit = &can
+
+	// Amendment 2 (skip-in-range hard error). A wholesale merge cannot honor a
+	// per-commit Oiax-Backflow: skip trailer, so any skip inside the returnable
+	// range is a hard error, not an exclusion. Read the trailers over the same
+	// target-relative range and record the matches in SkippedInRange (newest
+	// first, nil when none).
+	targetRef, err := c.Git.ResolveRev(ctx, target)
+	if err != nil {
+		return err
+	}
+	toRef, err := c.Git.ResolveRev(ctx, to)
+	if err != nil {
+		return err
+	}
+	skips, err := c.backflowSkipTrailers(ctx, targetRef+".."+toRef)
+	if err != nil {
+		return err
+	}
+	var inRange []engine.Commit
+	for _, cm := range obs.DownstreamOnly {
+		if _, ok := skips[cm.SHA]; ok {
+			inRange = append(inRange, cm)
+		}
+	}
+	obs.SkippedInRange = inRange
+	return nil
 }
 
 // isBackflowSource reports whether a branch is a configured backflow source
@@ -604,34 +698,54 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 	// what it carries (O4).
 	branch := engine.BackflowBranchName(a.From, a.To, st.SourceHeadShort)
 
-	// DownstreamOnly (and thus ToReturn) is newest-first; cherry-pick applies
-	// oldest-first.
-	shas := make([]string, len(toReturn))
-	for i, cm := range toReturn {
-		shas[len(toReturn)-1-i] = cm.SHA
-	}
-
-	// Cherry-pick onto the target head inside an ephemeral detached worktree,
-	// always cleaned up, so the caller's branch and index are never mutated.
+	// Replay onto the target head inside an ephemeral detached worktree, always
+	// cleaned up, so the caller's branch and index are never mutated.
 	wt, cleanup, err := c.Git.Worktree(ctx, a.To)
 	if err != nil {
 		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
 	}
 	defer cleanup()
 
-	head, err := wt.CherryPick(ctx, shas)
-	if err != nil {
-		var conflict *git.CherryPickConflict
-		if errors.As(err, &conflict) {
-			// Reported divergence (reconcile exit 3): surface the failing
-			// commit and how many applied cleanly, push nothing, create nothing.
-			res.Divergence = true
-			c.log().Warn(fmt.Sprintf(
-				"backflow %s -> %s halted on cherry-pick conflict at %s %q after %d applied cleanly; no request created",
-				a.From, a.To, conflict.SHA, conflict.Subject, conflict.Applied))
-			return nil
+	var head string
+	if c.Graph.Backflow.Strategy == v1.BackflowStrategyMerge {
+		// Merge strategy (ADR-0006): a single --no-ff merge of the source head
+		// onto the target head returns the downstream set wholesale, producing a
+		// two-parent merge commit. A merge conflict maps to the SAME reported-
+		// divergence (exit 3) path a cherry-pick conflict uses: push nothing,
+		// create nothing, worktree left clean by git merge --abort.
+		head, err = wt.Merge(ctx, st.To.Head)
+		if err != nil {
+			var conflict *git.MergeConflict
+			if errors.As(err, &conflict) {
+				res.Divergence = true
+				c.log().Warn(fmt.Sprintf(
+					"backflow %s -> %s halted on merge conflict at %s %q; no request created",
+					a.From, a.To, conflict.SHA, conflict.Subject))
+				return nil
+			}
+			return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
 		}
-		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+	} else {
+		// Cherry-pick strategy: DownstreamOnly (and thus ToReturn) is
+		// newest-first; cherry-pick applies oldest-first.
+		shas := make([]string, len(toReturn))
+		for i, cm := range toReturn {
+			shas[len(toReturn)-1-i] = cm.SHA
+		}
+		head, err = wt.CherryPick(ctx, shas)
+		if err != nil {
+			var conflict *git.CherryPickConflict
+			if errors.As(err, &conflict) {
+				// Reported divergence (reconcile exit 3): surface the failing
+				// commit and how many applied cleanly, push nothing, create nothing.
+				res.Divergence = true
+				c.log().Warn(fmt.Sprintf(
+					"backflow %s -> %s halted on cherry-pick conflict at %s %q after %d applied cleanly; no request created",
+					a.From, a.To, conflict.SHA, conflict.Subject, conflict.Applied))
+				return nil
+			}
+			return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+		}
 	}
 
 	// Every replayed commit may have been dropped by `git cherry-pick
@@ -692,7 +806,7 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 		Target:     a.To,
 		SourceHead: head,
 		Title:      fmt.Sprintf("oiax: backflow %s to %s", a.From, a.To),
-		Body:       backflowBody(a, len(toReturn)),
+		Body:       backflowBody(a, len(toReturn), c.Graph.Backflow.Strategy),
 	}); err != nil {
 		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
 	}
@@ -726,7 +840,7 @@ func (c *Coordinator) backflowActionState(ctx context.Context, a engine.Action) 
 	target := c.Graph.Backflow.Target
 
 	want := make(map[string]struct{})
-	var short string
+	var short, sourceHead string
 	var found bool
 	for _, p := range c.Graph.Promotions {
 		if p.To != source {
@@ -739,6 +853,10 @@ func (c *Coordinator) backflowActionState(ctx context.Context, a engine.Action) 
 		}
 		st := engine.EvaluateEdge(obs)
 		short = st.SourceHeadShort
+		// The merge executor needs the live source head to merge onto the
+		// target (cherry-pick replays the SHAs instead). Every incoming edge
+		// observes the same source branch, so its head is stable across them.
+		sourceHead = st.To.Head
 		for _, cm := range st.ToReturn {
 			want[cm.SHA] = struct{}{}
 		}
@@ -763,7 +881,7 @@ func (c *Coordinator) backflowActionState(ctx context.Context, a engine.Action) 
 	}
 
 	return engine.EdgeState{
-		To:              engine.BranchState{Name: source},
+		To:              engine.BranchState{Name: source, Head: sourceHead},
 		ToReturn:        toReturn,
 		SourceHeadShort: short,
 	}, nil
@@ -1004,10 +1122,15 @@ func promotionBody(a engine.Action) string {
 }
 
 // backflowBody is the human body of a created backflow request; the provider
-// appends the machine-readable marker after it.
-func backflowBody(a engine.Action, count int) string {
+// appends the machine-readable marker after it. The mechanism wording follows
+// the edge's backflow strategy so the request describes how the commits land.
+func backflowBody(a engine.Action, count int, strategy v1.BackflowStrategy) string {
+	mechanism := "cherry-pick"
+	if strategy == v1.BackflowStrategyMerge {
+		mechanism = "merge commit"
+	}
 	return fmt.Sprintf(
-		"Oiax opened this request to return %d downstream-only commit(s) from `%s` back to `%s` by cherry-pick.\n\n"+
+		"Oiax opened this request to return %d downstream-only commit(s) from `%s` back to `%s` by %s.\n\n"+
 			"This request is managed by Oiax. Do not edit the metadata block below.",
-		count, a.From, a.To)
+		count, a.From, a.To, mechanism)
 }

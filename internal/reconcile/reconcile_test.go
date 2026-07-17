@@ -1219,6 +1219,393 @@ func TestPlanBackflowProvenanceRequiresStandaloneLine(t *testing.T) {
 	}
 }
 
+// mergeGraph is testGraph switched to the merge backflow strategy (ADR-0006):
+// main's downstream-only commits are returned to development by a single
+// wholesale --no-ff merge instead of per-commit cherry-picks.
+func mergeGraph() *engine.Graph {
+	g := testGraph()
+	g.Backflow.Strategy = v1.BackflowStrategyMerge
+	g.Backflow.ExpectedMergeMethod = v1.MergeMethodMerge
+	return g
+}
+
+// TestApplyExecutesMergeBackflowAndSettlesByAncestry covers the merge-strategy
+// happy path end to end: a hotfix on main (a backflow source) returns to
+// development as a single two-parent merge commit, and once that merge lands on
+// development the source head is an ancestor of the target, so the next plan
+// settles the edge by ancestry with no further backflow action.
+func TestApplyExecutesMergeBackflowAndSettlesByAncestry(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	f := &fakeForge{createResult: engine.ChangeRequest{ID: "1", Type: engine.RequestTypeBackflow}}
+	c := &Coordinator{Git: r, Forge: f, Graph: mergeGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	// Exactly the merge-strategy backflow action, tagged with the strategy.
+	if len(plan.Actions) != 1 || plan.Actions[0].Type != engine.ActionCreateBackflowRequest {
+		t.Fatalf("plan actions = %+v, want one backflow action", plan.Actions)
+	}
+	if plan.Actions[0].Strategy != v1.BackflowStrategyMerge {
+		t.Errorf("action strategy = %q, want %q", plan.Actions[0].Strategy, v1.BackflowStrategyMerge)
+	}
+
+	res, err := c.Apply(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.Applied != 1 || res.Divergence {
+		t.Errorf("result = %+v, want Applied=1 Divergence=false", res)
+	}
+	if len(f.pushed) != 1 || len(f.created) != 1 {
+		t.Fatalf("want 1 push and 1 create, got pushed=%d created=%d", len(f.pushed), len(f.created))
+	}
+	// The pushed head is a real two-parent merge commit, not a cherry-pick:
+	// `rev-list --parents -n 1` prints the commit followed by its two parents.
+	parents := gitExec(t, r.Dir, "rev-list", "--parents", "-n", "1", f.pushed[0].SHA)
+	if got := len(strings.Fields(parents)); got != 3 {
+		t.Errorf("pushed commit has %d rev-list fields, want 3 (a 2-parent merge): %q", got, parents)
+	}
+	// The request body describes the merge-commit mechanism, not cherry-pick.
+	if !strings.Contains(f.created[0].Body, "by merge commit") {
+		t.Errorf("created body = %q, want it to mention 'by merge commit'", f.created[0].Body)
+	}
+
+	// The return merges into development (the backflow target). main is now an
+	// ancestor of development, so development..main is empty and the next plan
+	// settles the edge by ancestry — no backflow action.
+	checkout(t, r, "development")
+	gitExec(t, r.Dir, "merge", "--no-ff", "-q", "-m", "Merge backflow into development", "main")
+	plan2, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("re-plan: %v", err)
+	}
+	for _, a := range plan2.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			t.Errorf("ancestry-settled merge edge must not backflow again, got %+v", a)
+		}
+	}
+}
+
+// seedMergeAndEmptyBackflow builds a repo whose backflow source (main) carries,
+// downstream of the backflow target (development): an ordinary diff-carrying
+// hotfix, a real two-parent merge commit, and an empty commit. It returns the
+// runner plus the merge and empty commit SHAs.
+//
+// The merge and empty commits carry NO patch-id, so the cherry-pick returnable
+// filter (observeCherryPickBackflow) drops both while the merge path
+// (observeMergeBackflow) must return the target..source range WHOLESALE and keep
+// them — the exact "wholesale, not filtered" contrast ADR-0006 requires. The
+// range development..main is {hotfix, side work, merge, empty} = 4 commits; the
+// cherry-pick filter keeps only the two diff-carrying ones.
+func seedMergeAndEmptyBackflow(t *testing.T) (r *git.Runner, mergeSHA, emptySHA string) {
+	t.Helper()
+	r, _ = gitHarness(t)
+	checkout(t, r, "main")
+	commitOn(t, r.Dir, "hotfix.txt", "urgent\n", "hotfix on main") // diff-carrying
+	// A real two-parent merge commit: branch off, add a commit, --no-ff merge back.
+	gitExec(t, r.Dir, "checkout", "-q", "-b", "side")
+	commitOn(t, r.Dir, "side.txt", "s\n", "side work") // diff-carrying
+	checkout(t, r, "main")
+	gitExec(t, r.Dir, "merge", "--no-ff", "-q", "-m", "Merge side into main", "side")
+	mergeSHA = gitExec(t, r.Dir, "rev-parse", "HEAD") // merge: no patch-id
+	// An empty commit inside the range: carries no diff, so no patch-id either.
+	gitExec(t, r.Dir, "commit", "--allow-empty", "-q", "-m", "empty marker on main")
+	emptySHA = gitExec(t, r.Dir, "rev-parse", "HEAD") // empty: no patch-id
+	return r, mergeSHA, emptySHA
+}
+
+func containsSHA(commits []engine.Commit, sha string) bool {
+	for _, cm := range commits {
+		if cm.SHA == sha {
+			return true
+		}
+	}
+	return false
+}
+
+// TestPlanMergeBackflowReturnsMergeAndEmptyCommitsWholesale guards the CRITICAL
+// ADR-0006 property that the merge backflow path returns the target..source
+// range WHOLESALE and does NOT apply the cherry-pick returnable patch-id filter.
+// The range holds a real two-parent merge commit and an empty commit, neither of
+// which carries a patch-id; a wholesale merge return must still count and return
+// both. A regression that re-introduced the returnable filter on the merge path
+// would drop them and under-report the count — this test fails loudly if it does.
+func TestPlanMergeBackflowReturnsMergeAndEmptyCommitsWholesale(t *testing.T) {
+	r, mergeSHA, emptySHA := seedMergeAndEmptyBackflow(t)
+
+	f := &fakeForge{createResult: engine.ChangeRequest{ID: "1", Type: engine.RequestTypeBackflow}}
+	c := &Coordinator{Git: r, Forge: f, Graph: mergeGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	// Exactly one merge-strategy backflow action counting the WHOLE range (4):
+	// the two diff-carrying commits PLUS the merge and empty commits.
+	if len(plan.Actions) != 1 || plan.Actions[0].Type != engine.ActionCreateBackflowRequest {
+		t.Fatalf("plan actions = %+v, want one backflow action", plan.Actions)
+	}
+	if plan.Actions[0].Unpromoted != 4 {
+		t.Errorf("merge backflow counts %d commits, want 4 wholesale (incl. merge+empty commit)", plan.Actions[0].Unpromoted)
+	}
+
+	// The merge and empty commits are genuinely in the wholesale return set — the
+	// cherry-pick returnable filter is skipped, not merely masked by the count.
+	st, err := c.backflowActionState(context.Background(), engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+	})
+	if err != nil {
+		t.Fatalf("backflowActionState: %v", err)
+	}
+	if len(st.ToReturn) != 4 {
+		t.Fatalf("ToReturn has %d commits, want 4 wholesale: %+v", len(st.ToReturn), st.ToReturn)
+	}
+	if !containsSHA(st.ToReturn, mergeSHA) {
+		t.Errorf("wholesale merge return dropped the merge commit %s: %+v", mergeSHA, st.ToReturn)
+	}
+	if !containsSHA(st.ToReturn, emptySHA) {
+		t.Errorf("wholesale merge return dropped the empty commit %s: %+v", emptySHA, st.ToReturn)
+	}
+
+	// Apply confirms the wholesale count reaches the created request body.
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.created) != 1 {
+		t.Fatalf("created %d backflow requests, want 1: %+v", len(f.created), f.created)
+	}
+	if !strings.Contains(f.created[0].Body, "4 downstream-only commit(s)") {
+		t.Errorf("created body = %q, want it to report 4 downstream-only commit(s)", f.created[0].Body)
+	}
+}
+
+// TestPlanCherryPickBackflowFiltersMergeAndEmptyCommits is the contrast that
+// makes the wholesale-merge property above load-bearing: the SAME fixture under
+// the cherry-pick strategy drops the merge and empty commits (cherry-pick can
+// replay neither), returning only the two diff-carrying commits. Pinning the
+// cherry-pick side at 2 proves the merge side's 4 is genuinely "filter skipped",
+// not an accident of the fixture.
+func TestPlanCherryPickBackflowFiltersMergeAndEmptyCommits(t *testing.T) {
+	r, mergeSHA, emptySHA := seedMergeAndEmptyBackflow(t)
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()} // cherry-pick strategy
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Type != engine.ActionCreateBackflowRequest {
+		t.Fatalf("plan actions = %+v, want one backflow action", plan.Actions)
+	}
+	if plan.Actions[0].Unpromoted != 2 {
+		t.Errorf("cherry-pick backflow counts %d commits, want 2 (merge+empty filtered out)", plan.Actions[0].Unpromoted)
+	}
+
+	st, err := c.backflowActionState(context.Background(), engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+	})
+	if err != nil {
+		t.Fatalf("backflowActionState: %v", err)
+	}
+	if len(st.ToReturn) != 2 {
+		t.Fatalf("ToReturn has %d commits, want 2 (merge+empty filtered): %+v", len(st.ToReturn), st.ToReturn)
+	}
+	if containsSHA(st.ToReturn, mergeSHA) {
+		t.Errorf("cherry-pick returnable filter kept the merge commit %s: %+v", mergeSHA, st.ToReturn)
+	}
+	if containsSHA(st.ToReturn, emptySHA) {
+		t.Errorf("cherry-pick returnable filter kept the empty commit %s: %+v", emptySHA, st.ToReturn)
+	}
+}
+
+// TestPlanMergeBackflowForbiddenMergeCommitReportsDivergence covers ADR-0006
+// Amendment 1: reconcile.observe reads the TARGET branch's live merge-commit
+// capability every plan; when the branch forbids merge commits (linear history
+// required) the wholesale return merge cannot land, so the plan reports
+// divergence (exit 3) instead of a backflow action, and nothing is merged.
+func TestPlanMergeBackflowForbiddenMergeCommitReportsDivergence(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	// Merge is enabled at the repo level, but the target branch requires linear
+	// history — the exact blind spot repo-level RepoMergeMethods cannot see.
+	f := &fakeForge{targetMergeMethods: &forge.MergeMethods{Merge: true, RequiresLinearHistory: true}}
+	c := &Coordinator{Git: r, Forge: f, Graph: mergeGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	reports, backflow := countBackflowOutcome(plan)
+	if reports != 1 || backflow != 0 {
+		t.Fatalf("want 1 divergence and 0 backflow for the forbidden-merge fence, got reports=%d backflow=%d: %+v", reports, backflow, plan.Actions)
+	}
+	// The read was live and target-branch-scoped.
+	if f.targetMergeMethodsCalls == 0 || f.targetMergeBranch != "development" {
+		t.Errorf("TargetMergeMethods calls=%d branch=%q, want a live read against development", f.targetMergeMethodsCalls, f.targetMergeBranch)
+	}
+
+	res, err := c.Apply(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence {
+		t.Error("want Divergence true (exit 3) on the merge-commit fence")
+	}
+	if len(f.pushed) != 0 || len(f.created) != 0 {
+		t.Errorf("fenced backflow must push/create nothing: pushed=%d created=%d", len(f.pushed), len(f.created))
+	}
+}
+
+// TestPlanMergeBackflowSquashOnlyReportsDivergence is the second half of the
+// merge-commit fence (ADR-0006 Amendment 1): a target repo that allows only
+// squash merges (Merge:false) forbids merge commits just as surely as a
+// linear-history ruleset does, so MergeCommitAllowed() is false and the
+// wholesale return merge cannot land. The plan reports divergence (exit 3) and
+// applies nothing — the same outcome as the linear-history case above, reached
+// through the other input to MergeCommitAllowed().
+func TestPlanMergeBackflowSquashOnlyReportsDivergence(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	// Squash and rebase allowed, merge commits disabled at the repo level.
+	f := &fakeForge{targetMergeMethods: &forge.MergeMethods{Merge: false, Squash: true, Rebase: true}}
+	c := &Coordinator{Git: r, Forge: f, Graph: mergeGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	reports, backflow := countBackflowOutcome(plan)
+	if reports != 1 || backflow != 0 {
+		t.Fatalf("want 1 divergence and 0 backflow for the squash-only fence, got reports=%d backflow=%d: %+v", reports, backflow, plan.Actions)
+	}
+
+	res, err := c.Apply(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence {
+		t.Error("want Divergence true (exit 3) on the squash-only fence")
+	}
+	if len(f.pushed) != 0 || len(f.created) != 0 {
+		t.Errorf("fenced backflow must push/create nothing: pushed=%d created=%d", len(f.pushed), len(f.created))
+	}
+}
+
+// TestPlanMergeBackflowTargetFetchErrorIsLoud covers the fail-loud contract of
+// the fence (ADR-0006 Amendment 1): unlike the advisory promotion mergeMethod
+// warning, a TargetMergeMethods FETCH error is an operational failure that must
+// propagate out of Plan — never be swallowed to "merge not allowed".
+func TestPlanMergeBackflowTargetFetchErrorIsLoud(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	f := &fakeForge{targetMergeMethodsErr: errors.New("boom reading rules")}
+	c := &Coordinator{Git: r, Forge: f, Graph: mergeGraph()}
+	if _, err := c.Plan(context.Background()); err == nil {
+		t.Fatal("plan: want a loud error from the TargetMergeMethods fetch failure, got nil")
+	}
+}
+
+// TestPlanMergeBackflowSkipTrailerReportsDivergence covers ADR-0006 Amendment 2:
+// under cherry-pick an Oiax-Backflow: skip trailer silently excludes the commit,
+// but a wholesale merge cannot honor per-commit exclusion, so a skip inside the
+// returnable range is a HARD ERROR (exit-3 divergence), NOT a silent
+// suppression. This is the merge inverse of TestPlanBackflowSkipTrailerSuppresses.
+func TestPlanMergeBackflowSkipTrailerReportsDivergence(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main\n\nOiax-Backflow: skip")
+
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: mergeGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	reports, backflow := countBackflowOutcome(plan)
+	if reports != 1 || backflow != 0 {
+		t.Fatalf("skip-in-range under merge must be a divergence, not an exclusion: reports=%d backflow=%d: %+v", reports, backflow, plan.Actions)
+	}
+
+	res, err := c.Apply(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence {
+		t.Error("want Divergence true (exit 3) on skip-in-range under merge")
+	}
+	if len(f.pushed) != 0 || len(f.created) != 0 {
+		t.Errorf("skip-in-range divergence must push/create nothing: pushed=%d created=%d", len(f.pushed), len(f.created))
+	}
+}
+
+// TestApplyMergeBackflowConflictReportsDivergence covers the merge-conflict
+// execution path: development and main edit the same file differently, so the
+// wholesale merge of main onto development conflicts. Like a cherry-pick
+// conflict it becomes a reported divergence (exit 3) — nothing pushed, nothing
+// created, the ephemeral worktree cleaned up by git merge --abort.
+func TestApplyMergeBackflowConflictReportsDivergence(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "development")
+	commit("app.txt", "dev-change\n", "dev edit")
+	checkout(t, r, "main")
+	commit("app.txt", "hotfix-change\n", "hotfix on main")
+
+	short, err := r.ShortSHA(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Drive the backflow arm directly so the test isolates the merge-conflict
+	// path from the promotion actions the diverged development branch produces.
+	a := engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+		Unpromoted: 1, Strategy: v1.BackflowStrategyMerge,
+		Branch: engine.BackflowBranchName("main", "development", short),
+	}
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: mergeGraph()}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence {
+		t.Error("want Divergence true on merge conflict")
+	}
+	if res.Applied != 0 {
+		t.Errorf("Applied = %d, want 0 on conflict", res.Applied)
+	}
+	if len(f.pushed) != 0 || len(f.created) != 0 {
+		t.Errorf("conflict must push nothing and create nothing: pushed=%d created=%d", len(f.pushed), len(f.created))
+	}
+}
+
+// countBackflowOutcome tallies the two backflow outcomes on the main->development
+// edge in a merge-strategy plan: reported divergences and create-backflow actions.
+func countBackflowOutcome(plan engine.Plan) (reports, backflow int) {
+	for _, a := range plan.Actions {
+		switch a.Type {
+		case engine.ActionReportDivergence:
+			if a.From == "main" && a.To == "development" {
+				reports++
+			}
+		case engine.ActionCreateBackflowRequest:
+			backflow++
+		}
+	}
+	return reports, backflow
+}
+
 func TestWarnMergeMethodMismatch(t *testing.T) {
 	cases := []struct {
 		name    string

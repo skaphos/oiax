@@ -54,6 +54,31 @@ spec:
     target: development
 `
 
+// mergeExampleConfig is exampleConfig with the backflow edge opted in to the
+// merge-commit strategy (ADR-0006), for the merge-strategy CLI end-to-end tests.
+const mergeExampleConfig = `apiVersion: oiax.skaphos.dev/v1
+kind: PromotionGraph
+metadata:
+  name: environments
+spec:
+  branches:
+    development:
+      role: source
+    test: {}
+    main:
+      role: terminal
+  promotions:
+    - from: development
+      to: test
+    - from: test
+      to: main
+  backflow:
+    sources: [main]
+    target: development
+    strategy: merge
+    expectedMergeMethod: merge
+`
+
 func TestValidateCommand(t *testing.T) {
 	out, err := run(t, "validate", "--config", writeConfig(t, exampleConfig))
 	if err != nil {
