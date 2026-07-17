@@ -151,6 +151,52 @@ func TestRenderMarkdownWithoutEdgeSummaries(t *testing.T) {
 	}
 }
 
+// TestRenderMarkdownEscapesTableCells guards the step-summary table against a
+// branch name containing '|'. Such a name is legal — `git check-ref-format`
+// accepts it and engine.validateRefName rejects only " ~^:?*[\" and control
+// characters — so unescaped it would open extra columns and corrupt the table,
+// in both the edges rows and the actions rows.
+func TestRenderMarkdownEscapesTableCells(t *testing.T) {
+	plan := engine.Plan{
+		Graph: "environments",
+		Actions: []engine.Action{{
+			Type: engine.ActionCreatePromotionRequest, From: "feat|bar", To: "test",
+			Unpromoted: 1, Reason: "1 unpromoted commits on feat|bar",
+		}},
+		Edges: []engine.EdgeSummary{{
+			From: "feat|bar", To: "test",
+			Equivalence: engine.EquivalenceReachability, Unpromoted: 1,
+		}},
+	}
+	var buf bytes.Buffer
+	if err := RenderMarkdown(&buf, plan); err != nil {
+		t.Fatalf("render markdown: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, `feat|bar`) {
+		t.Errorf("unescaped '|' in a table cell:\n%s", out)
+	}
+	for _, want := range []string{
+		`| feat\|bar -> test | 1 unpromoted | reachability | 0 | 0 |  |`,
+		`| create | feat\|bar | test | 1 | 1 unpromoted commits on feat\|bar |`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("markdown missing %q:\n%s", want, out)
+		}
+	}
+	// Every row must keep its column count: 6 edge columns and 5 action
+	// columns mean 7 and 6 pipes respectively once escaped pipes are removed.
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		bare := strings.ReplaceAll(line, `\|`, "")
+		if n := strings.Count(bare, "|"); n != 7 && n != 6 {
+			t.Errorf("row has %d column separators, table is malformed: %q", n, line)
+		}
+	}
+}
+
 // failingWriter fails every write, standing in for a broken pipe or full
 // disk so the renderers' error propagation can be exercised.
 type failingWriter struct{}

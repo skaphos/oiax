@@ -107,7 +107,8 @@ func RenderMarkdown(w io.Writer, plan engine.Plan) error {
 				excluded = exclusionCounts(e.Excluded)
 			}
 			fmt.Fprintf(ew, "| %s -> %s | %s | %s | %d | %d | %s |\n",
-				e.From, e.To, state, e.Equivalence, e.DownstreamOnly, e.ToReturn, excluded)
+				mdCell(e.From), mdCell(e.To), mdCell(state), mdCell(string(e.Equivalence)),
+				e.DownstreamOnly, e.ToReturn, mdCell(excluded))
 		}
 		fmt.Fprintln(ew)
 	}
@@ -119,9 +120,24 @@ func RenderMarkdown(w io.Writer, plan engine.Plan) error {
 	fmt.Fprintln(ew, "| --- | --- | --- | --- | --- |")
 	for _, a := range plan.Actions {
 		fmt.Fprintf(ew, "| %s | %s | %s | %d | %s |\n",
-			actionVerb(a.Type), a.From, a.To, a.Unpromoted, a.Reason)
+			mdCell(actionVerb(a.Type)), mdCell(a.From), mdCell(a.To), a.Unpromoted, mdCell(a.Reason))
 	}
 	return ew.err
+}
+
+// mdCell escapes a value for interpolation into a Markdown table cell. An
+// unescaped '|' opens a new column, so it silently corrupts the step-summary
+// table — and it is reachable: `git check-ref-format` accepts a branch named
+// "feat|bar", and validateRefName rejects only " ~^:?*[\" and control
+// characters, so such a name passes validation and reaches these cells (both
+// directly and inside an action's reason). Newlines would end the row early;
+// no ref name can carry one (both validators reject control characters) and
+// reasons are single-line, but they are collapsed anyway so the helper is
+// correct for any caller rather than only for today's.
+func mdCell(s string) string {
+	s = strings.ReplaceAll(s, "|", `\|`)
+	s = strings.ReplaceAll(s, "\r", " ")
+	return strings.ReplaceAll(s, "\n", " ")
 }
 
 // errWriter accumulates the first write error so a sequence of fmt.Fprint
