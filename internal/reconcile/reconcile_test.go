@@ -40,11 +40,6 @@ type fakeForge struct {
 	mergeMethods      *forge.MergeMethods
 	mergeMethodsErr   error
 	mergeMethodsCalls int
-
-	targetMergeMethods      *forge.MergeMethods
-	targetMergeMethodsErr   error
-	targetMergeMethodsCalls int
-	targetMergeBranch       string
 }
 
 func (f *fakeForge) RepoMergeMethods(context.Context) (forge.MergeMethods, error) {
@@ -58,31 +53,12 @@ func (f *fakeForge) RepoMergeMethods(context.Context) (forge.MergeMethods, error
 	return forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, nil
 }
 
-func (f *fakeForge) TargetMergeMethods(_ context.Context, branch string) (forge.MergeMethods, error) {
-	f.targetMergeMethodsCalls++
-	f.targetMergeBranch = branch
-	if f.targetMergeMethodsErr != nil {
-		return forge.MergeMethods{}, f.targetMergeMethodsErr
-	}
-	if f.targetMergeMethods != nil {
-		return *f.targetMergeMethods, nil
-	}
-	return forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, nil
-}
-
 func (f *fakeForge) ListManagedRequests(_ context.Context, filter forge.RequestFilter) ([]engine.ChangeRequest, error) {
 	if filter.State == forge.RequestStateMerged {
 		return f.merged, nil
 	}
 	return f.open, nil
 }
-
-// TargetMergeMethods / MergeCommitAllowed have no reconcile-package production
-// caller yet — the backflow merge-method fence is wired in a later slice. The
-// forge-side read and the MergeCommitAllowed() predicate are pinned directly in
-// internal/forge/github (TestTargetMergeMethods) and internal/forge
-// (MergeMethods), so there is deliberately no reconcile test here that would
-// only exercise the fakeForge echo; one lands with the fence itself.
 
 func (f *fakeForge) CreateRequest(_ context.Context, req forge.CreateRequest) (engine.ChangeRequest, error) {
 	f.created = append(f.created, req)

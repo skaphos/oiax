@@ -174,26 +174,11 @@ func TestValidateRejections(t *testing.T) {
 			wantErr: "at least one source",
 		},
 		{
-			name: "unknown backflow strategy",
+			name: "unsupported backflow strategy",
 			mutate: func(c *v1.PromotionGraph) {
-				c.Spec.Backflow.Strategy = "rebase-and-merge"
+				c.Spec.Backflow.Strategy = "merge"
 			},
 			wantErr: "unknown strategy",
-		},
-		{
-			name: "unknown backflow expectedMergeMethod",
-			mutate: func(c *v1.PromotionGraph) {
-				c.Spec.Backflow.ExpectedMergeMethod = "fast-forward"
-			},
-			wantErr: "unknown expectedMergeMethod",
-		},
-		{
-			name: "merge strategy with non-merge expectedMergeMethod",
-			mutate: func(c *v1.PromotionGraph) {
-				c.Spec.Backflow.Strategy = v1.BackflowStrategyMerge
-				c.Spec.Backflow.ExpectedMergeMethod = v1.MergeMethodSquash
-			},
-			wantErr: "requires expectedMergeMethod",
 		},
 		{
 			name: "branch name contains a space",
@@ -232,69 +217,6 @@ func TestValidateRejections(t *testing.T) {
 				}
 			}
 			t.Errorf("no validation error contains %q; got %v", tt.wantErr, errs)
-		})
-	}
-}
-
-func TestValidateAcceptsMergeStrategy(t *testing.T) {
-	tests := []struct {
-		name         string
-		expected     v1.MergeMethod
-		wantResolved v1.MergeMethod
-	}{
-		{
-			name:         "explicit merge expectedMergeMethod",
-			expected:     v1.MergeMethodMerge,
-			wantResolved: v1.MergeMethodMerge,
-		},
-		{
-			name:         "omitted expectedMergeMethod defaults to merge",
-			expected:     "",
-			wantResolved: v1.MergeMethodMerge,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := validGraph()
-			cfg.Spec.Backflow.Strategy = v1.BackflowStrategyMerge
-			cfg.Spec.Backflow.ExpectedMergeMethod = tt.expected
-
-			g := FromConfig(cfg)
-			if errs := g.Validate(); len(errs) > 0 {
-				t.Fatalf("Validate = %v, want no errors", errs)
-			}
-			if g.Backflow.Strategy != v1.BackflowStrategyMerge {
-				t.Errorf("resolved strategy = %q, want %q", g.Backflow.Strategy, v1.BackflowStrategyMerge)
-			}
-			if g.Backflow.ExpectedMergeMethod != tt.wantResolved {
-				t.Errorf("resolved expectedMergeMethod = %q, want %q", g.Backflow.ExpectedMergeMethod, tt.wantResolved)
-			}
-		})
-	}
-}
-
-// TestValidateAcceptsCherryPickMergeMethods pins that squash and rebase are
-// valid backflow expectedMergeMethod values when paired with the cherry-pick
-// strategy (the merge-strategy-only "requires expectedMergeMethod merge" rule
-// does not apply). Without these positive cases, narrowing the accept list at
-// validate.go would silently reject a cherry-pick config with
-// expectedMergeMethod=squash or =rebase and no test would catch it.
-func TestValidateAcceptsCherryPickMergeMethods(t *testing.T) {
-	for _, method := range []v1.MergeMethod{v1.MergeMethodSquash, v1.MergeMethodRebase} {
-		method := method
-		t.Run(string(method), func(t *testing.T) {
-			cfg := validGraph()
-			cfg.Spec.Backflow.Strategy = v1.BackflowStrategyCherryPick
-			cfg.Spec.Backflow.ExpectedMergeMethod = method
-
-			g := FromConfig(cfg)
-			if errs := g.Validate(); len(errs) > 0 {
-				t.Fatalf("Validate = %v, want no errors", errs)
-			}
-			if g.Backflow.ExpectedMergeMethod != method {
-				t.Errorf("resolved expectedMergeMethod = %q, want %q", g.Backflow.ExpectedMergeMethod, method)
-			}
 		})
 	}
 }
