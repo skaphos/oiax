@@ -50,10 +50,11 @@ type Expectations struct {
 // with defaults applied. Enabled is false when the graph declares no
 // backflow.
 type BackflowPolicy struct {
-	Enabled  bool
-	Sources  []string
-	Target   string
-	Strategy v1.BackflowStrategy
+	Enabled             bool
+	Sources             []string
+	Target              string
+	Strategy            v1.BackflowStrategy
+	ExpectedMergeMethod v1.MergeMethod
 }
 
 // FromConfig converts a parsed configuration document into the engine
@@ -83,11 +84,16 @@ func FromConfig(cfg *v1.PromotionGraph) *Graph {
 		if strategy == "" {
 			strategy = v1.BackflowStrategyCherryPick
 		}
+		expected := bf.ExpectedMergeMethod
+		if strategy == v1.BackflowStrategyMerge && expected == "" {
+			expected = v1.MergeMethodMerge
+		}
 		g.Backflow = BackflowPolicy{
-			Enabled:  true,
-			Sources:  slices.Clone(bf.Sources),
-			Target:   bf.Target,
-			Strategy: strategy,
+			Enabled:             true,
+			Sources:             slices.Clone(bf.Sources),
+			Target:              bf.Target,
+			Strategy:            strategy,
+			ExpectedMergeMethod: expected,
 		}
 	}
 	return g

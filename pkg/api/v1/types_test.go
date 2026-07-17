@@ -24,9 +24,10 @@ func TestPromotionGraphJSONRoundTrip(t *testing.T) {
 				{From: "development", To: "main", Expectations: &Expectations{MergeMethod: MergeMethodSquash}},
 			},
 			Backflow: &Backflow{
-				Sources:  []string{"main"},
-				Target:   "development",
-				Strategy: strategy,
+				Sources:             []string{"main"},
+				Target:              "development",
+				Strategy:            strategy,
+				ExpectedMergeMethod: MergeMethodMerge,
 			},
 		},
 	}
@@ -64,6 +65,9 @@ func TestPromotionGraphJSONRoundTrip(t *testing.T) {
 	}
 	if got.Spec.Backflow == nil || got.Spec.Backflow.Target != "development" {
 		t.Fatalf("backflow = %+v, want target development", got.Spec.Backflow)
+	}
+	if got.Spec.Backflow.ExpectedMergeMethod != MergeMethodMerge {
+		t.Errorf("backflow.expectedMergeMethod = %q, want %q", got.Spec.Backflow.ExpectedMergeMethod, MergeMethodMerge)
 	}
 
 	// The JSON keys themselves must be the camelCase names, not the Go

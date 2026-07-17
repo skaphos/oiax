@@ -68,8 +68,17 @@ type BackflowStrategy string
 // BackflowStrategyCherryPick replays downstream-only commits onto a
 // branch created from the target using `git cherry-pick -x`. The -x
 // trailer gives every returned commit durable provenance and the
-// backflow identity check its cheapest rung. The only strategy in v1.
+// backflow identity check its cheapest rung. It is the default strategy
+// when the backflow policy leaves Strategy unset.
 const BackflowStrategyCherryPick BackflowStrategy = "cherry-pick"
+
+// BackflowStrategyMerge returns downstream-only commits by merging the
+// source head into a branch created from the target with a single
+// no-fast-forward merge commit, preserving the commits' original SHAs
+// and ancestry rather than replaying them. It cannot honor per-commit
+// exclusion (the Oiax-Backflow: skip trailer) and requires the target
+// branch to permit merge commits.
+const BackflowStrategyMerge BackflowStrategy = "merge"
 
 // PromotionGraph is the root configuration document. v1 accepts exactly
 // one PromotionGraph per configuration file; multi-document YAML is
@@ -152,7 +161,15 @@ type Backflow struct {
 	// It must be a configured branch with role "source". v1 supports
 	// exactly one backflow target per graph.
 	Target string `yaml:"target" json:"target"`
-	// Strategy selects the return mechanism. Only "cherry-pick" is
-	// supported in v1; it is also the default when unset.
+	// Strategy selects the return mechanism: "cherry-pick" (the default
+	// when unset) replays each downstream-only commit; "merge" returns
+	// them wholesale with a single no-fast-forward merge commit.
 	Strategy BackflowStrategy `yaml:"strategy,omitempty" json:"strategy,omitempty"`
+	// ExpectedMergeMethod is the forge merge method the backflow request
+	// is expected to merge with: "merge", "squash", or "rebase". It is
+	// validated against the closed MergeMethod enum. With strategy
+	// "merge" it must be "merge" (or left unset, which defaults to
+	// "merge"), because only a merge commit preserves the returned
+	// commits' original SHAs and ancestry.
+	ExpectedMergeMethod MergeMethod `yaml:"expectedMergeMethod,omitempty" json:"expectedMergeMethod,omitempty"`
 }

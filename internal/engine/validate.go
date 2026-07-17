@@ -101,8 +101,19 @@ func (g *Graph) validateBackflow() []error {
 	}
 
 	bf := g.Backflow
-	if bf.Strategy != v1.BackflowStrategyCherryPick {
-		report("backflow: unknown strategy %q (v1 supports only %q)", bf.Strategy, v1.BackflowStrategyCherryPick)
+	switch bf.Strategy {
+	case v1.BackflowStrategyCherryPick, v1.BackflowStrategyMerge:
+	default:
+		report("backflow: unknown strategy %q (v1 supports %q or %q)", bf.Strategy, v1.BackflowStrategyCherryPick, v1.BackflowStrategyMerge)
+	}
+	switch bf.ExpectedMergeMethod {
+	case "", v1.MergeMethodMerge, v1.MergeMethodSquash, v1.MergeMethodRebase:
+	default:
+		report("backflow: unknown expectedMergeMethod %q (want %q, %q, or %q)",
+			bf.ExpectedMergeMethod, v1.MergeMethodMerge, v1.MergeMethodSquash, v1.MergeMethodRebase)
+	}
+	if bf.Strategy == v1.BackflowStrategyMerge && bf.ExpectedMergeMethod != "" && bf.ExpectedMergeMethod != v1.MergeMethodMerge {
+		report("backflow: strategy %q requires expectedMergeMethod %q", v1.BackflowStrategyMerge, v1.MergeMethodMerge)
 	}
 	if bf.Target == "" {
 		report("backflow: target is required")
