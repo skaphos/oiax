@@ -239,3 +239,10 @@ than reject the document. A field that is populated only in a new scenario
 — like `strategy`, emitted only on `merge`-strategy edges — does not change
 any plan a prior release would have produced. A change that breaks any of the above ships as
 `planFormatVersion: 2`.
+
+The durable backflow-conflict artifact (a forge issue; see
+[ADR 0008](../adr/0008-durable-backflow-conflict-artifact.md)) is **not**
+represented in the plan JSON: `plan` renders before `Apply`, and the
+artifact is created during `Apply` when a replay actually conflicts, so
+its identity does not exist at plan-render time. `planFormatVersion` stays
+`1`; no fields are added for it.

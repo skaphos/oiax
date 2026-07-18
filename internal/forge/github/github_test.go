@@ -1895,3 +1895,469 @@ func TestDeleteBranch(t *testing.T) {
 		}
 	})
 }
+
+// --- SKA-601: durable backflow-conflict artifact -------------------------
+
+// issueSpec renders a GitHub issue as the /issues route returns it (which also
+// returns PRs), with a conflict-artifact marker unless bodyOverride is set.
+type issueSpec struct {
+	number       int
+	source       string
+	dest         string
+	graph        string
+	typ          string // marker type; "" => conflictMarkerType
+	version      string // marker version; "" => "v1"
+	sourceHead   string
+	labels       []string
+	bodyOverride string // when non-empty, used verbatim as the body
+	isPR         bool   // when true, sets pull_request non-null (a PR, not an issue)
+}
+
+func (s issueSpec) toIssue() map[string]any {
+	body := s.bodyOverride
+	if body == "" {
+		typ := s.typ
+		if typ == "" {
+			typ = conflictMarkerType
+		}
+		version := s.version
+		if version == "" {
+			version = "v1"
+		}
+		body = "Backflow conflict.\n\n" + serializeMarker(marker{
+			Version:     version,
+			Graph:       s.graph,
+			Type:        typ,
+			Source:      s.source,
+			Destination: s.dest,
+			SourceHead:  s.sourceHead,
+		})
+	}
+	labels := make([]map[string]string, 0, len(s.labels))
+	for _, l := range s.labels {
+		labels = append(labels, map[string]string{"name": l})
+	}
+	iss := map[string]any{
+		"number": s.number,
+		"state":  "open",
+		"title":  "issue title is never consulted",
+		"body":   body,
+		"labels": labels,
+	}
+	if s.isPR {
+		// The /issues route flags a PR with a non-null pull_request object.
+		iss["pull_request"] = map[string]any{"url": "https://example.invalid/pulls/1"}
+	}
+	return iss
+}
+
+// TestConflictMarker pins the on-forge identity rules for a durable conflict
+// artifact directly at conflictMarker: identity is the body marker (well-formed
+// version, type == conflictMarkerType) PLUS both required labels, and a PR entry
+// is never an artifact. Unlike managedMarker the labels are load-bearing here.
+func TestConflictMarker(t *testing.T) {
+	t.Parallel()
+	both := []string{LabelOiax, LabelConflict}
+	cases := []struct {
+		name     string
+		version  string
+		typ      string
+		labels   []string
+		isPR     bool
+		noMarker bool
+		want     bool
+	}{
+		{name: "marker plus both labels", version: "v1", typ: conflictMarkerType, labels: both, want: true},
+		{name: "forward-compatible v2 version", version: "v2", typ: conflictMarkerType, labels: both, want: true},
+		{name: "missing oiax/conflict label", version: "v1", typ: conflictMarkerType, labels: []string{LabelOiax}, want: false},
+		{name: "missing oiax label", version: "v1", typ: conflictMarkerType, labels: []string{LabelConflict}, want: false},
+		{name: "pull request entry rejected", version: "v1", typ: conflictMarkerType, labels: both, isPR: true, want: false},
+		{name: "wrong marker type", version: "v1", typ: "promotion", labels: both, want: false},
+		{name: "malformed version", version: "not-a-version", typ: conflictMarkerType, labels: both, want: false},
+		{name: "absent marker", noMarker: true, labels: both, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var body string
+			if tc.noMarker {
+				body = "just a human issue body, no marker"
+			} else {
+				body = "Backflow conflict.\n\n" + serializeMarker(marker{
+					Version: tc.version, Graph: "environments", Type: tc.typ,
+					Source: "main", Destination: "development", SourceHead: "abc",
+				})
+			}
+			ls := make([]ghLabel, 0, len(tc.labels))
+			for _, l := range tc.labels {
+				ls = append(ls, ghLabel{Name: l})
+			}
+			iss := ghIssue{Number: 1, State: "open", Body: body, Labels: ls}
+			if tc.isPR {
+				iss.PullRequest = &struct{}{}
+			}
+			m, ok := conflictMarker(iss)
+			if ok != tc.want {
+				t.Fatalf("conflictMarker ok = %v, want %v", ok, tc.want)
+			}
+			if ok && (m.Source != "main" || m.Destination != "development") {
+				t.Errorf("marker = %+v, want source=main destination=development", m)
+			}
+		})
+	}
+}
+
+// TestListConflictArtifacts pins the label-filtered, graph-filtered,
+// PR-dropping, paginated, ascending-by-number discovery contract.
+func TestListConflictArtifacts(t *testing.T) {
+	t.Parallel()
+	var srvURL string
+	// Page 1 returns a higher-numbered issue first to prove the provider sorts
+	// ascending across pages (GitHub does not guarantee issue-number order).
+	page1 := []map[string]any{
+		issueSpec{number: 20, source: "main", dest: "development", graph: "environments",
+			sourceHead: "h20", labels: []string{LabelOiax, LabelConflict}}.toIssue(),
+		// A PR entry the /issues route also returns — dropped.
+		issueSpec{number: 19, source: "main", dest: "development", graph: "environments",
+			sourceHead: "h19", labels: []string{LabelOiax, LabelConflict}, isPR: true}.toIssue(),
+		// A different graph — dropped by the graph filter.
+		issueSpec{number: 18, source: "main", dest: "development", graph: "other-graph",
+			sourceHead: "h18", labels: []string{LabelOiax, LabelConflict}}.toIssue(),
+	}
+	page2 := []map[string]any{
+		issueSpec{number: 5, source: "qa", dest: "development", graph: "environments",
+			sourceHead: "h5", labels: []string{LabelOiax, LabelConflict}}.toIssue(),
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertAuth(t, r)
+		if r.URL.Path != "/repos/acme/widgets/issues" {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		if r.URL.Query().Get("page") == "2" {
+			writeJSON(t, w, http.StatusOK, page2)
+			return
+		}
+		if got := r.URL.Query().Get("state"); got != "open" {
+			t.Errorf("state = %q, want open", got)
+		}
+		if got := r.URL.Query().Get("labels"); got != LabelOiax+","+LabelConflict {
+			t.Errorf("labels = %q, want %q", got, LabelOiax+","+LabelConflict)
+		}
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/acme/widgets/issues?page=2>; rel="next"`, srvURL))
+		writeJSON(t, w, http.StatusOK, page1)
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	p := newProvider(t, srv)
+	got, err := p.ListConflictArtifacts(context.Background(), "environments")
+	if err != nil {
+		t.Fatalf("ListConflictArtifacts: %v", err)
+	}
+	// The PR entry and the wrong-graph entry are dropped; two survive, sorted
+	// ascending by issue number even though page 1 delivered the higher number.
+	if len(got) != 2 {
+		t.Fatalf("got %d artifacts, want 2: %+v", len(got), got)
+	}
+	if got[0].ID != "5" || got[1].ID != "20" {
+		t.Errorf("artifacts not ascending by number: %+v", got)
+	}
+	if got[0].Source != "qa" || got[0].Target != "development" || got[0].SourceHead != "h5" {
+		t.Errorf("artifact[0] = %+v, want qa->development h5", got[0])
+	}
+}
+
+// TestListConflictArtifactsRefusesCrossOriginPagination pins the L2 guard: the
+// bearer token rides the next-page request, so a server-supplied link off the
+// API origin is refused rather than followed.
+func TestListConflictArtifactsRefusesCrossOriginPagination(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertAuth(t, r)
+		w.Header().Set("Link", `<https://evil.example.invalid/repos/acme/widgets/issues?page=2>; rel="next"`)
+		writeJSON(t, w, http.StatusOK, []map[string]any{
+			issueSpec{number: 1, source: "main", dest: "development", graph: "environments",
+				sourceHead: "h", labels: []string{LabelOiax, LabelConflict}}.toIssue(),
+		})
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	_, err := p.ListConflictArtifacts(context.Background(), "environments")
+	if err == nil {
+		t.Fatal("want a cross-origin pagination refusal, got nil")
+	}
+	if !strings.Contains(err.Error(), "cross-origin") {
+		t.Errorf("error = %v, want a cross-origin refusal", err)
+	}
+}
+
+// TestCreateConflictArtifact pins that create POSTs the title, body, marker and
+// both labels inline, round-trips the marker, and does NOT re-list to dedup
+// (consolidation is the reconcile layer's single, always-runs responsibility).
+func TestCreateConflictArtifact(t *testing.T) {
+	t.Parallel()
+	var gotBody map[string]any
+	listed := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertAuth(t, r)
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues":
+			decode(t, r, &gotBody)
+			writeJSON(t, w, http.StatusCreated, issueSpec{number: 7, source: "main", dest: "development",
+				graph: "environments", sourceHead: "abc123", labels: []string{LabelOiax, LabelConflict}}.toIssue())
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/widgets/issues":
+			listed++
+			writeJSON(t, w, http.StatusOK, []map[string]any{})
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	got, err := p.CreateConflictArtifact(context.Background(), forge.ConflictArtifactSpec{
+		Graph: "environments", Source: "main", Target: "development", SourceHead: "abc123",
+		Title: "oiax: backflow conflict main -> development", Body: "Backflow conflict.",
+	})
+	if err != nil {
+		t.Fatalf("CreateConflictArtifact: %v", err)
+	}
+	want := forge.ConflictArtifact{ID: "7", Source: "main", Target: "development", SourceHead: "abc123"}
+	if got != want {
+		t.Errorf("created = %+v, want %+v", got, want)
+	}
+	if gotBody["title"] != "oiax: backflow conflict main -> development" {
+		t.Errorf("title = %v, want the conflict title", gotBody["title"])
+	}
+	// The marker round-trips and carries the conflict identity triple with the
+	// conflict type token.
+	m, ok := parseMarker(gotBody["body"].(string))
+	if !ok || m.Type != conflictMarkerType || m.Source != "main" || m.Destination != "development" || m.SourceHead != "abc123" {
+		t.Errorf("create body marker wrong: %+v ok=%v", m, ok)
+	}
+	// Labels are posted inline (issues accept labels on create; no addLabels call).
+	labels, _ := gotBody["labels"].([]any)
+	if len(labels) != 2 || labels[0] != LabelOiax || labels[1] != LabelConflict {
+		t.Errorf("labels = %+v, want [%s %s] inline", gotBody["labels"], LabelOiax, LabelConflict)
+	}
+	// No create-time dedup: the provider never re-lists to collapse duplicates.
+	if listed != 0 {
+		t.Errorf("CreateConflictArtifact re-listed %d times, want 0 (no create-time dedup)", listed)
+	}
+}
+
+// TestCreateConflictArtifactRejectsHostileMarkerField pins that validateMarker
+// runs before any write: a marker field that could break out of the HTML
+// comment is refused and nothing is POSTed.
+func TestCreateConflictArtifactRejectsHostileMarkerField(t *testing.T) {
+	t.Parallel()
+	posted := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			posted = true
+		}
+		writeJSON(t, w, http.StatusCreated, map[string]any{"number": 1})
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	// A source branch name carrying an HTML-comment terminator would break the
+	// marker; validateMarker must refuse it before the POST.
+	_, err := p.CreateConflictArtifact(context.Background(), forge.ConflictArtifactSpec{
+		Graph: "environments", Source: "main-->evil", Target: "development", SourceHead: "abc",
+		Title: "t", Body: "b",
+	})
+	if err == nil {
+		t.Fatal("want validateMarker to reject a hostile source field, got nil")
+	}
+	if posted {
+		t.Error("CreateConflictArtifact POSTed a hostile marker instead of rejecting it")
+	}
+}
+
+// TestUpdateConflictArtifact pins that update rewrites the marker sourceHead,
+// refreshes the whole human body, and posts NO comment (updates are silent).
+func TestUpdateConflictArtifact(t *testing.T) {
+	t.Parallel()
+	original := issueSpec{number: 5, source: "main", dest: "development", graph: "environments",
+		sourceHead: "old-head", labels: []string{LabelOiax, LabelConflict}}.toIssue()
+	var patchedBody string
+	commented := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertAuth(t, r)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/widgets/issues/5":
+			writeJSON(t, w, http.StatusOK, original)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/comments"):
+			commented = true
+			writeJSON(t, w, http.StatusCreated, map[string]string{})
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/acme/widgets/issues/5":
+			var body map[string]string
+			decode(t, r, &body)
+			patchedBody = body["body"]
+			writeJSON(t, w, http.StatusOK, original)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	err := p.UpdateConflictArtifact(context.Background(), "5", forge.ConflictArtifactSpec{
+		Graph: "environments", Source: "main", Target: "development", SourceHead: "new-head",
+		Title: "t", Body: "Refreshed failing commit text.",
+	})
+	if err != nil {
+		t.Fatalf("UpdateConflictArtifact: %v", err)
+	}
+	m, ok := parseMarker(patchedBody)
+	if !ok || m.SourceHead != "new-head" || m.Type != conflictMarkerType {
+		t.Errorf("patched marker = %+v ok=%v, want sourceHead=new-head type=conflict", m, ok)
+	}
+	// The human body is refreshed wholesale, not only the marker.
+	if !strings.Contains(patchedBody, "Refreshed failing commit text.") {
+		t.Errorf("patched body did not refresh the human text: %q", patchedBody)
+	}
+	// No comment on update (deliberate: comments only on close/consolidate).
+	if commented {
+		t.Error("UpdateConflictArtifact posted a comment; updates must be silent")
+	}
+}
+
+// TestUpdateConflictArtifactRefusesNonArtifact pins that update refuses an issue
+// that is not a conflict artifact (no marker), touching nothing.
+func TestUpdateConflictArtifactRefusesNonArtifact(t *testing.T) {
+	t.Parallel()
+	notArtifact := issueSpec{number: 5, labels: []string{LabelOiax, LabelConflict},
+		bodyOverride: "a plain issue with no oiax marker"}.toIssue()
+	patched := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			patched = true
+		}
+		writeJSON(t, w, http.StatusOK, notArtifact)
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	err := p.UpdateConflictArtifact(context.Background(), "5", forge.ConflictArtifactSpec{
+		Graph: "environments", Source: "main", Target: "development", SourceHead: "h", Title: "t", Body: "b",
+	})
+	if err == nil {
+		t.Fatal("UpdateConflictArtifact should refuse a non-artifact issue")
+	}
+	if patched {
+		t.Error("UpdateConflictArtifact patched a non-artifact issue")
+	}
+}
+
+// TestUpdateConflictArtifactRefusesNewerMarkerVersion pins that a v2 marker is
+// recognized (never duplicated) but this build must not rewrite a schema it
+// does not understand.
+func TestUpdateConflictArtifactRefusesNewerMarkerVersion(t *testing.T) {
+	t.Parallel()
+	newer := issueSpec{number: 5, source: "main", dest: "development", graph: "environments",
+		version: "v2", sourceHead: "h", labels: []string{LabelOiax, LabelConflict}}.toIssue()
+	touched := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			touched = true
+		}
+		writeJSON(t, w, http.StatusOK, newer)
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	err := p.UpdateConflictArtifact(context.Background(), "5", forge.ConflictArtifactSpec{
+		Graph: "environments", Source: "main", Target: "development", SourceHead: "new", Title: "t", Body: "b",
+	})
+	if err == nil {
+		t.Fatal("UpdateConflictArtifact should refuse a marker version newer than this build understands")
+	}
+	if !strings.Contains(err.Error(), "not supported by this build") {
+		t.Errorf("error = %v, want a version-understanding refusal", err)
+	}
+	if touched {
+		t.Error("UpdateConflictArtifact mutated an artifact it does not understand")
+	}
+}
+
+// TestCloseConflictArtifact pins the comment-then-close discipline: it comments
+// the reason, then PATCHes /issues/{n} with state_reason: completed, targets an
+// issue (not a pull), and never deletes.
+func TestCloseConflictArtifact(t *testing.T) {
+	t.Parallel()
+	artifact := issueSpec{number: 9, source: "main", dest: "development", graph: "environments",
+		sourceHead: "h", labels: []string{LabelOiax, LabelConflict}}.toIssue()
+	var order []string
+	var comment, closedState, closedReason string
+	deleted := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertAuth(t, r)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/widgets/issues/9":
+			writeJSON(t, w, http.StatusOK, artifact)
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues/9/comments":
+			order = append(order, "comment")
+			var b map[string]string
+			decode(t, r, &b)
+			comment = b["body"]
+			writeJSON(t, w, http.StatusCreated, map[string]string{})
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/acme/widgets/issues/9":
+			order = append(order, "close")
+			var b map[string]string
+			decode(t, r, &b)
+			closedState = b["state"]
+			closedReason = b["state_reason"]
+			writeJSON(t, w, http.StatusOK, artifact)
+		case r.Method == http.MethodDelete:
+			deleted = true
+			writeJSON(t, w, http.StatusOK, map[string]string{})
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	if err := p.CloseConflictArtifact(context.Background(), "9", forge.Reason{Summary: "resolved"}); err != nil {
+		t.Fatalf("CloseConflictArtifact: %v", err)
+	}
+	if len(order) != 2 || order[0] != "comment" || order[1] != "close" {
+		t.Errorf("call order = %v, want [comment close]", order)
+	}
+	if comment != "resolved" {
+		t.Errorf("comment = %q, want resolved", comment)
+	}
+	if closedState != "closed" || closedReason != "completed" {
+		t.Errorf("close payload state=%q state_reason=%q, want closed/completed", closedState, closedReason)
+	}
+	if deleted {
+		t.Error("CloseConflictArtifact deleted the issue; it must only close it")
+	}
+}
+
+// TestCloseConflictArtifactRefusesNonArtifact pins that close refuses an issue
+// that is not a conflict artifact, touching nothing.
+func TestCloseConflictArtifactRefusesNonArtifact(t *testing.T) {
+	t.Parallel()
+	notArtifact := issueSpec{number: 9, labels: []string{LabelOiax, LabelConflict},
+		bodyOverride: "a plain issue, no marker"}.toIssue()
+	touched := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			touched = true
+		}
+		writeJSON(t, w, http.StatusOK, notArtifact)
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	if err := p.CloseConflictArtifact(context.Background(), "9", forge.Reason{Summary: "x"}); err == nil {
+		t.Fatal("CloseConflictArtifact should refuse a non-artifact issue")
+	}
+	if touched {
+		t.Error("CloseConflictArtifact mutated a non-artifact issue")
+	}
+}

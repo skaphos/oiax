@@ -68,6 +68,23 @@ func (f *fakeForge) DeleteBranch(_ context.Context, name string) error {
 	return nil
 }
 
+// Conflict-artifact stubs sufficient to satisfy forge.Forge.
+func (f *fakeForge) ListConflictArtifacts(_ context.Context, _ string) ([]forge.ConflictArtifact, error) {
+	return nil, nil
+}
+
+func (f *fakeForge) CreateConflictArtifact(_ context.Context, _ forge.ConflictArtifactSpec) (forge.ConflictArtifact, error) {
+	return forge.ConflictArtifact{}, nil
+}
+
+func (f *fakeForge) UpdateConflictArtifact(_ context.Context, _ forge.ConflictArtifactID, _ forge.ConflictArtifactSpec) error {
+	return nil
+}
+
+func (f *fakeForge) CloseConflictArtifact(_ context.Context, _ forge.ConflictArtifactID, _ forge.Reason) error {
+	return nil
+}
+
 // useForge substitutes the package forge factory for the duration of a test.
 func useForge(t *testing.T, f forge.Forge) {
 	t.Helper()
