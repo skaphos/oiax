@@ -95,11 +95,13 @@ func useForge(t *testing.T, f forge.Forge) {
 
 // setupRepo creates a temp git repo with three branches (development, test,
 // main) at a shared base commit, writes .oiax.yaml, chdirs into it, and
-// clears Actions env so output stays deterministic. It returns a git runner.
+// clears CI env so output stays deterministic on any runner. It returns a
+// git runner.
 func setupRepo(t *testing.T) func(args ...string) {
 	t.Helper()
 	t.Setenv("GITHUB_ACTIONS", "")
 	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	t.Setenv("TF_BUILD", "")
 	t.Setenv("OIAX_LOG_FORMAT", "")
 
 	dir := t.TempDir()
@@ -518,6 +520,7 @@ func TestReconcileJSONAnnotationNotOnStdout(t *testing.T) {
 	// resolve through the default branch (ADR 0003), which requires a
 	// committed config, not setupRepo's untracked working-tree copy.
 	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	t.Setenv("TF_BUILD", "")
 	t.Setenv("OIAX_LOG_FORMAT", "")
 	t.Setenv("GITHUB_ACTIONS", "true")
 
@@ -595,9 +598,121 @@ func TestReconcileJSONAnnotationNotOnStdout(t *testing.T) {
 	}
 }
 
+// TestReconcileJSONAzureAnnotationAndSummary is the Azure Pipelines
+// mirror of TestReconcileJSONAnnotationNotOnStdout: under TF_BUILD the
+// reported-divergence warning must surface as an ##vso[task.logissue]
+// logging command on stderr (stdout stays a pure JSON plan), and the plan
+// summary must be written to a file in the agent temp directory and
+// announced with ##vso[task.uploadsummary].
+func TestReconcileJSONAzureAnnotationAndSummary(t *testing.T) {
+	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	t.Setenv("OIAX_LOG_FORMAT", "")
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("TF_BUILD", "True")
+	agentTemp := t.TempDir()
+	t.Setenv("AGENT_TEMPDIRECTORY", agentTemp)
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	gitCmd := func(args ...string) {
+		t.Helper()
+		gittest.Run(t, dir, args...)
+	}
+	writeFile := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gittest.InitRepo(t, dir)
+	writeFile("app.txt", "v0\n")
+	writeFile(".oiax.yaml", exampleConfig)
+	gitCmd("add", ".")
+	gitCmd("commit", "-q", "-m", "c0")
+	gitCmd("branch", "development")
+	gitCmd("branch", "test")
+
+	// development and main diverge on the same file with conflicting
+	// content, so the backflow cherry-pick cannot apply cleanly: a
+	// reported divergence, which logs the Warn that becomes the logging
+	// command this test is guarding.
+	gitCmd("checkout", "-q", "development")
+	writeFile("app.txt", "dev-change\n")
+	gitCmd("add", "app.txt")
+	gitCmd("commit", "-q", "-m", "dev edit")
+	gitCmd("checkout", "-q", "main")
+	writeFile("app.txt", "hotfix-change\n")
+	gitCmd("add", "app.txt")
+	gitCmd("commit", "-q", "-m", "hotfix")
+
+	// Fabricate the remote-tracking default branch locally so
+	// DefaultBranchRef resolves without a network remote, and reconcile
+	// reads the config committed at main's HEAD.
+	head := gittest.Run(t, dir, "rev-parse", "main")
+	gitCmd("update-ref", "refs/remotes/origin/main", head)
+	gitCmd("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	f := &fakeForge{}
+	useForge(t, f)
+
+	root := NewRootCommand()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"reconcile", "--output", "json"})
+	err := root.Execute()
+
+	var ece exitCodeError
+	if !errors.As(err, &ece) || ece.code != 3 {
+		t.Fatalf("reconcile --output json err = %v, want exit code 3\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+
+	// The reported-divergence warning must annotate stderr in Azure's
+	// dialect, not GitHub's, and never stdout.
+	if !strings.Contains(stderr.String(), "##vso[task.logissue type=warning]") {
+		t.Errorf("stderr missing the ##vso[task.logissue] annotation:\n%s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "::warning::") {
+		t.Errorf("GitHub-style annotation emitted under Azure Pipelines:\n%s", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "##vso[") {
+		t.Errorf("logging command leaked onto stdout, corrupting JSON:\n%s", stdout.String())
+	}
+	// stdout alone must parse as valid JSON — no interleaved command line.
+	var plan struct {
+		PlanFormatVersion int `json:"planFormatVersion"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, stdout.String())
+	}
+
+	// The summary must land in the agent temp directory and be announced.
+	var summaryPath string
+	for _, line := range strings.Split(stderr.String(), "\n") {
+		if p, ok := strings.CutPrefix(line, "##vso[task.uploadsummary]"); ok {
+			summaryPath = p
+			break
+		}
+	}
+	if summaryPath == "" {
+		t.Fatalf("stderr missing ##vso[task.uploadsummary]:\n%s", stderr.String())
+	}
+	if filepath.Dir(summaryPath) != agentTemp {
+		t.Errorf("summary path %q not under AGENT_TEMPDIRECTORY %q", summaryPath, agentTemp)
+	}
+	summary, err := os.ReadFile(summaryPath)
+	if err != nil {
+		t.Fatalf("read summary: %v", err)
+	}
+	if len(summary) == 0 {
+		t.Error("summary file is empty")
+	}
+}
+
 func TestPlanResolvesDefaultBranchConfig(t *testing.T) {
 	t.Setenv("GITHUB_ACTIONS", "")
 	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	t.Setenv("TF_BUILD", "")
 	t.Setenv("OIAX_LOG_FORMAT", "")
 
 	dir := t.TempDir()
@@ -642,6 +757,7 @@ func TestPlanResolvesDefaultBranchConfig(t *testing.T) {
 
 func TestPlanRefusesUnresolvableDefaultBranchUnderActions(t *testing.T) {
 	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	t.Setenv("TF_BUILD", "")
 	t.Setenv("OIAX_LOG_FORMAT", "")
 	t.Setenv("GITHUB_ACTIONS", "true")
 
@@ -663,6 +779,37 @@ func TestPlanRefusesUnresolvableDefaultBranchUnderActions(t *testing.T) {
 	out, err := run(t, "plan")
 	if err == nil {
 		t.Fatalf("plan succeeded, want refusal under Actions:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "pin --config-ref") {
+		t.Errorf("error = %v, want guidance to pin --config-ref", err)
+	}
+}
+
+// TestPlanRefusesUnresolvableDefaultBranchUnderAzurePipelines proves the
+// pinned-config-ref refusal is keyed to CI detection, not to GitHub
+// Actions specifically: under Azure Pipelines (TF_BUILD) the same
+// unresolvable-default-branch shape must refuse rather than silently read
+// the working-tree configuration with privileged credentials.
+func TestPlanRefusesUnresolvableDefaultBranchUnderAzurePipelines(t *testing.T) {
+	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	t.Setenv("OIAX_LOG_FORMAT", "")
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("TF_BUILD", "True")
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	gittest.InitRepo(t, dir)
+	// origin exists but origin/HEAD is unset (the shallow-CI-checkout shape),
+	// so the default branch cannot be resolved. A working-tree .oiax.yaml is
+	// present; under CI plan must refuse rather than read it.
+	gittest.Run(t, dir, "remote", "add", "origin", "https://github.com/example/repo.git")
+	if err := os.WriteFile(filepath.Join(dir, ".oiax.yaml"), []byte(exampleConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, "plan")
+	if err == nil {
+		t.Fatalf("plan succeeded, want refusal under Azure Pipelines:\n%s", out)
 	}
 	if !strings.Contains(err.Error(), "pin --config-ref") {
 		t.Errorf("error = %v, want guidance to pin --config-ref", err)

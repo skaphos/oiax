@@ -1802,7 +1802,7 @@ func TestPlanShallowCloneWarns(t *testing.T) {
 		Git:   r,
 		Forge: &fakeForge{},
 		Graph: testGraph(),
-		Log:   NewLogger("text", nil, &logBuf),
+		Log:   NewLogger("text", AnnotateGitHub, nil, &logBuf),
 	}
 	if _, err := c.Plan(context.Background()); err != nil {
 		t.Fatalf("plan: %v", err)

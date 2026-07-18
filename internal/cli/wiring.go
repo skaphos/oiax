@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/skaphos/oiax/internal/cienv"
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
 	"github.com/skaphos/oiax/internal/forge/github"
@@ -72,19 +73,25 @@ func buildCoordinator(cmd *cobra.Command, g *engine.Graph, runner *git.Runner) (
 }
 
 // buildLogger builds the structured logger from OIAX_LOG_FORMAT. Structured
-// lines and GitHub Actions annotations both go to stderr, but annotations
-// are only emitted when running under Actions (GITHUB_ACTIONS=true) —
-// otherwise they are disabled entirely. Annotations must never land on
-// stdout: `plan`/`reconcile -o json` write only the JSON plan document
-// there, and the Actions runner scans both stdout and stderr for
-// `::warning::`/`::error::` workflow commands, so stderr still surfaces
-// them in the job UI without corrupting a machine consumer reading stdout.
+// lines and CI annotations both go to stderr, but annotations are only
+// emitted when running under a detected CI host — GitHub Actions workflow
+// commands or Azure Pipelines logging commands — otherwise they are
+// disabled entirely. Annotations must never land on stdout:
+// `plan`/`reconcile -o json` write only the JSON plan document there, and
+// both hosts scan every captured output line for their command syntax, so
+// stderr still surfaces them in the job UI without corrupting a machine
+// consumer reading stdout.
 func buildLogger(cmd *cobra.Command) *slog.Logger {
 	var annOut io.Writer
-	if os.Getenv("GITHUB_ACTIONS") == "true" {
+	style := reconcile.AnnotateGitHub
+	switch cienv.Detect() {
+	case cienv.GitHubActions:
+		annOut = cmd.ErrOrStderr()
+	case cienv.AzurePipelines:
+		style = reconcile.AnnotateAzurePipelines
 		annOut = cmd.ErrOrStderr()
 	}
-	return reconcile.NewLogger(os.Getenv("OIAX_LOG_FORMAT"), annOut, cmd.ErrOrStderr())
+	return reconcile.NewLogger(os.Getenv("OIAX_LOG_FORMAT"), style, annOut, cmd.ErrOrStderr())
 }
 
 // renderPlan writes the plan to stdout in the selected output format.
@@ -95,14 +102,22 @@ func renderPlan(cmd *cobra.Command, opts *options, plan engine.Plan) error {
 	return reconcile.RenderText(cmd.OutOrStdout(), plan)
 }
 
-// writeStepSummary appends a Markdown rendering of the plan to the file
-// named by GITHUB_STEP_SUMMARY, when set. A summary-write failure is
-// reported but never fails the command.
+// writeStepSummary publishes a Markdown rendering of the plan to the CI
+// run page: appended to the file named by GITHUB_STEP_SUMMARY when set
+// (GitHub Actions), or written to a temp file announced with an
+// ##vso[task.uploadsummary] logging command under Azure Pipelines. A
+// summary-write failure is reported but never fails the command.
 func writeStepSummary(cmd *cobra.Command, plan engine.Plan) {
-	path := os.Getenv("GITHUB_STEP_SUMMARY")
-	if path == "" {
+	if path := os.Getenv("GITHUB_STEP_SUMMARY"); path != "" {
+		writeGitHubSummary(cmd, path, plan)
 		return
 	}
+	if cienv.Detect() == cienv.AzurePipelines {
+		writeAzureSummary(cmd, plan)
+	}
+}
+
+func writeGitHubSummary(cmd *cobra.Command, path string, plan engine.Plan) {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", err)
@@ -116,6 +131,34 @@ func writeStepSummary(cmd *cobra.Command, plan engine.Plan) {
 	if err := reconcile.RenderMarkdown(f, plan); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", err)
 	}
+}
+
+// writeAzureSummary renders the plan to a Markdown file and emits the
+// ##vso[task.uploadsummary] logging command that attaches it to the run
+// summary page. Azure hands the step no summary file, so the rendering
+// lives in the agent temp directory (cleaned between jobs; the system
+// temp dir when unset). The command goes to stderr with the annotations:
+// the agent scans every captured line for command syntax, and stdout must
+// stay a pure JSON plan for machine consumers.
+func writeAzureSummary(cmd *cobra.Command, plan engine.Plan) {
+	f, err := os.CreateTemp(os.Getenv("AGENT_TEMPDIRECTORY"), "oiax-summary-*.md")
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", err)
+		return
+	}
+	renderErr := reconcile.RenderMarkdown(f, plan)
+	if cerr := f.Close(); renderErr == nil {
+		renderErr = cerr
+	}
+	if renderErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", renderErr)
+		return
+	}
+	// A CreateTemp path never contains a newline that could break the
+	// single-line command, but the directory is caller-controlled via
+	// AGENT_TEMPDIRECTORY, so escape it the way the agent decodes data.
+	path := strings.NewReplacer("%", "%AZP25", "\r", "%0D", "\n", "%0A").Replace(f.Name())
+	fmt.Fprintf(cmd.ErrOrStderr(), "##vso[task.uploadsummary]%s\n", path)
 }
 
 // resolveRepo determines the GitHub owner/repo. GITHUB_REPOSITORY
