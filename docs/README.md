@@ -53,6 +53,10 @@ Architecture Decision Records live in [adr/](adr/):
 - [0003 — Read configuration from a pinned ref](adr/0003-pinned-configuration-ref.md)
 - [0004 — Backflow execution](adr/0004-backflow-execution.md)
 - [0005 — Config API v1](adr/0005-config-api-v1.md)
+- [0006 — Merge-commit backflow strategy](adr/0006-merge-commit-backflow-strategy.md)
+- [0007 — Keep the git layer a shell-out to the git binary](adr/0007-git-shell-out.md)
+- [0008 — Durable backflow-conflict artifact](adr/0008-durable-backflow-conflict-artifact.md)
+- [0009 — Azure DevOps forge provider](adr/0009-azure-devops-forge-provider.md)
 
 ## Process
 

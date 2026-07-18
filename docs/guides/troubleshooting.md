@@ -266,26 +266,40 @@ points at the GitHub repository (`git remote -v`), or export
 GitHub-hosted repository, the agent's `BUILD_REPOSITORY_NAME` supplies
 the pair automatically.
 
-## `Azure Repos is not yet a supported forge provider`
+## Oiax picked the wrong forge (GitHub vs. Azure DevOps)
 
-**Symptom.** `plan` or `reconcile` fails with:
+**Symptom.** On Azure DevOps a `plan` fails authenticating to GitHub (or
+vice versa), or an error names `dev.azure.com` when the repository is on
+GitHub.
 
-```
-Azure Repos is not yet a supported forge provider: Oiax manages GitHub
-pull requests only today (…): not implemented
-```
+**Cause.** Forge selection is automatic: `GITHUB_REPOSITORY` →
+GitHub; `Build.Repository.Provider` (`TfsGit` → Azure DevOps, `GitHub` →
+GitHub); else the `origin` remote URL. A mirror or an unusual remote can
+mislead it.
 
-**Cause.** Forge selection detected an Azure Repos repository — an Azure
-Pipelines build of an Azure Repos checkout, an `origin` remote on
-`dev.azure.com`/`visualstudio.com`, or an explicit `OIAX_FORGE=azuredevops`
-— and there is no Azure Repos provider yet. Oiax refuses rather than run
-the GitHub provider against the wrong forge.
+**Fix.** Pin the forge with `OIAX_FORGE=github` or
+`OIAX_FORGE=azuredevops`, and provide that forge's token
+(`GITHUB_TOKEN` or `AZURE_DEVOPS_TOKEN`). See the
+[configuration reference](../reference/configuration.md#environment-variables).
 
-**Fix.** If the repository whose pull requests Oiax should manage
-actually lives on GitHub (the detection misfired — say, a mirror), set
-`OIAX_FORGE=github`. If it genuinely lives in Azure Repos, Oiax cannot
-manage its pull requests yet: Azure Repos is a roadmap item — see
-[Deploying Oiax from Azure Pipelines](azure-pipelines.md#azure-repos).
+## Azure DevOps: `work-item type "Issue" does not exist` (or a create/close failure)
+
+**Symptom.** On the Azure DevOps forge a backflow **conflict** cannot be
+recorded, or `reconcile` logs a work-item create/close failure — often
+naming `Issue`.
+
+**Cause.** Durable conflict artifacts are Azure Boards work items. The
+default type `Issue` exists only in the **Basic** process; **Agile**,
+**Scrum**, and **CMMI** projects have no `Issue` type, and their
+closed-state names differ.
+
+**Fix.** Set `OIAX_ADO_WORKITEM_TYPE` to a type your process defines
+(e.g. `Bug` or `Task`). Oiax picks the close state by its category, so no
+state name needs configuring. If closing fails with "no state in the
+Completed category," the type has a non-standard state model — choose a
+type with a normal Completed state. Ensure the token also carries
+work-item write scope (Work Items read/write, or Contribute for
+`System.AccessToken`).
 
 ## Still stuck?
 

@@ -6,11 +6,13 @@ and on a schedule. This guide runs that job on **Azure Pipelines** for a
 repository **hosted on GitHub** — the common shape for teams whose CI
 lives in Azure DevOps while the code lives on GitHub.
 
-Scope, stated plainly: the forge Oiax talks to is still **GitHub** — it
-creates and manages GitHub pull requests. **Azure Repos is not yet a
-supported forge provider** (it is a roadmap item; the forge abstraction
-was designed for it). If your repository lives in Azure Repos, Oiax
-cannot manage its pull requests yet.
+Scope, stated plainly: this walkthrough targets the common shape — a
+**GitHub-hosted** repository whose CI runs on Azure Pipelines, so the
+forge Oiax manages is **GitHub**. Oiax also supports **Azure Repos** as a
+forge provider (managed pull requests, backflow branches, and Azure
+Boards conflict artifacts); if your code lives in Azure Repos, the
+pipeline shape is the same and the [Azure Repos](#azure-repos) section
+below covers the two differences (the token and the work-item type).
 
 The steps template is the Azure sibling of the [composite GitHub
 Action](github-action.md): it downloads a checksum-verified `oiax`
@@ -173,20 +175,52 @@ touch `.oiax.yaml`. The template rejects any other value at compile time
 
 ## Azure Repos
 
-Not yet. The forge abstraction is provider-neutral by design and Azure
-DevOps is the anticipated second provider (managed pull requests map to
-Azure Repos PRs; conflict artifacts to work items), but no `azuredevops`
-provider ships today. Until it does, Oiax manages GitHub pull requests
-only, whatever CI host it runs on.
+When the repository itself lives in **Azure Repos** (not just the CI),
+Oiax manages Azure Repos pull requests directly. The pipeline is the same
+steps template shown above; two things change.
 
-Oiax does already *detect* Azure Repos: a pipeline run whose checkout is
-an Azure Repos repository (or an `origin` remote on `dev.azure.com` /
-`visualstudio.com`) fails fast with a clear not-yet-supported error
-instead of running the GitHub provider against the wrong forge. The
-`OIAX_FORGE` environment variable overrides detection (`github` or
-`azuredevops`) — set `OIAX_FORGE=github` if the detection misfires for a
-repository whose promotion pull requests genuinely live on GitHub. See
-the [configuration reference](../reference/configuration.md#environment-variables).
+**Forge selection is automatic.** A pipeline whose checkout is an Azure
+Repos repository (`Build.Repository.Provider = TfsGit`), or an `origin`
+remote on `dev.azure.com` / `visualstudio.com`, selects the `azuredevops`
+provider. `OIAX_FORGE` overrides detection (`github` or `azuredevops`) —
+set `OIAX_FORGE=github` if a GitHub-hosted repository's `origin`
+misleads the detection.
+
+**The token.** Set `AZURE_DEVOPS_TOKEN` instead of `GITHUB_TOKEN`. It
+accepts either a personal access token or the pipeline's built-in
+`$(System.AccessToken)`:
+
+```yaml
+- template: oiax.yml@oiax
+  parameters:
+    mode: reconcile
+    version: 1.0.0
+  env:
+    AZURE_DEVOPS_TOKEN: $(System.AccessToken)
+```
+
+Using `System.AccessToken` needs no secret: grant the build service
+identity (`<Project> Build Service`) **Contribute** and **Contribute to
+pull requests** on the repository (and, for conflict artifacts, work-item
+**Edit** on the project). A personal access token needs the Code
+(read/write), Pull Request Threads, and Work Items (read/write) scopes.
+
+**Conflict artifacts and the work-item type.** A backflow conflict is
+recorded as an Azure Boards work item tagged `oiax` + `oiax/conflict`. The
+default type is `Issue`, which exists only in the **Basic** process. On an
+**Agile/Scrum/CMMI** project set `OIAX_ADO_WORKITEM_TYPE` to a type your
+process defines (e.g. `Bug` or `Task`):
+
+```yaml
+  env:
+    AZURE_DEVOPS_TOKEN: $(System.AccessToken)
+    OIAX_ADO_WORKITEM_TYPE: Bug
+```
+
+Everything else — the promotion graph, the equivalence ladder, backflow,
+the plan and exit codes — is identical to the GitHub forge. See the
+[configuration reference](../reference/configuration.md#environment-variables)
+and [ADR 0009](../adr/0009-azure-devops-forge-provider.md).
 
 ## Next steps
 

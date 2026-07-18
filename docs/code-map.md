@@ -73,15 +73,29 @@ requests, manages labels and `oiax/` refs, adopts safe HTTP 422 duplicate
 creates, paginates and bounds merged-request discovery, and applies
 bounded retries where replay is safe.
 
+## `internal/forge/marker`
+
+The forge-neutral managed-request marker: the HTML-comment metadata block
+(`graph`/`type`/`source`/`destination`/`sourceHead`), its labels, and its
+injection defenses (`Validate`/`Sanitize`). Both providers serialize and
+parse identity from this one implementation, so the frozen format — a
+compatibility contract — and its security posture never drift between
+them.
+
 ## `internal/forge/azuredevops`
 
-The home of the future Azure Repos provider (roadmap). Today: Azure
-DevOps repository identity — the organization/project/repository triple
-— resolved from the Azure Pipelines environment (`TfsGit` builds) or by
-parsing `dev.azure.com`/`visualstudio.com` remote URLs. Forge selection
-in the CLI uses it to detect Azure Repos checkouts and name the
-repository it declines to serve; errors never echo URL userinfo (where
-PATs are commonly embedded).
+The Azure DevOps forge provider (`forge.Forge` against REST api-version
+7.1), plus the Azure DevOps repository identity — the
+organization/project/repository triple — resolved from the Azure
+Pipelines environment (`TfsGit` builds) or by parsing
+`dev.azure.com`/`visualstudio.com` remote URLs. It manages Azure Repos
+pull requests (marker-first description plus a durable PR-properties
+copy), pushes/deletes `oiax/` branches, records backflow conflicts as
+Azure Boards work items (type from `OIAX_ADO_WORKITEM_TYPE`,
+category-driven state), and reads per-branch merge-strategy policy.
+Authenticates with `AZURE_DEVOPS_TOKEN` (PAT as Basic or
+`System.AccessToken` JWT as Bearer); credentials never appear in output,
+and errors never echo URL userinfo (where PATs are commonly embedded).
 
 ## `internal/cli`
 
