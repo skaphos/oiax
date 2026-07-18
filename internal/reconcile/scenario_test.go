@@ -60,7 +60,11 @@ func TestScenarioSquashPromotionSettlesLadderViaHeadTree(t *testing.T) {
 		t.Fatal("squash produced unequal trees; the head-tree rung cannot settle the edge")
 	}
 	for _, cand := range obs.Candidates {
-		if _, ok := obs.DestinationPatchIDs[obs.CandidatePatchIDs[cand.SHA]]; ok {
+		pid, ok := obs.CandidatePatchIDs[cand.SHA]
+		if !ok {
+			t.Fatalf("candidate %s missing patch-id (merge commits have none); the case no longer isolates head-tree", cand.SHA)
+		}
+		if _, ok := obs.DestinationPatchIDs[pid]; ok {
 			t.Fatalf("candidate %s patch-id unexpectedly present; the case no longer isolates head-tree", cand.SHA)
 		}
 	}
