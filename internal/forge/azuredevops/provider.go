@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/skaphos/oiax/internal/engine"
@@ -72,10 +71,10 @@ type Provider struct {
 	GitRemote string
 	// Warn, when set, receives a one-time degradation warning. Azure DevOps has
 	// no analogue of the GitHub token-bot CI-skip today, so it is currently
-	// unused; it exists for interface symmetry with the GitHub provider.
+	// unused; it exists for interface symmetry with the GitHub provider. The
+	// warn-once guard (the GitHub provider's sync.Once) returns together with
+	// the first warning path that needs it.
 	Warn func(msg string)
-
-	warnOnce sync.Once //nolint:unused // reserved, mirrors the GitHub provider
 
 	// Resilience tunables. Zero values use the production defaults; they exist
 	// only so tests can shrink backoff and the response cap. Not part of the
