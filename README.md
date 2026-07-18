@@ -146,4 +146,10 @@ workflow example and token guidance.
 
 ## License
 
-[MIT](LICENSE) © Skaphos
+[MIT](LICENSE) © 2026 Rillan AI LLC
+
+---
+
+Skaphos is a project of [Rillan AI LLC](https://skaphos.io), a Missouri
+limited liability company. Released under
+the [MIT License](./LICENSE).
