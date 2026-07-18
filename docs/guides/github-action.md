@@ -10,12 +10,6 @@ logic lives in YAML.
 The composite Action supports Linux runners on x64 and ARM64. Use the
 standalone release binary when running Oiax on another operating system.
 
-> **Release status.** The `skaphos/oiax@v1` Action reference will resolve
-> only after the first v1 release exists; Oiax has not cut it yet.
-> The workflow below is the shape you will use; it becomes runnable when
-> the first release ships. Until then you can exercise the same behavior
-> from source with `oiax reconcile` (see [getting started](getting-started.md)).
-
 ## The complete workflow
 
 Save this as `.github/workflows/oiax.yml` on your default branch:

@@ -6,14 +6,15 @@ It assumes you have a branch-per-environment repository — long-lived
 branches like `development`, `test`, `qa`, `main` — and promote changes
 between them with pull requests.
 
-> **Release status.** Oiax has not cut its first release yet (1.0.0 is in
-> progress). Until it does, install from source as shown below. The
-> prebuilt binaries and the `skaphos/oiax@v1` Action referenced throughout
-> the docs become available with that release.
+> **Release status.** Oiax is released: the `skaphos/oiax@v1` Action and
+> per-tag prebuilt binaries (each with a `checksums.txt`) are published,
+> and `@v1` tracks the latest `v1.x.y`. The Action is the production path;
+> build from source (below) when you want to track `main` or work on Oiax
+> itself.
 
 ## 1. Install
 
-### From source (works today)
+### From source
 
 Requires **Go 1.26 or newer**:
 
@@ -44,12 +45,12 @@ commit, and build date.)
 > `powershell`). Run `oiax completion --help` for permanent-install
 > instructions.
 
-### Prebuilt binaries and the Action (after 1.0.0)
+### Prebuilt binaries and the Action
 
-Once a release exists, each tag publishes platform binaries with a
-`checksums.txt`, and the [GitHub Action](github-action.md) downloads and
-verifies them for you. That is the intended production path — you will
-rarely install the binary by hand on a CI runner.
+Each release tag publishes platform binaries with a `checksums.txt`, and
+the [GitHub Action](github-action.md) downloads and verifies them for you.
+That is the intended production path — you will rarely install the binary
+by hand on a CI runner.
 
 ### git version
 
