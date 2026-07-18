@@ -107,8 +107,9 @@ can also create it explicitly:
      org or repo. Fine-grained, revocable per repository, posts checks
      natively, and there is no PAT to rotate.
    - **OAuth** — fastest to set up; tied to the authorizing user's access.
-   - **Personal access token** — a GitHub PAT with `repo` scope; rotation
-     is on you.
+   - **Personal access token** — a **classic** GitHub PAT with `repo`
+     scope (the connection type Azure DevOps expects here, not a
+     fine-grained PAT); rotation is on you.
 3. Grant it the repository (or the whole org).
 4. Name it — that name is what you reference as `endpoint:`. This guide
    uses `my-github-connection`.
@@ -240,8 +241,12 @@ avoids it. Build-validation builds triggered from Azure Pipelines' own
 GitHub integration are not affected.
 
 The GitHub **service connection** used for checkout, triggers, and the
-`oiax` template resource is a different credential from `githubToken` and
-only needs read access — see
+`oiax` template resource is a different, lower-privilege credential from
+`githubToken`: it needs repository **read** plus commit-status write to
+report build results (a **GitHub App** connection grants that
+automatically), and never the `contents`/`pull-requests` write that
+`githubToken` carries. The read-only `oiax` template resource needs even
+less — just public read. See
 [Connecting Azure DevOps to GitHub](#connecting-azure-devops-to-github)
 for the distinction and setup.
 
