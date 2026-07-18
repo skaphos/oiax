@@ -2,17 +2,20 @@
 
 Oiax's execution model is CI-native and host-independent: no daemon, just
 a job that reconciles your promotion graph when environment branches move
-and on a schedule. This guide runs that job on **Azure Pipelines** for a
-repository **hosted on GitHub** — the common shape for teams whose CI
-lives in Azure DevOps while the code lives on GitHub.
+and on a schedule. This guide runs that job on **Azure Pipelines**.
 
-Scope, stated plainly: this walkthrough targets the common shape — a
-**GitHub-hosted** repository whose CI runs on Azure Pipelines, so the
-forge Oiax manages is **GitHub**. Oiax also supports **Azure Repos** as a
-forge provider (managed pull requests, backflow branches, and Azure
-Boards conflict artifacts); if your code lives in Azure Repos, the
-pipeline shape is the same and the [Azure Repos](#azure-repos) section
-below covers the two differences (the token and the work-item type).
+**The primary shape this guide targets:** your code lives on **GitHub**,
+your CI runs on **Azure Pipelines**, and Oiax runs as a pipeline step that
+manages the GitHub pull requests — connected through a GitHub
+[service connection](#connecting-azure-devops-to-github). Most of this
+guide is about that path.
+
+Oiax *also* supports **Azure Repos** as a forge provider (managed pull
+requests, backflow branches, and Azure Boards conflict artifacts), for
+teams whose code lives in Azure Repos too. The pipeline shape is identical;
+the secondary [Azure Repos](#azure-repos) section covers the two
+differences (the token and the work-item type). If you are here for the
+common "GitHub repo, Azure CI" case, you can skip it.
 
 The steps template is the Azure sibling of the [composite GitHub
 Action](github-action.md): it downloads a checksum-verified `oiax`
@@ -69,6 +72,94 @@ steps:
 
 Define `OIAX_GITHUB_TOKEN` as a **secret pipeline variable** (or in a
 variable group) holding a GitHub credential — see [Tokens](#tokens).
+
+## Connecting Azure DevOps to GitHub
+
+When your code lives on GitHub and your CI runs on Azure Pipelines, Azure
+DevOps reaches GitHub through a **service connection** — a stored
+credential it uses to clone the repository, receive its webhooks (the
+triggers), and post build status back. That connection is **separate from**
+the `githubToken` Oiax itself uses to manage pull requests. Two
+credentials, two different jobs:
+
+| Credential | Who uses it | What it does | Access it needs |
+| --- | --- | --- | --- |
+| **GitHub service connection** | Azure DevOps (checkout, triggers, status) | Clone the repo (`checkout: self`), deliver push/PR triggers, report the build back to GitHub | Repository **read** + commit-status write |
+| **`githubToken`** (secret variable) | the `oiax` binary | Create / update / close managed PRs, push `oiax/` branches | `contents: write`, `pull-requests: write` |
+
+The service connection's token is **not** exposed to your script as a
+usable `GITHUB_TOKEN`, and reusing it would be wrong even if it were: that
+identity is scoped for checkout, not for authoring the pull requests Oiax
+manages — and a PR opened as the connection identity may not start the
+downstream `on: pull_request` checks (the [token trap](#tokens)). Always
+provision a dedicated `githubToken`.
+
+### Create the service connection
+
+You get one the first time you point a pipeline at a GitHub repo, but you
+can also create it explicitly:
+
+1. **Project Settings → Service connections → New service connection →
+   GitHub.**
+2. Choose the authentication:
+   - **Azure Pipelines GitHub App** *(recommended)* — install the
+     [Azure Pipelines app](https://github.com/apps/azure-pipelines) on the
+     org or repo. Fine-grained, revocable per repository, posts checks
+     natively, and there is no PAT to rotate.
+   - **OAuth** — fastest to set up; tied to the authorizing user's access.
+   - **Personal access token** — a GitHub PAT with `repo` scope; rotation
+     is on you.
+3. Grant it the repository (or the whole org).
+4. Name it — that name is what you reference as `endpoint:`. This guide
+   uses `my-github-connection`.
+
+### Wire it into the pipeline
+
+Two things reference a GitHub connection, and they can share one:
+
+- **Your repository** — the one Oiax reconciles. Creating the pipeline
+  (*Pipelines → New pipeline → GitHub → select your repo*) records the
+  connection for it; `checkout: self` clones it and the same connection
+  delivers triggers. You do not name this one in YAML — it is bound to the
+  pipeline.
+- **The `oiax` template repository** (`skaphos/oiax`, public). The
+  `resources.repositories` entry needs an explicit `endpoint`. Because it
+  is a public repo, any GitHub service connection that can read public
+  repositories works — reuse your repository's connection, or make a
+  minimal public-access one.
+
+```yaml
+resources:
+  repositories:
+    - repository: oiax
+      type: github
+      name: skaphos/oiax
+      ref: refs/tags/v1.0.0
+      endpoint: my-github-connection    # ← the service connection name
+
+steps:
+  - checkout: self                      # your GitHub repo, via its pipeline connection
+    fetchDepth: 0
+    persistCredentials: true
+  - template: templates/azure-pipelines/oiax.yml@oiax
+    parameters:
+      version: v1.0.0
+      mode: reconcile
+      githubToken: $(OIAX_GITHUB_TOKEN) # ← Oiax's own forge token, a secret variable
+```
+
+### Triggers over a service connection
+
+Push and PR triggers work exactly as in the top example — Azure DevOps
+subscribes to GitHub webhooks through the connection. Two notes:
+
+- A **GitHub App** connection delivers triggers and status checks with no
+  extra setup. With **OAuth/PAT**, confirm the pipeline's **Triggers →
+  Enable continuous integration** is on and the identity is allowed to
+  create webhooks on the repo.
+- If the target branch enforces required status checks, the connection
+  identity reports Oiax's own build status; Oiax's *managed* PRs still need
+  `githubToken` to be created and to start their own checks.
 
 ## Parameters
 
@@ -148,9 +239,11 @@ runs GitHub Actions checks, a PAT or App token (either of the above)
 avoids it. Build-validation builds triggered from Azure Pipelines' own
 GitHub integration are not affected.
 
-The service connection (`endpoint`) used for the `oiax` repository
-resource and checkout is separate from `githubToken` and only needs read
-access.
+The GitHub **service connection** used for checkout, triggers, and the
+`oiax` template resource is a different credential from `githubToken` and
+only needs read access — see
+[Connecting Azure DevOps to GitHub](#connecting-azure-devops-to-github)
+for the distinction and setup.
 
 ## Step summary and annotations
 
@@ -194,7 +287,8 @@ the detection.
 
 **The token.** Pass `azureDevOpsToken` instead of `githubToken`. It
 accepts either a personal access token or the pipeline's built-in
-`$(System.AccessToken)`:
+`$(System.AccessToken)`, and `checkout: self` uses the Azure Repos
+credentials directly — no service connection is involved:
 
 ```yaml
 - template: templates/azure-pipelines/oiax.yml@oiax
