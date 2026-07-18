@@ -75,15 +75,18 @@ generated [CLI reference](cli.md) for per-command flags):
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--config` | `.oiax.yaml` | Path to the configuration file. |
-| `--config-ref` | see note | Ref the configuration is read from, via `git show <ref>:<path>`. Default: the repository default branch (`origin/HEAD`) for `plan`/`reconcile`, the working-tree file for `validate`/`graph`. When the default branch cannot be resolved (no `origin/HEAD`), `plan`/`reconcile` fall back to the working-tree file locally but refuse under GitHub Actions — pin this flag to recover. |
+| `--config-ref` | see note | Ref the configuration is read from, via `git show <ref>:<path>`. Default: the repository default branch (`origin/HEAD`) for `plan`/`reconcile`, the working-tree file for `validate`/`graph`. When the default branch cannot be resolved (no `origin/HEAD`), `plan`/`reconcile` fall back to the working-tree file locally but refuse under CI (GitHub Actions or Azure Pipelines) — pin this flag to recover. |
 | `--output`, `-o` | `text` | Output format for plan-producing commands: `text` or `json`. |
 
 ## Environment variables
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `GITHUB_TOKEN` | none | **Required for `plan` and `reconcile`** (`validate` and `graph` touch no forge). Token the GitHub provider authenticates with — creating, updating, closing, and listing managed requests, and pushing backflow branches. See [Architecture — Tokens](../architecture.md#tokens) for the token-type tradeoffs (`GITHUB_TOKEN` works out of the box but is degraded: pull-request workflow runs wait for write-user approval instead of starting automatically). |
+| `GITHUB_TOKEN` | none | **Required for `plan` and `reconcile` on the GitHub forge** (`validate` and `graph` touch no forge). Token the GitHub provider authenticates with — creating, updating, closing, and listing managed requests, and pushing backflow branches. See [Architecture — Tokens](../architecture.md#tokens) for the token-type tradeoffs (`GITHUB_TOKEN` works out of the box but is degraded: pull-request workflow runs wait for write-user approval instead of starting automatically). |
+| `AZURE_DEVOPS_TOKEN` | none | **Required for `plan` and `reconcile` on the Azure DevOps forge.** Token the Azure DevOps provider authenticates with. Accepts either a **personal access token** (used as HTTP Basic) or the pipeline's **`$(System.AccessToken)`** OAuth token (a JWT, used as Bearer) — the scheme is chosen from the token's shape, so either works. Needs the Code (read/write), Work Items (read/write), and Pull Request Threads scopes; `System.AccessToken` needs the build service granted Contribute + Contribute to pull requests on the repository. Never logged. |
+| `OIAX_ADO_WORKITEM_TYPE` | `Issue` | Azure DevOps only. The Azure Boards work-item type durable backflow-conflict artifacts are created as. The default `Issue` exists in the **Basic** process; **Agile/Scrum/CMMI** projects have no `Issue` type — set this to a type your process defines (e.g. `Bug`, `Task`). Open vs. closed is decided by the type's state **category**, so any type works. |
 | `OIAX_LOG_FORMAT` | `text` | Structured log format: `text` or `json`. |
+| `OIAX_FORGE` | auto-detect | Forge provider override: `github` or `azuredevops`. Unset, Oiax detects the forge from the environment (GitHub Actions; Azure Pipelines' repository provider) or the `origin` remote URL, defaulting to `github`. Both providers are implemented; set this when detection would pick the wrong one — e.g. `OIAX_FORGE=github` for a GitHub-hosted repository built on Azure Pipelines whose `origin` looks like Azure DevOps. |
 
 ## Exit codes
 

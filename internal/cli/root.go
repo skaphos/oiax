@@ -1,15 +1,16 @@
 // Package cli wires the Cobra command tree. The CLI is the canonical
-// product interface; the GitHub Action is a thin wrapper around this
-// binary and contains no promotion logic of its own.
+// product interface; the GitHub Action and the Azure Pipelines template
+// are thin wrappers around this binary and contain no promotion logic of
+// their own.
 package cli
 
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
+	"github.com/skaphos/oiax/internal/cienv"
 	"github.com/skaphos/oiax/internal/config"
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/git"
@@ -172,9 +173,10 @@ func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Gra
 // wins. Otherwise the repository default branch (origin/HEAD) is used. When
 // the default branch cannot be resolved — a remote-less or shallow checkout
 // with no origin/HEAD — a local run falls back to the working-tree file
-// (empty ref), but a run under GitHub Actions refuses: silently reading the
-// checked-out ref there would execute untrusted pull-request configuration
-// with privileged credentials. The operator pins --config-ref to recover.
+// (empty ref), but a run under CI (GitHub Actions or Azure Pipelines)
+// refuses: silently reading the checked-out ref there would execute
+// untrusted pull-request configuration with privileged credentials. The
+// operator pins --config-ref to recover.
 func effectiveConfigRef(cmd *cobra.Command, opts *options) (string, error) {
 	if opts.configRef != "" {
 		return opts.configRef, nil
@@ -183,7 +185,7 @@ func effectiveConfigRef(cmd *cobra.Command, opts *options) (string, error) {
 	if ref, ok := runner.DefaultBranchRef(cmd.Context()); ok {
 		return ref, nil
 	}
-	if os.Getenv("GITHUB_ACTIONS") == "true" {
+	if cienv.Detect() != cienv.None {
 		return "", fmt.Errorf("cannot resolve the repository default branch (origin/HEAD is not set); pin --config-ref to the default branch, for example --config-ref origin/main")
 	}
 	return "", nil

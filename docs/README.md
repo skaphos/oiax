@@ -16,6 +16,8 @@ Task-oriented walkthroughs — see the [guides index](guides/README.md):
   roles, drift, merge methods, and common topologies.
 - [Deploy Oiax as a GitHub Action](guides/github-action.md) — the
   workflow, triggers, permissions, `fetch-depth: 0`.
+- [Deploying Oiax from Azure Pipelines](guides/azure-pipelines.md) — the
+  steps template for GitHub-hosted repositories built on Azure DevOps.
 - [Setting up a token that triggers CI](guides/tokens.md) — the GitHub
   App token setup that keeps managed PRs from stalling.
 - [Backflow: returning hotfixes](guides/backflow.md).
@@ -51,6 +53,10 @@ Architecture Decision Records live in [adr/](adr/):
 - [0003 — Read configuration from a pinned ref](adr/0003-pinned-configuration-ref.md)
 - [0004 — Backflow execution](adr/0004-backflow-execution.md)
 - [0005 — Config API v1](adr/0005-config-api-v1.md)
+- [0006 — Merge-commit backflow strategy](adr/0006-merge-commit-backflow-strategy.md)
+- [0007 — Keep the git layer a shell-out to the git binary](adr/0007-git-shell-out.md)
+- [0008 — Durable backflow-conflict artifact](adr/0008-durable-backflow-conflict-artifact.md)
+- [0009 — Azure DevOps forge provider](adr/0009-azure-devops-forge-provider.md)
 
 ## Process
 

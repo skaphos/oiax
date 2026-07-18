@@ -17,6 +17,9 @@ the [reference](../reference/), and for the design see
    roles, drift policy, merge methods, and common topologies.
 3. **[Deploy Oiax as a GitHub Action](github-action.md)** — the workflow
    file, triggers, permissions, and `fetch-depth: 0`.
+   - **[Deploying Oiax from Azure Pipelines](azure-pipelines.md)** — the
+     steps template for repositories hosted on GitHub but built on Azure
+     DevOps: pipeline, triggers, tokens, and `fetchDepth: 0`.
 4. **[Setting up a token that triggers CI](tokens.md)** — the GitHub App
    token setup that keeps managed PRs from stalling. Do this before you
    rely on Oiax in production.

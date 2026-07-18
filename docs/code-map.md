@@ -55,7 +55,8 @@ The impure coordination layer between the pure engine and external
 systems. `Coordinator.Plan` observes Git and forge state and feeds the
 engine; `Coordinator.Apply` executes the resulting actions. It owns
 backflow replay and lifecycle, merge-method warnings, plan rendering,
-GitHub Actions annotations, and step-summary output.
+CI annotations (GitHub Actions and Azure Pipelines dialects), and
+step-summary output.
 
 ## `internal/forge`
 
@@ -72,6 +73,30 @@ requests, manages labels and `oiax/` refs, adopts safe HTTP 422 duplicate
 creates, paginates and bounds merged-request discovery, and applies
 bounded retries where replay is safe.
 
+## `internal/forge/marker`
+
+The forge-neutral managed-request marker: the HTML-comment metadata block
+(`graph`/`type`/`source`/`destination`/`sourceHead`), its labels, and its
+injection defenses (`Validate`/`Sanitize`). Both providers serialize and
+parse identity from this one implementation, so the frozen format — a
+compatibility contract — and its security posture never drift between
+them.
+
+## `internal/forge/azuredevops`
+
+The Azure DevOps forge provider (`forge.Forge` against REST api-version
+7.1), plus the Azure DevOps repository identity — the
+organization/project/repository triple — resolved from the Azure
+Pipelines environment (`TfsGit` builds) or by parsing
+`dev.azure.com`/`visualstudio.com` remote URLs. It manages Azure Repos
+pull requests (marker-first description plus a durable PR-properties
+copy), pushes/deletes `oiax/` branches, records backflow conflicts as
+Azure Boards work items (type from `OIAX_ADO_WORKITEM_TYPE`,
+category-driven state), and reads per-branch merge-strategy policy.
+Authenticates with `AZURE_DEVOPS_TOKEN` (PAT as Basic or
+`System.AccessToken` JWT as Bearer); credentials never appear in output,
+and errors never echo URL userinfo (where PATs are commonly embedded).
+
 ## `internal/cli`
 
 The Cobra command tree: `validate`, `plan`, `reconcile`, `graph`,
@@ -79,6 +104,13 @@ The Cobra command tree: `validate`, `plan`, `reconcile`, `graph`,
 `docs/reference/cli.md` (drift-gated in CI). Exit codes are a
 compatibility contract; see the [configuration
 reference](reference/configuration.md).
+
+## `internal/cienv`
+
+CI-host detection (`Detect`): GitHub Actions (`GITHUB_ACTIONS`) or Azure
+Pipelines (`TF_BUILD`). Drives which annotation dialect and run-summary
+mechanism the CLI uses and whether the pinned-config-ref working-tree
+fallback is refused. Detection only; no credentials, no promotion logic.
 
 ## `internal/version`
 
@@ -96,5 +128,9 @@ Build metadata injected by GoReleaser ldflags.
   `git remote set-head origin --auto` — so a multi-branch graph is resolvable
   and the default config-ref (`origin/HEAD`) is known under
   `actions/checkout`. Still no promotion logic.
+- `templates/azure-pipelines/oiax.yml` — the Azure Pipelines steps
+  template: the Action's sibling wrapper (same download-verify-prepare-run
+  contract, pinned by `internal/actioncontract` tests) for GitHub-hosted
+  repositories built on Azure DevOps. Still no promotion logic.
 - `Taskfile.yml` — the task runner (`go -C tools tool task --list`).
 - `tools/` — pinned tool dependencies (task).

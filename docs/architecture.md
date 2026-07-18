@@ -185,7 +185,7 @@ many commits applied cleanly. This is a reported divergence
 ```text
 ┌──────────────────────────────────────┐
 │              Entrypoint              │
-│         CLI / GitHub Action          │
+│ CLI / GitHub Action / Azure Pipelines│
 ├──────────────────────────────────────┤
 │                Engine                │
 │ graph / divergence / planning        │
@@ -217,7 +217,18 @@ See the [code map](code-map.md) for where each layer lives.
 ## Execution model
 
 Oiax requires no daemon: event-driven reconciliation plus scheduled
-repair, initially as a GitHub Action.
+repair, initially as a GitHub Action. The model is CI-host-independent:
+an Azure Pipelines steps template
+(`templates/azure-pipelines/oiax.yml`) wraps the same binary for
+repositories hosted on GitHub but built on Azure DevOps. Oiax supports
+**two forge providers** — GitHub and Azure DevOps (managed pull requests,
+backflow branches, and durable conflict artifacts on each); the forge is
+selected independently of the CI host (`OIAX_FORGE`, or auto-detected).
+Under each host Oiax emits that host's native annotations and run summary
+(GitHub workflow commands and `$GITHUB_STEP_SUMMARY`; Azure
+`##vso[task.logissue]` and `##vso[task.uploadsummary]`), and the
+pinned-config-ref fallback refusal below applies under any detected CI.
+See the [Azure Pipelines guide](guides/azure-pipelines.md).
 
 ```yaml
 name: Oiax
@@ -342,10 +353,15 @@ backflow as specified by
 **v1.0.0**, which makes the configuration API, exit codes, JSON plan
 format, and managed-request metadata compatibility contracts.
 
+The Azure DevOps forge provider (Azure Repos managed pull requests,
+backflow branch pushes, and Azure Boards work-item conflict artifacts)
+is implemented alongside GitHub — see
+[ADR 0009](adr/0009-azure-devops-forge-provider.md).
+
 Post-1.0 candidates include native GitHub App credential minting,
 org-level defaults, request templates and reviewer assignment, provider
-capability discovery, and additional forge providers. These are not
-assigned release numbers yet.
+capability discovery, and further forge providers. These are not assigned
+release numbers yet.
 
 ## Prior art
 

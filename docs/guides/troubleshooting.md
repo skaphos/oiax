@@ -62,7 +62,8 @@ commands do not need it, only `plan`/`reconcile`.
 
 ## `cannot resolve the repository default branch`
 
-**Symptom.** Under Actions, `plan`/`reconcile` fails with:
+**Symptom.** Under CI (GitHub Actions or Azure Pipelines), `plan`/`reconcile`
+fails with:
 
 ```
 cannot resolve the repository default branch (origin/HEAD is not set); pin --config-ref to the default branch, for example --config-ref origin/main
@@ -70,15 +71,16 @@ cannot resolve the repository default branch (origin/HEAD is not set); pin --con
 
 **Cause.** Oiax reads configuration from a pinned ref — by default the
 repository default branch (`origin/HEAD`). When that ref is not set (a
-remote-less or misconfigured checkout), it cannot resolve. Under Actions
+remote-less or misconfigured checkout), it cannot resolve. Under CI
 it refuses rather than silently reading the triggering ref, which would
 run untrusted PR configuration with write credentials.
 
-**Fix.** The `skaphos/oiax` Action prepares refs for you (it runs `git
-remote set-head origin --auto`), so this usually means a checkout step ran
-without that preparation. Either use the Action, or pin the ref
-explicitly: `--config-ref origin/main` (CLI) / `config-ref: origin/main`
-(Action). Locally, a remote-less repo simply falls back to the
+**Fix.** The `skaphos/oiax` Action and the Azure Pipelines template
+prepare refs for you (they run `git remote set-head origin --auto`), so
+this usually means a checkout step ran without that preparation. Either
+use the Action/template, or pin the ref explicitly: `--config-ref
+origin/main` (CLI) / `config-ref: origin/main` (Action) /
+`configRef: origin/main` (template). Locally, a remote-less repo simply falls back to the
 working-tree file.
 
 ## `apiVersion "…v1alpha1" is deprecated`
@@ -260,7 +262,44 @@ URL. Neither was usable.
 
 **Fix.** Under Actions this is set for you. Locally, ensure `origin`
 points at the GitHub repository (`git remote -v`), or export
-`GITHUB_REPOSITORY=owner/repo`.
+`GITHUB_REPOSITORY=owner/repo`. Under Azure Pipelines building a
+GitHub-hosted repository, the agent's `BUILD_REPOSITORY_NAME` supplies
+the pair automatically.
+
+## Oiax picked the wrong forge (GitHub vs. Azure DevOps)
+
+**Symptom.** On Azure DevOps a `plan` fails authenticating to GitHub (or
+vice versa), or an error names `dev.azure.com` when the repository is on
+GitHub.
+
+**Cause.** Forge selection is automatic: `GITHUB_REPOSITORY` →
+GitHub; `Build.Repository.Provider` (`TfsGit` → Azure DevOps, `GitHub` →
+GitHub); else the `origin` remote URL. A mirror or an unusual remote can
+mislead it.
+
+**Fix.** Pin the forge with `OIAX_FORGE=github` or
+`OIAX_FORGE=azuredevops`, and provide that forge's token
+(`GITHUB_TOKEN` or `AZURE_DEVOPS_TOKEN`). See the
+[configuration reference](../reference/configuration.md#environment-variables).
+
+## Azure DevOps: `work-item type "Issue" does not exist` (or a create/close failure)
+
+**Symptom.** On the Azure DevOps forge a backflow **conflict** cannot be
+recorded, or `reconcile` logs a work-item create/close failure — often
+naming `Issue`.
+
+**Cause.** Durable conflict artifacts are Azure Boards work items. The
+default type `Issue` exists only in the **Basic** process; **Agile**,
+**Scrum**, and **CMMI** projects have no `Issue` type, and their
+closed-state names differ.
+
+**Fix.** Set `OIAX_ADO_WORKITEM_TYPE` to a type your process defines
+(e.g. `Bug` or `Task`). Oiax picks the close state by its category, so no
+state name needs configuring. If closing fails with "no state in the
+Completed category," the type has a non-standard state model — choose a
+type with a normal Completed state. Ensure the token also carries
+work-item write scope (Work Items read/write, or Contribute for
+`System.AccessToken`).
 
 ## Still stuck?
 
