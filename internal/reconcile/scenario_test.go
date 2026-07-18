@@ -228,7 +228,10 @@ func TestScenarioBackflowMixedDropAndApplyConverges(t *testing.T) {
 	if len(f.pushed) != 1 {
 		t.Fatalf("want exactly 1 push (the surviving new commit), got %d", len(f.pushed))
 	}
-	developmentHead, _ := r.Head(context.Background(), "development")
+	developmentHead, err := r.Head(context.Background(), "development")
+	if err != nil {
+		t.Fatalf("Head(development): %v", err)
+	}
 	if f.pushed[0].SHA == developmentHead || !oidHex.MatchString(f.pushed[0].SHA) {
 		t.Errorf("pushed SHA %q must be a fresh replayed commit distinct from the target head", f.pushed[0].SHA)
 	}
