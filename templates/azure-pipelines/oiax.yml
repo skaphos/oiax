@@ -1,0 +1,133 @@
+# Azure Pipelines steps template for the Oiax Git branch promotion
+# reconciler: one managed PR per diverged edge.
+#
+# This template is the Azure Pipelines sibling of the composite GitHub
+# Action (action.yml): a thin wrapper that downloads the checksum-verified
+# oiax release binary, prepares git refs, and runs it. No promotion logic
+# lives in YAML. It targets GitHub-HOSTED repositories built on Azure
+# Pipelines — the forge Oiax talks to is GitHub; Azure Repos is not yet a
+# supported forge provider. Linux agents only (x64 and ARM64).
+#
+# Consume it from a pipeline in the repository Oiax reconciles:
+#
+#   resources:
+#     repositories:
+#       - repository: oiax
+#         type: github
+#         name: skaphos/oiax
+#         ref: refs/tags/v1.0.0        # pin template and version together
+#         endpoint: <github-service-connection>
+#
+#   steps:
+#     - checkout: self
+#       fetchDepth: 0                  # required: full history
+#       persistCredentials: true       # required: the ref-prepare fetch
+#     - template: templates/azure-pipelines/oiax.yml@oiax
+#       parameters:
+#         version: v1.0.0
+#         githubToken: $(OIAX_GITHUB_TOKEN)
+#
+# Unlike the Action — whose @v1 ref carries a release manifest that picks
+# the binary for it — a template ref cannot see what release it came from,
+# so `version` is required. Pin the template `ref` and `version` to the
+# same release so wrapper and binary stay in step.
+#
+# Token guidance (load-bearing): there is no ambient GitHub token on an
+# Azure agent, so `githubToken` must be a GitHub credential you provision —
+# a GitHub App installation token or a fine-grained PAT with contents:write
+# and pull-requests:write. See docs/guides/azure-pipelines.md.
+
+parameters:
+  - name: version
+    displayName: Exact Oiax release version to download (for example v1.0.0)
+    type: string
+  - name: mode
+    displayName: "What to run: validate, plan, or reconcile"
+    type: string
+    default: reconcile
+    values:
+      - validate
+      - plan
+      - reconcile
+  - name: config
+    displayName: Path to the PromotionGraph configuration file
+    type: string
+    default: .oiax.yaml
+  - name: configRef
+    displayName: >-
+      Ref to read configuration from. Empty means the repository default
+      branch; configuration on the triggering ref is deliberately ignored.
+    type: string
+    default: ''
+  - name: githubToken
+    displayName: GitHub token used for forge API calls
+    type: string
+
+steps:
+  - bash: |
+      set -euo pipefail
+      if [[ ! "${OIAX_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "invalid Oiax release version '${OIAX_VERSION}' (want vMAJOR.MINOR.PATCH)" >&2
+        exit 1
+      fi
+      if [ "${AGENT_OS}" != "Linux" ]; then
+        echo "unsupported agent OS: ${AGENT_OS} (Linux only; use a release binary directly on other platforms)" >&2
+        exit 1
+      fi
+      case "$(uname -m)" in
+        x86_64)         asset="oiax_${OIAX_VERSION#v}_linux_amd64.tar.gz" ;;
+        aarch64|arm64)  asset="oiax_${OIAX_VERSION#v}_linux_arm64.tar.gz" ;;
+        *) echo "unsupported agent architecture: $(uname -m)" >&2; exit 1 ;;
+      esac
+      base="https://github.com/skaphos/oiax/releases/download/${OIAX_VERSION}"
+      dir="$(mktemp -d)"
+      curl -fsSL -o "${dir}/${asset}" "${base}/${asset}"
+      curl -fsSL -o "${dir}/checksums.txt" "${base}/checksums.txt"
+      (cd "${dir}" && grep " ${asset}\$" checksums.txt | sha256sum -c -)
+      tar -xzf "${dir}/${asset}" -C "${dir}" oiax
+      bindir="${AGENT_TEMPDIRECTORY}/oiax-bin"
+      mkdir -p "${bindir}"
+      install -m 0755 "${dir}/oiax" "${bindir}/oiax"
+      echo "##vso[task.prependpath]${bindir}"
+    displayName: Download oiax
+    env:
+      OIAX_VERSION: ${{ parameters.version }}
+
+  # The checkout task materializes only the triggering branch as a local
+  # head and does not set origin/HEAD. Oiax needs every graph branch
+  # resolvable — as refs/remotes/origin/<name> — and the default branch
+  # known so the pinned config-ref default resolves. This step only
+  # prepares refs; no promotion logic lives in YAML. It needs
+  # `persistCredentials: true` on the checkout step so the fetch is
+  # authenticated.
+  #
+  # Run checkout with `fetchDepth: 0`. A shallow clone has no merge base,
+  # which silently disables the patch-identity and baseline rungs of the
+  # equivalence ladder and produces spurious promotion PRs for
+  # already-promoted content. This step deliberately does not --unshallow,
+  # so a shallow checkout stays shallow: Oiax detects it and emits a
+  # WARNING, but only a full-history (fetchDepth: 0) checkout yields
+  # correct results.
+  - bash: |
+      set -euo pipefail
+      git fetch --no-tags --prune origin "+refs/heads/*:refs/remotes/origin/*"
+      git remote set-head origin --auto
+    displayName: Prepare git refs
+
+  - bash: |
+      set -euo pipefail
+      case "${OIAX_MODE}" in
+        validate|plan|reconcile) ;;
+        *) echo "invalid mode '${OIAX_MODE}' (want validate, plan, or reconcile)" >&2; exit 1 ;;
+      esac
+      args=("${OIAX_MODE}" --config "${OIAX_CONFIG}")
+      if [ -n "${OIAX_CONFIG_REF}" ]; then
+        args+=(--config-ref "${OIAX_CONFIG_REF}")
+      fi
+      oiax "${args[@]}"
+    displayName: Run oiax
+    env:
+      OIAX_MODE: ${{ parameters.mode }}
+      OIAX_CONFIG: ${{ parameters.config }}
+      OIAX_CONFIG_REF: ${{ parameters.configRef }}
+      GITHUB_TOKEN: ${{ parameters.githubToken }}

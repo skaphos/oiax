@@ -16,6 +16,8 @@ Task-oriented walkthroughs — see the [guides index](guides/README.md):
   roles, drift, merge methods, and common topologies.
 - [Deploy Oiax as a GitHub Action](guides/github-action.md) — the
   workflow, triggers, permissions, `fetch-depth: 0`.
+- [Deploying Oiax from Azure Pipelines](guides/azure-pipelines.md) — the
+  steps template for GitHub-hosted repositories built on Azure DevOps.
 - [Setting up a token that triggers CI](guides/tokens.md) — the GitHub
   App token setup that keeps managed PRs from stalling.
 - [Backflow: returning hotfixes](guides/backflow.md).

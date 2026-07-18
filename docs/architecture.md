@@ -185,7 +185,7 @@ many commits applied cleanly. This is a reported divergence
 ```text
 ┌──────────────────────────────────────┐
 │              Entrypoint              │
-│         CLI / GitHub Action          │
+│ CLI / GitHub Action / Azure Pipelines│
 ├──────────────────────────────────────┤
 │                Engine                │
 │ graph / divergence / planning        │
@@ -217,7 +217,16 @@ See the [code map](code-map.md) for where each layer lives.
 ## Execution model
 
 Oiax requires no daemon: event-driven reconciliation plus scheduled
-repair, initially as a GitHub Action.
+repair, initially as a GitHub Action. The model is CI-host-independent:
+an Azure Pipelines steps template
+(`templates/azure-pipelines/oiax.yml`) wraps the same binary for
+repositories hosted on GitHub but built on Azure DevOps — the forge is
+still GitHub; Azure Repos as a forge provider is a roadmap item. Under
+each host Oiax emits that host's native annotations and run summary
+(GitHub workflow commands and `$GITHUB_STEP_SUMMARY`; Azure
+`##vso[task.logissue]` and `##vso[task.uploadsummary]`), and the
+pinned-config-ref fallback refusal below applies under any detected CI.
+See the [Azure Pipelines guide](guides/azure-pipelines.md).
 
 ```yaml
 name: Oiax

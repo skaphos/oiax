@@ -55,7 +55,8 @@ The impure coordination layer between the pure engine and external
 systems. `Coordinator.Plan` observes Git and forge state and feeds the
 engine; `Coordinator.Apply` executes the resulting actions. It owns
 backflow replay and lifecycle, merge-method warnings, plan rendering,
-GitHub Actions annotations, and step-summary output.
+CI annotations (GitHub Actions and Azure Pipelines dialects), and
+step-summary output.
 
 ## `internal/forge`
 
@@ -80,6 +81,13 @@ The Cobra command tree: `validate`, `plan`, `reconcile`, `graph`,
 compatibility contract; see the [configuration
 reference](reference/configuration.md).
 
+## `internal/cienv`
+
+CI-host detection (`Detect`): GitHub Actions (`GITHUB_ACTIONS`) or Azure
+Pipelines (`TF_BUILD`). Drives which annotation dialect and run-summary
+mechanism the CLI uses and whether the pinned-config-ref working-tree
+fallback is refused. Detection only; no credentials, no promotion logic.
+
 ## `internal/version`
 
 Build metadata injected by GoReleaser ldflags.
@@ -96,5 +104,9 @@ Build metadata injected by GoReleaser ldflags.
   `git remote set-head origin --auto` — so a multi-branch graph is resolvable
   and the default config-ref (`origin/HEAD`) is known under
   `actions/checkout`. Still no promotion logic.
+- `templates/azure-pipelines/oiax.yml` — the Azure Pipelines steps
+  template: the Action's sibling wrapper (same download-verify-prepare-run
+  contract, pinned by `internal/actioncontract` tests) for GitHub-hosted
+  repositories built on Azure DevOps. Still no promotion logic.
 - `Taskfile.yml` — the task runner (`go -C tools tool task --list`).
 - `tools/` — pinned tool dependencies (task).
