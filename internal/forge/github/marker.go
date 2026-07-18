@@ -17,7 +17,19 @@ const (
 	LabelOiax      = "oiax"
 	LabelPromotion = "oiax/promotion"
 	LabelBackflow  = "oiax/backflow"
+	// LabelConflict marks a durable backflow-conflict artifact (a forge
+	// issue). Unlike the decorative label on a managed PR, this label is
+	// load-bearing for issue identity (see conflictMarker): an issue has no
+	// head/base+same-repo provenance, so the label is the authorization
+	// substitute — only a collaborator can label an in-repo issue.
+	LabelConflict = "oiax/conflict"
 )
+
+// conflictMarkerType is the marker type token a durable conflict artifact
+// carries. It is a package-local string, deliberately NOT an
+// engine.RequestType, so it can never leak into RequestFilter PR
+// discovery.
+const conflictMarkerType = "conflict"
 
 // markerVersion is the marker schema version this build writes and fully
 // understands. serializeMarker always stamps it. Readers are deliberately

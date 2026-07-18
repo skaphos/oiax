@@ -208,6 +208,29 @@ be returned at all, mark it with `Oiax-Backflow: skip`. The next
 reconcile picks up from the new state — there is no partial or broken
 branch left behind.
 
+Because that diagnostic scrolls away on a busy repository, `reconcile`
+also opens a **durable conflict artifact** — a forge issue labeled `oiax`
+and `oiax/conflict` — alongside the exit-3 divergence (it never changes
+the exit code). The issue carries the failing commit's SHA and subject,
+how many commits applied cleanly, and this playbook. It is keyed to the
+backflow edge by a body marker (never the title), so overlapping and
+repeated runs converge on **one** issue per edge rather than spamming a
+new one each run; a leaked duplicate from a create race collapses to the
+lowest-numbered issue on the next reconcile. When the conflict clears —
+the replay later succeeds, the edge converges, or the commits become
+returned/skipped — Oiax closes the issue with an explanatory comment.
+
+Two edges are accepted, matching the no-private-state posture (identity
+lives only in Git and the forge):
+
+- Stripping the `oiax/conflict` label makes Oiax lose track of that
+  artifact — the next conflict opens a fresh one. Treat removing the
+  label as a deliberate dismissal.
+- If the source branch is force-pushed to a diverged line, or the edge is
+  removed from the backflow config, the artifact is left open for you to
+  close by hand rather than auto-closed — the same conservative posture
+  as an orphaned backflow request.
+
 This is the one outcome `plan` cannot foresee: a backflow whose commits
 only conflict at cherry-pick time shows in `plan` as an ordinary
 applyable change (exit 2), but `reconcile` hits the conflict and exits 3.

@@ -75,6 +75,32 @@ type Reason struct {
 	Summary string
 }
 
+// ConflictArtifactID identifies a durable backflow-conflict artifact
+// (a forge issue) within a provider.
+type ConflictArtifactID string
+
+// ConflictArtifactSpec describes the durable conflict artifact to create
+// or refresh. Identity is the marker triple (Graph, Source, Target) plus
+// the oiax + oiax/conflict labels — never the title. SourceHead is the
+// full backflow source head SHA (the ancestry key), NOT the branch name.
+type ConflictArtifactSpec struct {
+	Graph      string // c.Graph.Name
+	Source     string // backflow source branch (a.From)
+	Target     string // backflow target branch (a.To)
+	SourceHead string // full source head SHA (ancestry key)
+	Title      string
+	Body       string
+}
+
+// ConflictArtifact is the provider-neutral view of an open durable
+// conflict artifact.
+type ConflictArtifact struct {
+	ID         ConflictArtifactID
+	Source     string
+	Target     string
+	SourceHead string
+}
+
 // BranchPush pushes a branch in the oiax/ namespace. Force pushing is
 // confined to that namespace; providers must refuse to force-push any
 // ref outside it.
@@ -88,12 +114,30 @@ type BranchPush struct {
 // treat "create failed because an equivalent managed request already
 // exists" as success: re-list, adopt the surviving request, continue —
 // the forge is the concurrency arbiter for promotion requests.
+//
+// The conflict-artifact quartet (List/Create/Update/Close) is different:
+// unlike promotion requests, the forge is NOT a native concurrency
+// arbiter for issues — there is no head/base dedup that would refuse a
+// second open issue for the same edge. Two runs racing the very first
+// conflict can therefore both create an artifact. Duplicate consolidation
+// is instead done by the reconcile layer on every run, and
+// ListConflictArtifacts MUST return the open artifacts sorted ascending
+// by issue number so the canonical (lowest-numbered) choice is
+// deterministic.
 type Forge interface {
 	ListManagedRequests(ctx context.Context, filter RequestFilter) ([]engine.ChangeRequest, error)
 	CreateRequest(ctx context.Context, req CreateRequest) (engine.ChangeRequest, error)
 	UpdateRequest(ctx context.Context, req UpdateRequest) error
 	CloseRequest(ctx context.Context, id RequestID, reason Reason) error
 	PushBranch(ctx context.Context, push BranchPush) error
+
+	// ListConflictArtifacts returns the OPEN durable conflict artifacts for
+	// graph, sorted ascending by issue number (deterministic canonical
+	// order for duplicate consolidation).
+	ListConflictArtifacts(ctx context.Context, graph string) ([]ConflictArtifact, error)
+	CreateConflictArtifact(ctx context.Context, spec ConflictArtifactSpec) (ConflictArtifact, error)
+	UpdateConflictArtifact(ctx context.Context, id ConflictArtifactID, spec ConflictArtifactSpec) error
+	CloseConflictArtifact(ctx context.Context, id ConflictArtifactID, reason Reason) error
 
 	// RepoMergeMethods reports which merge methods the repository currently
 	// permits, so the coordinator can warn when a configured mergeMethod

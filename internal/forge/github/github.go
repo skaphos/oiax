@@ -40,6 +40,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -177,6 +178,17 @@ type ghLabel struct {
 
 type ghUser struct {
 	Login string `json:"login"`
+}
+
+// ghIssue is the subset of GitHub's issue JSON the provider reads.
+// GitHub's /issues route returns PRs too; PullRequest is non-nil exactly
+// when this issue IS a pull request, and such entries are dropped.
+type ghIssue struct {
+	Number      int       `json:"number"`
+	State       string    `json:"state"`
+	Body        string    `json:"body"`
+	Labels      []ghLabel `json:"labels"`
+	PullRequest *struct{} `json:"pull_request"`
 }
 
 // ListManagedRequests returns the managed change requests for the graph
@@ -433,6 +445,173 @@ func (p *Provider) CloseRequest(ctx context.Context, id forge.RequestID, reason 
 	}
 	if _, err := p.do(ctx, http.MethodPatch, p.pullURL(num), map[string]string{"state": "closed"}, nil); err != nil {
 		return fmt.Errorf("close request %s: %w", id, err)
+	}
+	return nil
+}
+
+// ListConflictArtifacts returns the open durable conflict artifacts for
+// graph, sorted ascending by issue number. Discovery keeps only issues
+// carrying both required labels and a well-formed conflict marker whose
+// graph matches; PR entries the /issues route returns are dropped. The
+// ascending sort makes the reconcile layer's lowest-numbered-canonical
+// duplicate-consolidation rule deterministic.
+func (p *Provider) ListConflictArtifacts(ctx context.Context, graph string) ([]forge.ConflictArtifact, error) {
+	next := p.url(fmt.Sprintf("/repos/%s/%s/issues?labels=%s,%s&state=open&per_page=100",
+		url.PathEscape(p.Owner), url.PathEscape(p.Repo),
+		url.QueryEscape(LabelOiax), url.QueryEscape(LabelConflict)))
+
+	var issues []ghIssue
+	for next != "" {
+		var page []ghIssue
+		hdr, err := p.do(ctx, http.MethodGet, next, nil, &page)
+		if err != nil {
+			return nil, fmt.Errorf("list conflict artifacts: %w", err)
+		}
+		for _, iss := range page {
+			m, ok := conflictMarker(iss)
+			if !ok {
+				continue
+			}
+			if m.Graph != graph {
+				continue
+			}
+			issues = append(issues, iss)
+		}
+		next = nextLink(hdr.Get("Link"))
+		// The bearer token rides on the next-page request too; never follow a
+		// server-supplied pagination link off the API origin (L2).
+		if next != "" && !p.sameOrigin(next) {
+			return nil, fmt.Errorf("list conflict artifacts: refusing cross-origin pagination to %q", next)
+		}
+	}
+	// The lowest-numbered issue is the canonical artifact for its edge; the
+	// caller relies on ascending order to pick it deterministically.
+	sort.Slice(issues, func(i, j int) bool { return issues[i].Number < issues[j].Number })
+
+	out := make([]forge.ConflictArtifact, 0, len(issues))
+	for _, iss := range issues {
+		m, _ := conflictMarker(iss)
+		out = append(out, forge.ConflictArtifact{
+			ID:         forge.ConflictArtifactID(strconv.Itoa(iss.Number)),
+			Source:     m.Source,
+			Target:     m.Destination,
+			SourceHead: m.SourceHead,
+		})
+	}
+	return out, nil
+}
+
+// CreateConflictArtifact opens a durable conflict artifact: an issue
+// carrying the marker (type: conflict) appended to the body and both the
+// oiax and oiax/conflict labels attached inline. It deliberately does NOT
+// re-list and collapse duplicates — the reconcile layer consolidates on
+// every run (the single, always-runs consolidation point), so a
+// create-time collapse would be a second, windowed, best-effort mechanism.
+func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.ConflictArtifactSpec) (forge.ConflictArtifact, error) {
+	m := marker{
+		Version:     markerVersion,
+		Graph:       spec.Graph,
+		Type:        conflictMarkerType,
+		Source:      spec.Source,
+		Destination: spec.Target,
+		SourceHead:  spec.SourceHead,
+	}
+	// Reject a marker value that could forge marker lines or break out of the
+	// HTML comment before it is ever written to the forge (M14).
+	if err := validateMarker(m); err != nil {
+		return forge.ConflictArtifact{}, fmt.Errorf("create conflict artifact: %w", err)
+	}
+	body := spec.Body + "\n\n" + serializeMarker(m)
+
+	payload := map[string]any{
+		"title":  spec.Title,
+		"body":   body,
+		"labels": []string{LabelOiax, LabelConflict},
+	}
+	var created ghIssue
+	_, err := p.do(ctx, http.MethodPost,
+		p.url(fmt.Sprintf("/repos/%s/%s/issues", url.PathEscape(p.Owner), url.PathEscape(p.Repo))),
+		payload, &created)
+	if err != nil {
+		return forge.ConflictArtifact{}, fmt.Errorf("create conflict artifact: %w", err)
+	}
+	return forge.ConflictArtifact{
+		ID:         forge.ConflictArtifactID(strconv.Itoa(created.Number)),
+		Source:     spec.Source,
+		Target:     spec.Target,
+		SourceHead: spec.SourceHead,
+	}, nil
+}
+
+// UpdateConflictArtifact refreshes an existing conflict artifact in place:
+// it rewrites the whole body (the human failing-commit text and the marker
+// with the new sourceHead). It refuses an issue that is not a conflict
+// artifact, or whose marker version this build does not understand. No
+// comment is posted (deliberate: comments only on close/consolidate, to
+// avoid notification spam).
+func (p *Provider) UpdateConflictArtifact(ctx context.Context, id forge.ConflictArtifactID, spec forge.ConflictArtifactSpec) error {
+	num, err := issueNumber(string(id))
+	if err != nil {
+		return fmt.Errorf("update conflict artifact: %w", err)
+	}
+	iss, err := p.getIssue(ctx, num)
+	if err != nil {
+		return fmt.Errorf("update conflict artifact %s: %w", id, err)
+	}
+	m, ok := conflictMarker(iss)
+	if !ok {
+		return fmt.Errorf("update conflict artifact %s: not a conflict artifact", id)
+	}
+	if !understoodMarker(m) {
+		return fmt.Errorf("update conflict artifact %s: marker version %q is not supported by this build; upgrade oiax", id, m.Version)
+	}
+	m = marker{
+		Version:     markerVersion,
+		Graph:       spec.Graph,
+		Type:        conflictMarkerType,
+		Source:      spec.Source,
+		Destination: spec.Target,
+		SourceHead:  spec.SourceHead,
+	}
+	if err := validateMarker(m); err != nil {
+		return fmt.Errorf("update conflict artifact %s: %w", id, err)
+	}
+	newBody := spec.Body + "\n\n" + serializeMarker(m)
+	if _, err := p.do(ctx, http.MethodPatch, p.issueURL(num), map[string]string{"body": newBody}, nil); err != nil {
+		return fmt.Errorf("update conflict artifact %s: %w", id, err)
+	}
+	return nil
+}
+
+// CloseConflictArtifact closes a resolved conflict artifact: it comments
+// the reason, then closes the issue with state_reason: completed. It
+// refuses an issue that is not a conflict artifact, or whose marker
+// version this build does not understand, and never deletes. Close targets
+// /issues/{n} (an issue, not a pull request).
+func (p *Provider) CloseConflictArtifact(ctx context.Context, id forge.ConflictArtifactID, reason forge.Reason) error {
+	num, err := issueNumber(string(id))
+	if err != nil {
+		return fmt.Errorf("close conflict artifact: %w", err)
+	}
+	iss, err := p.getIssue(ctx, num)
+	if err != nil {
+		return fmt.Errorf("close conflict artifact %s: %w", id, err)
+	}
+	m, ok := conflictMarker(iss)
+	if !ok {
+		return fmt.Errorf("close conflict artifact %s: not a conflict artifact", id)
+	}
+	if !understoodMarker(m) {
+		return fmt.Errorf("close conflict artifact %s: marker version %q is not supported by this build; upgrade oiax", id, m.Version)
+	}
+	commentURL := p.url(fmt.Sprintf("/repos/%s/%s/issues/%d/comments",
+		url.PathEscape(p.Owner), url.PathEscape(p.Repo), num))
+	if _, err := p.do(ctx, http.MethodPost, commentURL, map[string]string{"body": reason.Summary}, nil); err != nil {
+		return fmt.Errorf("close conflict artifact %s: comment: %w", id, err)
+	}
+	if _, err := p.do(ctx, http.MethodPatch, p.issueURL(num),
+		map[string]string{"state": "closed", "state_reason": "completed"}, nil); err != nil {
+		return fmt.Errorf("close conflict artifact %s: %w", id, err)
 	}
 	return nil
 }
@@ -786,6 +965,16 @@ func (p *Provider) getPull(ctx context.Context, number int) (ghPull, error) {
 	return pr, nil
 }
 
+// getIssue fetches a single issue by number (the /issues route, not
+// /pulls), for the conflict-artifact update/close gates.
+func (p *Provider) getIssue(ctx context.Context, number int) (ghIssue, error) {
+	var iss ghIssue
+	if _, err := p.do(ctx, http.MethodGet, p.issueURL(number), nil, &iss); err != nil {
+		return ghIssue{}, err
+	}
+	return iss, nil
+}
+
 // warn delivers the degradation warning at most once and only when a sink
 // is configured.
 func (p *Provider) warn(msg string) {
@@ -798,6 +987,11 @@ func (p *Provider) warn(msg string) {
 
 func (p *Provider) pullURL(number int) string {
 	return p.url(fmt.Sprintf("/repos/%s/%s/pulls/%d",
+		url.PathEscape(p.Owner), url.PathEscape(p.Repo), number))
+}
+
+func (p *Provider) issueURL(number int) string {
+	return p.url(fmt.Sprintf("/repos/%s/%s/issues/%d",
 		url.PathEscape(p.Owner), url.PathEscape(p.Repo), number))
 }
 
@@ -1130,6 +1324,42 @@ func managedMarker(pr ghPull) (marker, bool) {
 	return m, true
 }
 
+// conflictMarker reports whether iss is one of oiax's own conflict
+// artifacts and returns its marker. Unlike managedMarker, an issue has no
+// head/base+same-repo provenance, so identity rests on the body marker (a
+// well-formed version, type == conflictMarkerType) PLUS both required
+// labels (oiax AND oiax/conflict). The labels are the authorization
+// substitute: only a collaborator can label an in-repo issue, so an
+// outsider cannot forge a recognized artifact by hand-crafting a marker in
+// an issue body. An issue that is actually a pull request (the /issues
+// route returns PRs too) is never an artifact.
+func conflictMarker(iss ghIssue) (marker, bool) {
+	if iss.PullRequest != nil {
+		return marker{}, false
+	}
+	m, ok := parseMarker(iss.Body)
+	if !ok || !markerVersionPattern.MatchString(m.Version) {
+		return marker{}, false
+	}
+	if m.Type != conflictMarkerType {
+		return marker{}, false
+	}
+	if !hasLabel(iss.Labels, LabelOiax) || !hasLabel(iss.Labels, LabelConflict) {
+		return marker{}, false
+	}
+	return m, true
+}
+
+// hasLabel reports whether labels contains a label with the given name.
+func hasLabel(labels []ghLabel, name string) bool {
+	for _, l := range labels {
+		if l.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // understoodMarker reports whether this build understands the marker's
 // schema version well enough to safely rewrite or close the request. A
 // marker written by a newer release (a higher vN) is recognized as managed
@@ -1168,6 +1398,19 @@ func prNumber(id string) (int, error) {
 	n, err := strconv.Atoi(id)
 	if err != nil || n <= 0 {
 		return 0, fmt.Errorf("invalid request id %q", id)
+	}
+	return n, nil
+}
+
+// issueNumber parses a ConflictArtifactID into a positive GitHub issue
+// number. It is a copy of prNumber, kept separate for clarity: an issue
+// number and a PR number share GitHub's numbering but are distinct
+// identities. Atoi both converts and guards the value against path
+// injection.
+func issueNumber(id string) (int, error) {
+	n, err := strconv.Atoi(id)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid conflict artifact id %q", id)
 	}
 	return n, nil
 }

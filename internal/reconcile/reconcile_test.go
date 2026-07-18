@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -45,6 +48,23 @@ type fakeForge struct {
 	targetMergeMethodsErr   error
 	targetMergeMethodsCalls int
 	targetMergeBranch       string
+
+	// Conflict-artifact store (SKA-601): a real in-memory ordered set that
+	// mimics the forge's ascending-by-issue-number list contract, so the
+	// record/adopt/advance/consolidate/close state machine and the sweep can be
+	// asserted. List returns a copy sorted ascending; Create appends with the
+	// next number; Update rewrites the stored fields; Close removes from the
+	// open store and records the closed id (resolve/consolidate/orphan).
+	conflicts       []forge.ConflictArtifact
+	nextConflictNum int
+	conflictCreated []forge.ConflictArtifactSpec
+	conflictUpdated []forge.ConflictArtifactSpec
+	conflictClosed  []forge.ConflictArtifactID
+
+	listConflictsErr  error
+	createConflictErr error
+	updateConflictErr error
+	closeConflictErr  error
 }
 
 func (f *fakeForge) RepoMergeMethods(context.Context) (forge.MergeMethods, error) {
@@ -110,6 +130,80 @@ func (f *fakeForge) PushBranch(_ context.Context, push forge.BranchPush) error {
 func (f *fakeForge) DeleteBranch(_ context.Context, name string) error {
 	f.deleted = append(f.deleted, name)
 	return f.deleteErr
+}
+
+// seedConflict inserts a pre-existing open conflict artifact into the store and
+// keeps the next-number counter ahead of any seeded id, so a later Create does
+// not collide with a seeded number.
+func (f *fakeForge) seedConflict(id, source, target, sourceHead string) {
+	f.conflicts = append(f.conflicts, forge.ConflictArtifact{
+		ID: forge.ConflictArtifactID(id), Source: source, Target: target, SourceHead: sourceHead,
+	})
+	if n, err := strconv.Atoi(id); err == nil && n > f.nextConflictNum {
+		f.nextConflictNum = n
+	}
+}
+
+// ListConflictArtifacts returns a copy of the open store sorted ascending by
+// issue number — the provider contract the canonical-lowest rule depends on.
+func (f *fakeForge) ListConflictArtifacts(_ context.Context, _ string) ([]forge.ConflictArtifact, error) {
+	if f.listConflictsErr != nil {
+		return nil, f.listConflictsErr
+	}
+	out := make([]forge.ConflictArtifact, len(f.conflicts))
+	copy(out, f.conflicts)
+	sort.Slice(out, func(i, j int) bool {
+		ni, _ := strconv.Atoi(string(out[i].ID))
+		nj, _ := strconv.Atoi(string(out[j].ID))
+		return ni < nj
+	})
+	return out, nil
+}
+
+func (f *fakeForge) CreateConflictArtifact(_ context.Context, spec forge.ConflictArtifactSpec) (forge.ConflictArtifact, error) {
+	f.conflictCreated = append(f.conflictCreated, spec)
+	if f.createConflictErr != nil {
+		return forge.ConflictArtifact{}, f.createConflictErr
+	}
+	f.nextConflictNum++
+	art := forge.ConflictArtifact{
+		ID:         forge.ConflictArtifactID(strconv.Itoa(f.nextConflictNum)),
+		Source:     spec.Source,
+		Target:     spec.Target,
+		SourceHead: spec.SourceHead,
+	}
+	f.conflicts = append(f.conflicts, art)
+	return art, nil
+}
+
+func (f *fakeForge) UpdateConflictArtifact(_ context.Context, id forge.ConflictArtifactID, spec forge.ConflictArtifactSpec) error {
+	f.conflictUpdated = append(f.conflictUpdated, spec)
+	if f.updateConflictErr != nil {
+		return f.updateConflictErr
+	}
+	for i := range f.conflicts {
+		if f.conflicts[i].ID == id {
+			f.conflicts[i].Source = spec.Source
+			f.conflicts[i].Target = spec.Target
+			f.conflicts[i].SourceHead = spec.SourceHead
+			return nil
+		}
+	}
+	return fmt.Errorf("update: no conflict artifact %s", id)
+}
+
+func (f *fakeForge) CloseConflictArtifact(_ context.Context, id forge.ConflictArtifactID, _ forge.Reason) error {
+	if f.closeConflictErr != nil {
+		return f.closeConflictErr
+	}
+	f.conflictClosed = append(f.conflictClosed, id)
+	for i := range f.conflicts {
+		if f.conflicts[i].ID == id {
+			f.conflicts = append(f.conflicts[:i], f.conflicts[i+1:]...)
+			return nil
+		}
+	}
+	return nil
 }
 
 // testGraph is the three-branch graph the tests plan against.
@@ -721,7 +815,7 @@ func TestLogPlanCountsDedupesFanInBackflow(t *testing.T) {
 // and its field names.
 func TestApplyEmitsApplyCompleteRecord(t *testing.T) {
 	var buf bytes.Buffer
-	c := &Coordinator{Forge: &fakeForge{},
+	c := &Coordinator{Graph: &engine.Graph{Name: "environments"}, Forge: &fakeForge{},
 		Log: slog.New(slog.NewJSONHandler(&buf, nil))}
 	if _, err := c.Apply(context.Background(), engine.Plan{Graph: "environments"}); err != nil {
 		t.Fatalf("apply: %v", err)
@@ -1968,5 +2062,597 @@ func TestApplyBackflowShallowCloneLeavesAmbiguousOrphanAlone(t *testing.T) {
 	}
 	if len(f.deleted) != 0 {
 		t.Fatalf("deleted = %v, want no branch deleted for the ambiguous request", f.deleted)
+	}
+}
+
+// --- SKA-601: durable backflow-conflict artifact state machine -----------
+
+// conflictHarness builds a repo where main (the backflow source) and
+// development (the backflow target) edit the same file differently, so a
+// backflow cherry-pick conflicts. It returns the runner, a commit helper that
+// commits on the currently-checked-out branch (main, on return), and the
+// deterministic backflow action for main -> development.
+func conflictHarness(t *testing.T) (*git.Runner, func(file, content, msg string) string, engine.Action) {
+	t.Helper()
+	r, commit := gitHarness(t)
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "dev-change\n", "dev edit")
+	checkout(t, r, "main")
+	commit("app.txt", "hotfix-change\n", "hotfix on main")
+	short, err := r.ShortSHA(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+		Unpromoted: 1, Branch: engine.BackflowBranchName("main", "development", short),
+	}
+	return r, commit, a
+}
+
+func TestApplyBackflowConflictCreatesArtifact(t *testing.T) {
+	// A cherry-pick conflict still reports divergence (exit 3, unchanged) AND
+	// opens exactly one durable artifact keyed to the full live source head with
+	// the clean count in the body.
+	r, _, a := conflictHarness(t)
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence {
+		t.Error("want Divergence true (exit 3) on a cherry-pick conflict")
+	}
+	if res.Conflicts != 1 {
+		t.Errorf("Conflicts = %d, want 1 (one artifact created)", res.Conflicts)
+	}
+	if len(f.conflicts) != 1 {
+		t.Fatalf("want 1 open artifact, got %d: %+v", len(f.conflicts), f.conflicts)
+	}
+	mainHead, _ := r.Head(context.Background(), "main")
+	got := f.conflicts[0]
+	if got.Source != "main" || got.Target != "development" || got.SourceHead != mainHead {
+		t.Errorf("artifact = %+v, want source=main target=development sourceHead=%s", got, mainHead)
+	}
+	// The body reports the failing commit and the clean count (0: the very first
+	// commit conflicts).
+	if len(f.conflictCreated) != 1 || !strings.Contains(f.conflictCreated[0].Body, "applied 0 commit(s) cleanly") {
+		t.Errorf("created body = %q, want it to report the clean count", f.conflictCreated)
+	}
+}
+
+func TestApplyMergeBackflowConflictCreatesArtifact(t *testing.T) {
+	// The merge strategy attempts the whole source set, so the body notes the
+	// whole set was attempted rather than a per-commit clean count.
+	r, commit := gitHarness(t)
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "dev-change\n", "dev edit")
+	checkout(t, r, "main")
+	commit("app.txt", "hotfix-change\n", "hotfix on main")
+	short, err := r.ShortSHA(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+		Unpromoted: 1, Strategy: v1.BackflowStrategyMerge,
+		Branch: engine.BackflowBranchName("main", "development", short),
+	}
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: mergeGraph()}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence || res.Conflicts != 1 {
+		t.Errorf("result = %+v, want Divergence=true Conflicts=1", res)
+	}
+	if len(f.conflictCreated) != 1 || !strings.Contains(f.conflictCreated[0].Body, "whole downstream source set") {
+		t.Errorf("merge conflict body = %q, want a whole-set note", f.conflictCreated)
+	}
+}
+
+func TestApplyBackflowConflictAdoptsSameHead(t *testing.T) {
+	// A repeated identical run (same head, still conflicting) adopts the existing
+	// artifact: no duplicate, no write, and Conflicts is not double-counted.
+	r, _, a := conflictHarness(t)
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	if _, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}}); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+	if len(f.conflicts) != 1 {
+		t.Fatalf("first apply: want 1 artifact, got %d", len(f.conflicts))
+	}
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if len(f.conflicts) != 1 {
+		t.Errorf("second apply created a duplicate: %d artifacts", len(f.conflicts))
+	}
+	if res.Conflicts != 0 {
+		t.Errorf("adopt must not count a new conflict: Conflicts = %d, want 0", res.Conflicts)
+	}
+	if len(f.conflictUpdated) != 0 {
+		t.Errorf("adopt must not write: %d updates", len(f.conflictUpdated))
+	}
+	if len(f.conflictClosed) != 0 {
+		t.Errorf("adopt must not close a still-conflicting artifact: %v", f.conflictClosed)
+	}
+}
+
+func TestApplyBackflowConflictAdvancesHeadInPlace(t *testing.T) {
+	// The source head advances while still conflicting: the artifact is updated
+	// in place (same id) to the live tip; no new artifact, Conflicts not bumped.
+	r, commit, a := conflictHarness(t)
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	if _, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}}); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+	firstHead, _ := r.Head(context.Background(), "main")
+	if len(f.conflicts) != 1 || f.conflicts[0].SourceHead != firstHead {
+		t.Fatalf("first apply artifact = %+v, want head %s", f.conflicts, firstHead)
+	}
+	id := f.conflicts[0].ID
+
+	// A second conflicting hotfix advances main; re-derive the branch name.
+	commit("app.txt", "hotfix-change-2\n", "second conflicting hotfix on main")
+	newHead, _ := r.Head(context.Background(), "main")
+	short, _ := r.ShortSHA(context.Background(), "main")
+	a2 := a
+	a2.Branch = engine.BackflowBranchName("main", "development", short)
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a2}})
+	if err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if len(f.conflicts) != 1 {
+		t.Fatalf("advance created a duplicate: %d artifacts", len(f.conflicts))
+	}
+	if f.conflicts[0].ID != id {
+		t.Errorf("advance changed the id: got %s, want %s (update in place)", f.conflicts[0].ID, id)
+	}
+	if f.conflicts[0].SourceHead != newHead {
+		t.Errorf("advance recorded head = %s, want the live tip %s", f.conflicts[0].SourceHead, newHead)
+	}
+	if res.Conflicts != 0 {
+		t.Errorf("an advance is not a new artifact: Conflicts = %d, want 0", res.Conflicts)
+	}
+	if len(f.conflictUpdated) != 1 {
+		t.Errorf("advance must update in place: %d updates", len(f.conflictUpdated))
+	}
+}
+
+func TestApplyBackflowConflictLeavesStalerRunAlone(t *testing.T) {
+	// This run observes an OLDER head than an artifact already records (a racing
+	// run got to the newer head first): never regress the record.
+	r, commit := gitHarness(t)
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "dev-change\n", "dev edit")
+	checkout(t, r, "main")
+	h1 := commit("app.txt", "hotfix-change\n", "first conflicting hotfix")
+	h2 := commit("app.txt", "hotfix-change-2\n", "second conflicting hotfix")
+	// Reset main to h1: the live head is now the ancestor of the recorded h2.
+	// Move off main first — a checked-out branch cannot be force-updated.
+	checkout(t, r, "development")
+	gitExec(t, r.Dir, "branch", "-f", "main", h1)
+
+	short, _ := r.ShortSHA(context.Background(), "main")
+	a := engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+		Unpromoted: 1, Branch: engine.BackflowBranchName("main", "development", short),
+	}
+	f := &fakeForge{}
+	f.seedConflict("3", "main", "development", h2)
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence {
+		t.Error("want Divergence true")
+	}
+	if len(f.conflictUpdated) != 0 {
+		t.Errorf("a staler run must not regress the record: %d updates", len(f.conflictUpdated))
+	}
+	if f.conflicts[0].SourceHead != h2 {
+		t.Errorf("recorded head = %s, want it left at the newer %s", f.conflicts[0].SourceHead, h2)
+	}
+	if res.Conflicts != 0 {
+		t.Errorf("leave-alone must not count a new conflict: %d", res.Conflicts)
+	}
+	// The sweep must not close it either — the edge is still conflicting.
+	if len(f.conflictClosed) != 0 {
+		t.Errorf("a still-conflicting edge must not be swept closed: %v", f.conflictClosed)
+	}
+}
+
+func TestApplyBackflowConflictAdvancesDivergedHead(t *testing.T) {
+	// The recorded head is neither an ancestor nor a descendant of the live head
+	// (a diverged force-push) but still resolves: the live tip is authoritative,
+	// so the artifact is updated in place to it.
+	r, commit := gitHarness(t)
+	// A divergent side commit off the base — neither ancestor nor descendant of
+	// main's conflicting head.
+	gitExec(t, r.Dir, "switch", "-q", "-c", "side", "development")
+	sideHead := commitOn(t, r.Dir, "side.txt", "s\n", "divergent side commit")
+
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "dev-change\n", "dev edit")
+	checkout(t, r, "main")
+	h1 := commit("app.txt", "hotfix-change\n", "conflicting hotfix")
+
+	short, _ := r.ShortSHA(context.Background(), "main")
+	a := engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+		Unpromoted: 1, Branch: engine.BackflowBranchName("main", "development", short),
+	}
+	f := &fakeForge{}
+	f.seedConflict("2", "main", "development", sideHead)
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence {
+		t.Error("want Divergence true")
+	}
+	if len(f.conflictUpdated) != 1 {
+		t.Fatalf("a diverged-but-resolvable head must update in place to the live tip: %d updates", len(f.conflictUpdated))
+	}
+	if f.conflicts[0].SourceHead != h1 {
+		t.Errorf("recorded head = %s, want the live tip %s (live-tip-authoritative)", f.conflicts[0].SourceHead, h1)
+	}
+}
+
+func TestApplyBackflowConflictUpdatesRewrittenAwayHeadNonShallow(t *testing.T) {
+	// The recorded head no longer resolves on a full clone (history rewritten):
+	// the live tip is authoritative, so the artifact advances to it.
+	r, _, a := conflictHarness(t)
+	f := &fakeForge{}
+	f.seedConflict("4", "main", "development", "0123456789abcdef0123456789abcdef01234567")
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	if _, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	mainHead, _ := r.Head(context.Background(), "main")
+	if len(f.conflictUpdated) != 1 || f.conflicts[0].SourceHead != mainHead {
+		t.Errorf("a rewritten-away head on a full clone must advance to the live tip %s: %+v", mainHead, f.conflicts)
+	}
+}
+
+func TestApplyBackflowConflictLeavesRewrittenAwayHeadOnShallowClone(t *testing.T) {
+	// On a shallow clone "absent" is indistinguishable from "never fetched", so a
+	// recorded head that does not resolve is left alone (the supersede caveat).
+	r, _, a := conflictHarness(t)
+	head := gitExec(t, r.Dir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(r.Dir, ".git", "shallow"), []byte(head+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeForge{}
+	f.seedConflict("4", "main", "development", "0123456789abcdef0123456789abcdef01234567")
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	if _, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.conflictUpdated) != 0 {
+		t.Errorf("a shallow clone cannot tell rewrite from never-fetched: must leave alone, got %d updates", len(f.conflictUpdated))
+	}
+	if f.conflicts[0].SourceHead != "0123456789abcdef0123456789abcdef01234567" {
+		t.Errorf("recorded head must be left untouched on a shallow clone, got %s", f.conflicts[0].SourceHead)
+	}
+}
+
+func TestApplyBackflowConflictConsolidatesDuplicates(t *testing.T) {
+	// Two open artifacts for the same (source, target): the run keeps the
+	// lowest-numbered as canonical and closes the other with a consolidating
+	// comment (the read-path consolidation guarantee).
+	r, _, a := conflictHarness(t)
+	mainHead, _ := r.Head(context.Background(), "main")
+	f := &fakeForge{}
+	f.seedConflict("2", "main", "development", mainHead)
+	f.seedConflict("5", "main", "development", mainHead)
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence {
+		t.Error("want Divergence true")
+	}
+	closedDup := false
+	for _, id := range f.conflictClosed {
+		if id == "5" {
+			closedDup = true
+		}
+		if id == "2" {
+			t.Errorf("consolidation closed the canonical (lowest-numbered) artifact")
+		}
+	}
+	if !closedDup {
+		t.Errorf("consolidation did not close the duplicate id 5: closed=%v", f.conflictClosed)
+	}
+	if res.Conflicts != 0 {
+		t.Errorf("Conflicts = %d, want 0 (adopt the canonical, close the dup)", res.Conflicts)
+	}
+	if len(f.conflicts) != 1 || f.conflicts[0].ID != "2" {
+		t.Errorf("after consolidation want only the canonical id 2, got %+v", f.conflicts)
+	}
+}
+
+func TestApplyBackflowConflictSweepConsolidatesDuplicates(t *testing.T) {
+	// A quiescent run (no backflow action) with two open artifacts for the same
+	// edge: the sweep's OWN read-path consolidation collapses the duplicate
+	// (closes the higher-numbered) and then closes the canonical as resolved.
+	// The record path never runs here, so this exercises canonicalConflictArtifacts
+	// inside resolveBackflowConflicts — the path the record-path consolidation
+	// test cannot reach.
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	mainHead := commit("hotfix.txt", "urgent\n", "hotfix on main")
+	f := &fakeForge{}
+	f.seedConflict("4", "main", "development", mainHead)
+	f.seedConflict("7", "main", "development", mainHead)
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	if _, err := c.Apply(context.Background(), engine.Plan{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	closed := map[forge.ConflictArtifactID]bool{}
+	for _, id := range f.conflictClosed {
+		closed[id] = true
+	}
+	if !closed["7"] {
+		t.Errorf("sweep did not consolidate the duplicate id 7: closed=%v", f.conflictClosed)
+	}
+	if !closed["4"] {
+		t.Errorf("sweep did not close the canonical id 4 as resolved: closed=%v", f.conflictClosed)
+	}
+	if len(f.conflicts) != 0 {
+		t.Errorf("both artifacts should be closed, got open: %+v", f.conflicts)
+	}
+}
+
+func TestApplyBackflowConflictSweepClosesOnResolveBySuccess(t *testing.T) {
+	// A later run whose replay applies cleanly leaves the edge out of the
+	// conflicted set; the end-of-Apply sweep closes the resolved artifact.
+	r, _, a := conflictHarness(t)
+	f := &fakeForge{createResult: engine.ChangeRequest{ID: "1", Type: engine.RequestTypeBackflow}}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	if _, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}}); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+	if len(f.conflicts) != 1 {
+		t.Fatalf("run 1: want 1 open artifact, got %d", len(f.conflicts))
+	}
+	id := f.conflicts[0].ID
+
+	// Resolve the conflict: development returns app.txt to the base content, so
+	// the hotfix now cherry-picks cleanly.
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "v0\n", "revert dev edit so the hotfix applies")
+	checkout(t, r, "main")
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if res.Divergence {
+		t.Error("run 2 replay applied cleanly; want Divergence false")
+	}
+	if len(f.conflictClosed) != 1 || f.conflictClosed[0] != id {
+		t.Errorf("sweep did not close the resolved artifact %s: closed=%v", id, f.conflictClosed)
+	}
+	if len(f.conflicts) != 0 {
+		t.Errorf("the resolved artifact should be closed/removed: %+v", f.conflicts)
+	}
+}
+
+func TestApplyBackflowConflictSweepClosesOnConvergence(t *testing.T) {
+	// The hotfix already reached development by content, so ToReturn is empty at
+	// apply and applyBackflow converges (records no conflict); the sweep closes
+	// the leftover artifact.
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	hotfix := commit("hotfix.txt", "urgent\n", "hotfix on main")
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "dev.txt", "dev\n", "unrelated dev commit")
+	gitExec(t, r.Dir, "cherry-pick", hotfix) // development now carries the hotfix by content
+	checkout(t, r, "main")
+
+	mainHead, _ := r.Head(context.Background(), "main")
+	f := &fakeForge{}
+	f.seedConflict("3", "main", "development", mainHead)
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	a := engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development", Unpromoted: 1,
+	}
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.Divergence {
+		t.Error("a converged edge must not report divergence")
+	}
+	if len(f.conflictClosed) != 1 || f.conflictClosed[0] != "3" {
+		t.Errorf("the converged edge's artifact should be swept closed: closed=%v", f.conflictClosed)
+	}
+}
+
+func TestApplyBackflowConflictSweepClosesOnQuiescence(t *testing.T) {
+	// A run that emits no backflow action for the edge (quiescence) still closes
+	// a leftover artifact: the edge did not re-record a conflict this run.
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	mainHead := commit("hotfix.txt", "urgent\n", "hotfix on main")
+	f := &fakeForge{}
+	f.seedConflict("3", "main", "development", mainHead)
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	if _, err := c.Apply(context.Background(), engine.Plan{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.conflictClosed) != 1 || f.conflictClosed[0] != "3" {
+		t.Errorf("a quiescent edge's artifact should be swept closed: closed=%v", f.conflictClosed)
+	}
+}
+
+func TestApplyBackflowConflictSweepClosesOrphanNonShallow(t *testing.T) {
+	// The backflow source branch is gone and its recorded head no longer resolves
+	// on a full clone: an orphan the sweep closes (it can never converge).
+	r, _ := gitHarness(t)
+	checkout(t, r, "development")
+	gitExec(t, r.Dir, "branch", "-D", "main")
+
+	f := &fakeForge{}
+	f.seedConflict("3", "main", "development", "0123456789abcdef0123456789abcdef01234567")
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	if _, err := c.Apply(context.Background(), engine.Plan{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.conflictClosed) != 1 || f.conflictClosed[0] != "3" {
+		t.Errorf("an orphan (source gone, non-shallow) should be closed: closed=%v", f.conflictClosed)
+	}
+}
+
+func TestApplyBackflowConflictSweepLeavesOrphanOnShallowClone(t *testing.T) {
+	// The same orphan on a shallow clone is left alone: "absent" cannot be told
+	// from "never fetched", so closing would risk a false "history rewritten".
+	r, _ := gitHarness(t)
+	checkout(t, r, "development")
+	gitExec(t, r.Dir, "branch", "-D", "main")
+	head := gitExec(t, r.Dir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(r.Dir, ".git", "shallow"), []byte(head+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeForge{}
+	f.seedConflict("3", "main", "development", "0123456789abcdef0123456789abcdef01234567")
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	if _, err := c.Apply(context.Background(), engine.Plan{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.conflictClosed) != 0 {
+		t.Errorf("an orphan on a shallow clone must be left alone: closed=%v", f.conflictClosed)
+	}
+}
+
+func TestApplyBackflowConflictSweepLeavesUnconfiguredEdgeAlone(t *testing.T) {
+	// An artifact for a source that is no longer a configured backflow source is
+	// left for manual dismissal — a run that does not examine the edge must not
+	// close its artifact on stale info.
+	r, _ := gitHarness(t)
+	f := &fakeForge{}
+	f.seedConflict("3", "qa", "development", "0123456789abcdef0123456789abcdef01234567")
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	if _, err := c.Apply(context.Background(), engine.Plan{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.conflictClosed) != 0 {
+		t.Errorf("an artifact for an unconfigured edge must be left alone: closed=%v", f.conflictClosed)
+	}
+	if len(f.conflicts) != 1 {
+		t.Errorf("the unconfigured artifact must remain open: %+v", f.conflicts)
+	}
+}
+
+func TestApplyMergeBackflowReportDivergenceKeepsArtifactOpen(t *testing.T) {
+	// A merge-strategy backflow edge can diverge via ActionReportDivergence
+	// (planMergeBackflow's ADR-0006 amendments) without ever entering
+	// applyBackflow. The edge is still conflicting, so the sweep must NOT close
+	// its durable artifact even though the recorded head equals the live head.
+	r, _ := gitHarness(t)
+	checkout(t, r, "main")
+	mainHead, err := r.Head(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeForge{}
+	f.seedConflict("3", "main", "development", mainHead)
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	// Simulate the amendment divergence the merge planner emits for the backflow
+	// edge (main -> development, the configured backflow source -> target).
+	a := engine.Action{
+		Type: engine.ActionReportDivergence, From: "main", To: "development",
+		Reason: "backflow main->development: strategy merge cannot honor the Oiax-Backflow: skip trailer",
+	}
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence {
+		t.Error("a reported backflow divergence must set res.Divergence")
+	}
+	if len(f.conflictClosed) != 0 {
+		t.Errorf("a still-diverging backflow edge's artifact must stay open: closed=%v", f.conflictClosed)
+	}
+	if len(f.conflicts) != 1 {
+		t.Errorf("the artifact must remain open for the still-diverging edge: %+v", f.conflicts)
+	}
+}
+
+func TestApplyBackflowConflictBestEffortForgeErrorPreservesExit3(t *testing.T) {
+	// A best-effort forge write failure on the conflict path must NOT surface as
+	// an Apply error (exit 1) and must NOT downgrade the exit-3 divergence.
+	// Critically, a pre-existing artifact for the SAME edge is NOT false-closed
+	// by the sweep: the edge was marked conflicted before the failing write.
+	r, commit, a := conflictHarness(t)
+	firstHead, _ := r.Head(context.Background(), "main")
+	// A second conflicting hotfix advances main, so the record path takes the
+	// in-place UPDATE branch — which the fake fails.
+	commit("app.txt", "hotfix-change-2\n", "second conflicting hotfix")
+	short, _ := r.ShortSHA(context.Background(), "main")
+	a.Branch = engine.BackflowBranchName("main", "development", short)
+
+	f := &fakeForge{updateConflictErr: errors.New("503 forge unavailable")}
+	f.seedConflict("3", "main", "development", firstHead)
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply must swallow the best-effort forge error, got %v", err)
+	}
+	if !res.Divergence {
+		t.Error("the exit-3 divergence must be preserved despite the forge error")
+	}
+	if len(f.conflictClosed) != 0 {
+		t.Errorf("a still-conflicting edge's artifact must never be swept closed: closed=%v", f.conflictClosed)
+	}
+	if len(f.conflicts) != 1 || f.conflicts[0].ID != "3" {
+		t.Errorf("the pre-existing artifact must remain open: %+v", f.conflicts)
+	}
+}
+
+func TestApplyBackflowConflictNilMapSafety(t *testing.T) {
+	// A first-ever conflict on a fresh Apply records the artifact without a
+	// nil-map write panic: the conflicted set is initialized in Apply, before any
+	// conflict branch can write it.
+	r, _, a := conflictHarness(t)
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence || res.Conflicts != 1 {
+		t.Errorf("result = %+v, want Divergence=true Conflicts=1", res)
 	}
 }

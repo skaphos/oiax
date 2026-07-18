@@ -69,6 +69,10 @@ type Result struct {
 	// Divergence is true when the plan reported any divergence requiring
 	// human attention (drives reconcile's exit code 3).
 	Divergence bool
+	// Conflicts counts the durable backflow-conflict artifacts CREATED this
+	// run (SKA-601) — an apply-summary count only, never surfaced in the plan
+	// JSON. Adopt/advance/consolidate/close do not increment it.
+	Conflicts int
 }
 
 // Plan observes state for every promotion edge, in the graph's declaration
@@ -611,6 +615,12 @@ func (c *Coordinator) backflowSkipTrailers(ctx context.Context, revRange string)
 // rollback.
 func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, error) {
 	var res Result
+	// The set of backflow edges that still conflict this run, keyed by
+	// {source, target}. Initialized here (never nil) so the first conflict's
+	// record path can write it without a nil-map panic, and so the end-of-Apply
+	// sweep can distinguish "still conflicting" from "resolved" independently of
+	// any best-effort forge outcome (ADR 0008).
+	conflicted := map[[2]string]bool{}
 	for _, a := range plan.Actions {
 		switch a.Type {
 		case engine.ActionCreatePromotionRequest:
@@ -662,12 +672,21 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 
 		case engine.ActionReportDivergence:
 			res.Divergence = true
+			// A merge-strategy backflow edge can diverge here (never entering
+			// applyBackflow) via the ADR-0006 amendments — a skip trailer in
+			// range, or a target that forbids merge commits (planMergeBackflow).
+			// Mark such an edge conflicted for this run BEFORE the sweep so a
+			// still-diverging edge's durable artifact is never false-closed
+			// (SKA-601); mirrors the sweep's config gate.
+			if a.To == c.Graph.Backflow.Target && c.isBackflowSource(a.From) {
+				conflicted[[2]string{a.From, a.To}] = true
+			}
 			// A descriptive message so the GitHub Actions annotation (routed
 			// through the logger's handler) carries the edge and reason.
 			c.log().Warn(fmt.Sprintf("reported divergence on %s -> %s: %s", a.From, a.To, a.Reason))
 
 		case engine.ActionCreateBackflowRequest:
-			if err := c.applyBackflow(ctx, a, &res); err != nil {
+			if err := c.applyBackflow(ctx, a, &res, conflicted); err != nil {
 				return res, err
 			}
 
@@ -678,6 +697,13 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 			return res, fmt.Errorf("apply: unknown action type %q", a.Type)
 		}
 	}
+	// Close durable conflict artifacts whose edge no longer conflicts this run
+	// (SKA-601). Reached only after the action loop completed without a returned
+	// error — an errored Apply returns early above and leaves every artifact
+	// untouched. Best-effort: resolveBackflowConflicts returns nil in practice.
+	if err := c.resolveBackflowConflicts(ctx, conflicted, &res); err != nil {
+		return res, err
+	}
 	// Per-run apply counts (SKA-600), the mutation-side complement of "plan
 	// built": one structured record per run.
 	c.log().Info("apply complete",
@@ -685,6 +711,7 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 		"applied", res.Applied,
 		"superseded", res.Superseded,
 		"divergence", res.Divergence,
+		"conflicts", res.Conflicts,
 	)
 	return res, nil
 }
@@ -695,7 +722,7 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 // so the caller's checkout and index are never touched. A cherry-pick
 // conflict is a reported divergence (res.Divergence), not a created request:
 // nothing is pushed and no request is opened.
-func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *Result) error {
+func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *Result, conflicted map[[2]string]bool) error {
 	// The action carries a count and the plan-time branch, not the SHAs, so
 	// re-derive the commits to return from live state — mirroring how the
 	// promotion arms re-resolve the live head.
@@ -740,7 +767,10 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 				c.log().Warn(fmt.Sprintf(
 					"backflow %s -> %s halted on merge conflict at %s %q; no request created",
 					a.From, a.To, conflict.SHA, conflict.Subject))
-				return nil
+				// Merge attempts the whole source set (no per-commit clean
+				// count), so whole == true and applied is ignored. Best-effort;
+				// never downgrades the exit-3 divergence above.
+				return c.recordBackflowConflict(ctx, a, st, conflict.SHA, conflict.Subject, 0, true, conflicted, res)
 			}
 			return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
 		}
@@ -761,7 +791,9 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 				c.log().Warn(fmt.Sprintf(
 					"backflow %s -> %s halted on cherry-pick conflict at %s %q after %d applied cleanly; no request created",
 					a.From, a.To, conflict.SHA, conflict.Subject, conflict.Applied))
-				return nil
+				// Cherry-pick carries a per-commit clean count, so whole ==
+				// false. Best-effort; never downgrades the exit-3 divergence.
+				return c.recordBackflowConflict(ctx, a, st, conflict.SHA, conflict.Subject, conflict.Applied, false, conflicted, res)
 			}
 			return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
 		}
@@ -1152,4 +1184,276 @@ func backflowBody(a engine.Action, count int, strategy v1.BackflowStrategy) stri
 		"Oiax opened this request to return %d downstream-only commit(s) from `%s` back to `%s` by %s.\n\n"+
 			"This request is managed by Oiax. Do not edit the metadata block below.",
 		count, a.From, a.To, mechanism)
+}
+
+// backflowConflictBody is the human body of a durable backflow-conflict
+// artifact (SKA-601), a sibling of backflowBody; the provider appends the
+// machine-readable marker after it. It names the failing commit (SHA +
+// subject), the a.From -> a.To edge, and — for the cherry-pick strategy
+// (whole == false) — the count of commits that applied cleanly before the
+// conflict, or — for the merge strategy (whole == true) — a note that the
+// whole source set was attempted (a merge has no per-commit clean count, so
+// applied is ignored). It carries the operator playbook linking the backflow
+// guide. The cherry-pick/merge distinction is carried solely by whole (one
+// source of truth); strategy is deliberately NOT a parameter. The failing
+// subject is attacker-influenceable free text and lives ONLY in this human
+// body, never in a marker identity field.
+func backflowConflictBody(a engine.Action, sha, subject, sourceHeadShort string, applied int, whole bool) string {
+	var mechanism string
+	if whole {
+		mechanism = "The merge strategy attempted the whole downstream source set in a " +
+			"single `--no-ff` merge; the merge conflicts, so nothing is returned."
+	} else {
+		mechanism = fmt.Sprintf(
+			"The cherry-pick strategy applied %d commit(s) cleanly before this one "+
+				"conflicted; the replay is aborted and nothing is returned.", applied)
+	}
+	return fmt.Sprintf(
+		"Oiax could not return the downstream-only commits from `%s` to `%s`: the "+
+			"backflow replay conflicts on the `%s` -> `%s` edge (source `%s`).\n\n"+
+			"**Failing commit:** `%s` — %s\n\n"+
+			"%s\n\n"+
+			"### What to do\n\n"+
+			"Resolve by promoting or cherry-picking the fix by hand, or mark the commit "+
+			"`Oiax-Backflow: skip` if it should never return. See the "+
+			"[backflow guide](docs/guides/backflow.md#when-a-replay-conflicts) for the "+
+			"full playbook.\n\n"+
+			"Oiax manages this issue. It closes automatically once the conflict clears "+
+			"(the replay succeeds, the edge converges, or the commit becomes "+
+			"returned/skipped). Do not edit the metadata block below.",
+		a.From, a.To, a.From, a.To, sourceHeadShort, sha, subject, mechanism)
+}
+
+// canonicalConflictArtifacts groups the open conflict artifacts by
+// (source, target), keeps the lowest-numbered as canonical, and closes every
+// other duplicate with a consolidating comment. arts MUST be in ascending
+// issue-number order (the ListConflictArtifacts contract), so the first per
+// group is canonical. Best-effort: a close failure logs and leaves the extra
+// for the next run to collapse. Returns the canonical artifact per edge key.
+// Used by both the record path and the sweep — the read-path consolidation
+// guarantee (ADR 0008): a leaked duplicate self-heals on the next reconcile.
+func (c *Coordinator) canonicalConflictArtifacts(ctx context.Context, arts []forge.ConflictArtifact) map[[2]string]forge.ConflictArtifact {
+	canon := make(map[[2]string]forge.ConflictArtifact)
+	for _, art := range arts {
+		key := [2]string{art.Source, art.Target}
+		if _, seen := canon[key]; !seen {
+			canon[key] = art
+			continue
+		}
+		if err := c.Forge.CloseConflictArtifact(ctx, art.ID, forge.Reason{
+			Summary: fmt.Sprintf(
+				"Closed by Oiax: consolidating a duplicate backflow-conflict artifact "+
+					"for %s -> %s; the lower-numbered issue is canonical.",
+				art.Source, art.Target),
+		}); err != nil {
+			c.log().Warn(fmt.Sprintf(
+				"backflow conflict artifact consolidation failed for %s -> %s (issue %s); leaving for next run",
+				art.Source, art.Target, art.ID), "err", err)
+		}
+	}
+	return canon
+}
+
+// recordBackflowConflict ensures a durable conflict artifact exists for the
+// (a.From -> a.To) edge, keyed to the live source head. It first marks the edge
+// conflicted for this run (before any forge I/O), then best-effort ensures the
+// artifact: create-if-absent, adopt-if-same-head, advance-to-live-tip
+// otherwise, under a guard that never regresses the record to a staler run's
+// head. A forge failure logs a warning and returns nil so the exit-3
+// divergence is never downgraded to exit 1 (ADR 0008). Only called inside the
+// errors.As conflict branches. whole distinguishes merge (true) from
+// cherry-pick (false); applied is the clean count and is ignored when whole.
+func (c *Coordinator) recordBackflowConflict(
+	ctx context.Context, a engine.Action, st engine.EdgeState,
+	sha, subject string, applied int, whole bool,
+	conflicted map[[2]string]bool, res *Result) error {
+	// (1) Mark the edge conflicted for this run BEFORE any forge call, so the
+	// end-of-Apply sweep can never false-close a genuinely conflicting edge
+	// even if every forge call below fails on a flaky forge.
+	edge := [2]string{a.From, a.To}
+	conflicted[edge] = true
+
+	// (2) The full live source head is the ancestry key.
+	curHead := st.To.Head
+
+	// (3) List (best-effort). The conflicted flag is already set, so a list
+	// failure leaves any existing artifact untouched and exit 3 intact.
+	arts, err := c.Forge.ListConflictArtifacts(ctx, c.Graph.Name)
+	if err != nil {
+		c.log().Warn(fmt.Sprintf(
+			"backflow conflict artifact list failed for %s -> %s; leaving for next run",
+			a.From, a.To), "err", err)
+		return nil
+	}
+
+	// (4) Consolidate duplicates on the read path and pick the canonical.
+	canon := c.canonicalConflictArtifacts(ctx, arts)
+	existing, ok := canon[edge]
+
+	// (5) The spec to create or refresh with, keyed to this run's live head.
+	spec := forge.ConflictArtifactSpec{
+		Graph:      c.Graph.Name,
+		Source:     a.From,
+		Target:     a.To,
+		SourceHead: curHead,
+		Title:      fmt.Sprintf("oiax: backflow conflict %s -> %s", a.From, a.To),
+		Body:       backflowConflictBody(a, sha, subject, st.SourceHeadShort, applied, whole),
+	}
+
+	// (6) Absent: create.
+	if !ok {
+		if _, err := c.Forge.CreateConflictArtifact(ctx, spec); err != nil {
+			c.log().Warn(fmt.Sprintf(
+				"backflow conflict artifact create failed for %s -> %s; leaving for next run",
+				a.From, a.To), "err", err)
+			return nil
+		}
+		res.Conflicts++
+		return nil
+	}
+
+	// updateArtifact refreshes the canonical artifact in place (best-effort). An
+	// advance is not a new artifact, so it never bumps res.Conflicts.
+	updateArtifact := func() error {
+		if err := c.Forge.UpdateConflictArtifact(ctx, existing.ID, spec); err != nil {
+			c.log().Warn(fmt.Sprintf(
+				"backflow conflict artifact update failed for %s -> %s; leaving for next run",
+				a.From, a.To), "err", err)
+		}
+		return nil
+	}
+
+	// (7) Present: decide the write on the recorded head vs the live head.
+	if existing.SourceHead == curHead {
+		// Adopt, no write: the recorded head matches this run's source head, so
+		// the artifact already points the operator at the right stuck head. We
+		// deliberately skip refreshing the body to avoid an issue-edit every
+		// reconcile. Accepted bound (ADR 0008): on the cherry-pick strategy a
+		// pure TARGET advance while the source head is fixed can shift which
+		// commit conflicts, so the body's failing-commit line may lag until the
+		// source head next moves — at which point this branch is not taken and
+		// the body refreshes. The merge strategy is unaffected (its failing SHA
+		// is the source head itself).
+		return nil
+	}
+	exists, err := c.Git.CommitExists(ctx, existing.SourceHead)
+	if err != nil {
+		// Transient lookup failure: leave the record alone.
+		return nil
+	}
+	if !exists {
+		shallow, err := c.Git.IsShallowRepository(ctx)
+		if err != nil {
+			return nil
+		}
+		if shallow {
+			// A shallow clone cannot tell "rewritten" from "never fetched" (the
+			// supersedeBackflow caveat): leave the record alone.
+			return nil
+		}
+		// Recorded head was rewritten away on a full clone: the live tip is
+		// authoritative — follow it so the operator is not stranded on a commit
+		// that no longer exists on the branch.
+		return updateArtifact()
+	}
+	// Recorded head still resolves. Advance only when THIS run's head is not a
+	// strict ancestor of the recorded head (equality was handled above), i.e.
+	// the live head is a descendant of, or diverged from, the recorded head.
+	older, err := c.Git.IsAncestor(ctx, curHead, existing.SourceHead)
+	if err != nil {
+		return nil
+	}
+	if older {
+		// This run observed a staler head: never regress the newer record.
+		return nil
+	}
+	return updateArtifact()
+}
+
+// resolveBackflowConflicts closes durable conflict artifacts whose edge no
+// longer conflicts this run — the replay succeeded, the edge converged, or the
+// edge quiesced (produced no backflow action). Close is monotonic,
+// orphan-aware, and gated to currently-configured backflow edges, mirroring
+// supersedeBackflow. Best-effort throughout: a forge error logs and returns
+// nil rather than failing Apply.
+func (c *Coordinator) resolveBackflowConflicts(ctx context.Context, conflicted map[[2]string]bool, res *Result) error {
+	arts, err := c.Forge.ListConflictArtifacts(ctx, c.Graph.Name)
+	if err != nil {
+		c.log().Warn("backflow conflict artifact sweep: list failed; leaving all artifacts for next run", "err", err)
+		return nil
+	}
+	// Consolidate any leaked duplicate on the read path, then sweep canonicals.
+	canon := c.canonicalConflictArtifacts(ctx, arts)
+	if len(canon) == 0 {
+		// Nothing to sweep — skip the git ancestry work entirely.
+		return nil
+	}
+	shallow, err := c.Git.IsShallowRepository(ctx)
+	if err != nil {
+		// Cannot classify orphans safely: leave every artifact alone.
+		return nil
+	}
+	for _, art := range canon {
+		edge := [2]string{art.Source, art.Target}
+		// (a) Config gate: only sweep artifacts for a currently-configured
+		// backflow edge. An artifact whose edge left the config is left for
+		// manual dismissal — a run that no longer examines an edge must not
+		// close its artifact on stale info.
+		if !c.Graph.Backflow.Enabled || art.Target != c.Graph.Backflow.Target || !c.isBackflowSource(art.Source) {
+			continue
+		}
+		// (b) Still-conflicting gate: this run re-recorded a conflict for the
+		// edge (the flag was set before any forge I/O), so never false-close it.
+		if conflicted[edge] {
+			continue
+		}
+		resolved := fmt.Sprintf(
+			"Closed by Oiax: the backflow from %s to %s no longer conflicts (the "+
+				"replay succeeded, the edge converged, or the commits became "+
+				"returned/skipped).",
+			art.Source, art.Target)
+		// (c) Resolve the live source head.
+		curHead, err := c.Git.Head(ctx, art.Source)
+		if err != nil {
+			// Branch gone / unresolvable → orphan path.
+			exists, cerr := c.Git.CommitExists(ctx, art.SourceHead)
+			if cerr != nil {
+				continue // transient: leave alone
+			}
+			if !exists && !shallow {
+				c.closeBackflowConflict(ctx, art, fmt.Sprintf(
+					"Closed by Oiax: the backflow from %s to %s can never converge — the "+
+						"source branch history was rewritten/removed.",
+					art.Source, art.Target))
+			}
+			// shallow, or the recorded head still exists: leave alone.
+			continue
+		}
+		// Monotonic close gate: close only when the recorded head is an ancestor
+		// of (or equal to) the live head. A recorded head that is diverged from,
+		// or newer than, the live head is left for manual dismissal.
+		if art.SourceHead == curHead {
+			c.closeBackflowConflict(ctx, art, resolved)
+			continue
+		}
+		anc, err := c.Git.IsAncestor(ctx, art.SourceHead, curHead)
+		if err != nil {
+			continue
+		}
+		if anc {
+			c.closeBackflowConflict(ctx, art, resolved)
+		}
+	}
+	return nil
+}
+
+// closeBackflowConflict closes a resolved (or orphaned) conflict artifact with
+// the given reason comment, best-effort: a forge error logs and leaves the
+// artifact open to retry on the next run.
+func (c *Coordinator) closeBackflowConflict(ctx context.Context, art forge.ConflictArtifact, reason string) {
+	if err := c.Forge.CloseConflictArtifact(ctx, art.ID, forge.Reason{Summary: reason}); err != nil {
+		c.log().Warn(fmt.Sprintf(
+			"backflow conflict artifact close failed for %s -> %s (issue %s); leaving open to retry",
+			art.Source, art.Target, art.ID), "err", err)
+	}
 }
