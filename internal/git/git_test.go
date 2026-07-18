@@ -713,6 +713,49 @@ func TestCherryPickConflict(t *testing.T) {
 	}
 }
 
+// TestCherryPickCancelledContextIsOperationalError pins the exit-code
+// discrimination that keeps a transient failure from being misreported as a
+// human-actionable content conflict (SKA-602): a cancelled context is an
+// OPERATIONAL failure, not exit code 1, so CherryPick must surface an ordinary
+// error that wraps context.Canceled — never a *CherryPickConflict — even when
+// the pick would otherwise conflict on content. Backflow maps only
+// *CherryPickConflict to reported divergence (exit 3); an operational error
+// must propagate so a retry, not a spurious conflict artifact, follows.
+func TestCherryPickCancelledContextIsOperationalError(t *testing.T) {
+	t.Parallel()
+	r, dir := newRepo(t)
+
+	// Arrange a genuine content conflict so that, absent the cancellation, this
+	// would produce a *CherryPickConflict. The cancellation must win.
+	writeCommit(t, dir, "conflict.txt", "base\n", "base")
+	runGit(t, dir, "branch", "target")
+	src := writeCommit(t, dir, "conflict.txt", "main-change\n", "conflicting edit")
+	runGit(t, dir, "switch", "-q", "target")
+	writeCommit(t, dir, "conflict.txt", "target-change\n", "target edit")
+	runGit(t, dir, "switch", "-q", "main")
+
+	wt, cleanup, err := r.Worktree(context.Background(), "target")
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	defer cleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before the first git invocation
+
+	_, err = wt.CherryPick(ctx, []string{src})
+	if err == nil {
+		t.Fatal("CherryPick on a cancelled context returned nil, want an operational error")
+	}
+	var conflict *git.CherryPickConflict
+	if errors.As(err, &conflict) {
+		t.Fatalf("cancelled context misreported as a content conflict: %v", err)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want it to wrap context.Canceled", err)
+	}
+}
+
 func TestCherryPickIsDeterministic(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -929,6 +972,43 @@ func TestMergeConflict(t *testing.T) {
 	// Env was reset even on the conflict path.
 	if wt.Env != nil {
 		t.Errorf("Runner.Env = %v after conflicting Merge, want nil", wt.Env)
+	}
+}
+
+// TestMergeCancelledContextIsOperationalError is the merge-strategy analog of
+// TestCherryPickCancelledContextIsOperationalError (SKA-602): a cancelled
+// context must surface as an ordinary error wrapping context.Canceled, never a
+// *MergeConflict, even against a source head whose content genuinely conflicts.
+func TestMergeCancelledContextIsOperationalError(t *testing.T) {
+	t.Parallel()
+	r, dir := newRepo(t)
+
+	writeCommit(t, dir, "conflict.txt", "base\n", "base")
+	runGit(t, dir, "branch", "target")
+	src := writeCommit(t, dir, "conflict.txt", "main-change\n", "conflicting edit")
+	runGit(t, dir, "switch", "-q", "target")
+	writeCommit(t, dir, "conflict.txt", "target-change\n", "target edit")
+	runGit(t, dir, "switch", "-q", "main")
+
+	wt, cleanup, err := r.Worktree(context.Background(), "target")
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	defer cleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = wt.Merge(ctx, src)
+	if err == nil {
+		t.Fatal("Merge on a cancelled context returned nil, want an operational error")
+	}
+	var conflict *git.MergeConflict
+	if errors.As(err, &conflict) {
+		t.Fatalf("cancelled context misreported as a content conflict: %v", err)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want it to wrap context.Canceled", err)
 	}
 }
 
