@@ -84,7 +84,7 @@ runs:
         dir="$(mktemp -d)"
         curl -fsSL -o "${dir}/${asset}" "${base}/${asset}"
         curl -fsSL -o "${dir}/checksums.txt" "${base}/checksums.txt"
-        (cd "${dir}" && grep " ${asset}\$" checksums.txt | sha256sum -c -)
+        (cd "${dir}" && sha256sum --check --ignore-missing checksums.txt)
         tar -xzf "${dir}/${asset}" -C "${dir}" oiax
         install -m 0755 "${dir}/oiax" /usr/local/bin/oiax 2>/dev/null || {
           mkdir -p "${HOME}/.local/bin"

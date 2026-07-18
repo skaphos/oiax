@@ -66,7 +66,11 @@ func TestPublishedActionRunnerContract(t *testing.T) {
 			t.Errorf("download step still advertises unsupported macOS assets via %q", unsupported)
 		}
 	}
-	if !strings.Contains(download, "sha256sum -c -") {
-		t.Error("download step does not verify the selected release asset checksum")
+	// --ignore-missing verifies exactly the downloaded asset with no grep
+	// preselection: the asset name never becomes a regex, and an asset
+	// absent from checksums.txt fails ("no file was verified") instead of
+	// passing silently.
+	if !strings.Contains(download, "sha256sum --check --ignore-missing checksums.txt") {
+		t.Error("download step does not verify the downloaded release asset checksum")
 	}
 }

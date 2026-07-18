@@ -129,9 +129,11 @@ Use a GitHub App installation token in production. See
 workflow example and token guidance.
 
 Running CI on Azure DevOps instead? An Azure Pipelines steps template
-wraps the same binary for GitHub-hosted repositories — see
+wraps the same binary — for GitHub-hosted repositories and for Azure
+Repos, which Oiax supports as a second forge provider (managed Azure
+Repos pull requests, backflow branches, and Azure Boards conflict
+artifacts). See
 [Deploying Oiax from Azure Pipelines](docs/guides/azure-pipelines.md).
-(Azure Repos as a forge is on the roadmap, not yet supported.)
 
 ## Documentation
 

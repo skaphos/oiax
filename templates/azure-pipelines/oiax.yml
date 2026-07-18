@@ -4,9 +4,11 @@
 # This template is the Azure Pipelines sibling of the composite GitHub
 # Action (action.yml): a thin wrapper that downloads the checksum-verified
 # oiax release binary, prepares git refs, and runs it. No promotion logic
-# lives in YAML. It targets GitHub-HOSTED repositories built on Azure
-# Pipelines — the forge Oiax talks to is GitHub; Azure Repos is not yet a
-# supported forge provider. Linux agents only (x64 and ARM64).
+# lives in YAML. It serves both supported forges: a GitHub-HOSTED
+# repository built on Azure Pipelines (pass githubToken) and an Azure
+# Repos repository (pass azureDevOpsToken). Forge selection is automatic
+# from the checkout; pass exactly the token for your forge. Linux agents
+# only (x64 and ARM64).
 #
 # Consume it from a pipeline in the repository Oiax reconciles:
 #
@@ -33,9 +35,11 @@
 # same release so wrapper and binary stay in step.
 #
 # Token guidance (load-bearing): there is no ambient GitHub token on an
-# Azure agent, so `githubToken` must be a GitHub credential you provision —
-# a GitHub App installation token or a fine-grained PAT with contents:write
-# and pull-requests:write. See docs/guides/azure-pipelines.md.
+# Azure agent, so for a GitHub-hosted repository `githubToken` must be a
+# GitHub credential you provision — a GitHub App installation token or a
+# fine-grained PAT with contents:write and pull-requests:write. For an
+# Azure Repos repository pass `azureDevOpsToken` instead — a PAT or the
+# pipeline's $(System.AccessToken). See docs/guides/azure-pipelines.md.
 
 parameters:
   - name: version
@@ -60,8 +64,27 @@ parameters:
     type: string
     default: ''
   - name: githubToken
-    displayName: GitHub token used for forge API calls
+    displayName: GitHub token used for forge API calls (GitHub-hosted repositories)
     type: string
+    default: ''
+  - name: azureDevOpsToken
+    displayName: >-
+      Azure DevOps token used for forge API calls (Azure Repos
+      repositories); a PAT or $(System.AccessToken)
+    type: string
+    default: ''
+  - name: workItemType
+    displayName: >-
+      Azure Boards work-item type for durable backflow-conflict artifacts.
+      Empty means the provider default (Issue, the Basic process type).
+    type: string
+    default: ''
+  - name: forge
+    displayName: >-
+      Forge provider override (github or azuredevops). Empty means
+      automatic detection from the checkout.
+    type: string
+    default: ''
 
 steps:
   - bash: |
@@ -83,7 +106,7 @@ steps:
       dir="$(mktemp -d)"
       curl -fsSL -o "${dir}/${asset}" "${base}/${asset}"
       curl -fsSL -o "${dir}/checksums.txt" "${base}/checksums.txt"
-      (cd "${dir}" && grep " ${asset}\$" checksums.txt | sha256sum -c -)
+      (cd "${dir}" && sha256sum --check --ignore-missing checksums.txt)
       tar -xzf "${dir}/${asset}" -C "${dir}" oiax
       bindir="${AGENT_TEMPDIRECTORY}/oiax-bin"
       mkdir -p "${bindir}"
@@ -130,4 +153,7 @@ steps:
       OIAX_MODE: ${{ parameters.mode }}
       OIAX_CONFIG: ${{ parameters.config }}
       OIAX_CONFIG_REF: ${{ parameters.configRef }}
+      OIAX_FORGE: ${{ parameters.forge }}
+      OIAX_ADO_WORKITEM_TYPE: ${{ parameters.workItemType }}
       GITHUB_TOKEN: ${{ parameters.githubToken }}
+      AZURE_DEVOPS_TOKEN: ${{ parameters.azureDevOpsToken }}

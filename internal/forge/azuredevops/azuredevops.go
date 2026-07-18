@@ -1,15 +1,16 @@
-// Package azuredevops is the home of the future Azure Repos forge
-// provider (a roadmap item; see docs/architecture.md). Today it owns
-// Azure DevOps repository identity — the organization/project/repository
-// triple every Azure DevOps API call addresses — and its resolution from
-// the pipeline environment or a git remote, so forge selection can name
-// the repository it declines to serve and the provider, when it lands,
-// has its coordinates ready.
+// Package azuredevops is the Azure Repos forge provider (ADR 0009):
+// Provider implements forge.Forge over the Azure DevOps REST API —
+// managed pull requests, oiax/ branch pushes and deletes, merge-strategy
+// policy discovery, and durable conflict artifacts as Azure Boards work
+// items. This file owns repository identity — the
+// organization/project/repository triple every Azure DevOps API call
+// addresses — resolved from the pipeline environment or a git remote.
 //
-// Authentication will belong to the provider (see internal/forge);
-// nothing in this package reads or logs credentials, and remote-URL
-// errors never echo a URL's userinfo section, where Azure DevOps
-// personal access tokens are commonly embedded.
+// The credential is Provider.Token, supplied by the caller (see
+// internal/cli wiring); it never appears in any error, log, plan, or
+// the process table, and remote-URL errors never echo a URL's userinfo
+// section, where Azure DevOps personal access tokens are commonly
+// embedded.
 package azuredevops
 
 import (
@@ -144,7 +145,9 @@ func splitRemote(remote string) (host, path string, err error) {
 	if strings.Contains(s, "://") {
 		u, perr := url.Parse(s)
 		if perr != nil {
-			return "", "", fmt.Errorf("cannot parse remote URL: %w", perr)
+			// Deliberately NOT wrapped: a net/url parse error echoes the full
+			// input, which may carry a credential in its userinfo section.
+			return "", "", fmt.Errorf("cannot parse remote URL")
 		}
 		return u.Hostname(), strings.Trim(u.Path, "/"), nil
 	}

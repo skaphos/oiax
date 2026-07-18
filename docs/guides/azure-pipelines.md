@@ -78,7 +78,10 @@ variable group) holding a GitHub credential — see [Tokens](#tokens).
 | `mode` | `reconcile` | What to run: `validate`, `plan`, or `reconcile`. |
 | `config` | `.oiax.yaml` | Path to the configuration file. |
 | `configRef` | *(empty)* | Ref to read configuration from. Empty means the repository default branch — the [pinned-ref](promotion-graphs.md#where-configuration-is-read-from) default. |
-| `githubToken` | *(required)* | GitHub token for forge API calls and pushing `oiax/` branches. |
+| `githubToken` | *(empty)* | GitHub token for forge API calls and pushing `oiax/` branches. Required when the repository is GitHub-hosted. |
+| `azureDevOpsToken` | *(empty)* | Azure DevOps token — a PAT or `$(System.AccessToken)`. Required when the repository lives in [Azure Repos](#azure-repos). |
+| `workItemType` | *(empty)* | Azure Boards work-item type for [conflict artifacts](#azure-repos). Empty means the provider default (`Issue`). |
+| `forge` | *(empty)* | Forge override (`github` or `azuredevops`). Empty means automatic detection. |
 
 ## `fetchDepth: 0` is not optional
 
@@ -125,8 +128,10 @@ runs converge rather than collide.
 
 ## Tokens
 
-There is no ambient GitHub token on an Azure agent — `githubToken` must
-always be a credential you provision, stored as a secret variable:
+There is no ambient GitHub token on an Azure agent — for a GitHub-hosted
+repository, `githubToken` must be a credential you provision, stored as
+a secret variable (an Azure Repos repository uses `azureDevOpsToken`
+instead — see [Azure Repos](#azure-repos)):
 
 1. **GitHub App installation token** — production guidance, exactly as in
    [Set up a token that triggers CI](tokens.md). Azure has no
@@ -182,21 +187,21 @@ steps template shown above; two things change.
 **Forge selection is automatic.** A pipeline whose checkout is an Azure
 Repos repository (`Build.Repository.Provider = TfsGit`), or an `origin`
 remote on `dev.azure.com` / `visualstudio.com`, selects the `azuredevops`
-provider. `OIAX_FORGE` overrides detection (`github` or `azuredevops`) —
-set `OIAX_FORGE=github` if a GitHub-hosted repository's `origin`
-misleads the detection.
+provider. The template's `forge` parameter (the `OIAX_FORGE` environment
+variable, for CLI runs) overrides detection (`github` or `azuredevops`)
+— pass `forge: github` if a GitHub-hosted repository's `origin` misleads
+the detection.
 
-**The token.** Set `AZURE_DEVOPS_TOKEN` instead of `GITHUB_TOKEN`. It
+**The token.** Pass `azureDevOpsToken` instead of `githubToken`. It
 accepts either a personal access token or the pipeline's built-in
 `$(System.AccessToken)`:
 
 ```yaml
-- template: oiax.yml@oiax
+- template: templates/azure-pipelines/oiax.yml@oiax
   parameters:
     mode: reconcile
-    version: 1.0.0
-  env:
-    AZURE_DEVOPS_TOKEN: $(System.AccessToken)
+    version: v1.0.0
+    azureDevOpsToken: $(System.AccessToken)
 ```
 
 Using `System.AccessToken` needs no secret: grant the build service
@@ -208,13 +213,16 @@ pull requests** on the repository (and, for conflict artifacts, work-item
 **Conflict artifacts and the work-item type.** A backflow conflict is
 recorded as an Azure Boards work item tagged `oiax` + `oiax/conflict`. The
 default type is `Issue`, which exists only in the **Basic** process. On an
-**Agile/Scrum/CMMI** project set `OIAX_ADO_WORKITEM_TYPE` to a type your
-process defines (e.g. `Bug` or `Task`):
+**Agile/Scrum/CMMI** project set the `workItemType` parameter (the
+`OIAX_ADO_WORKITEM_TYPE` environment variable, for CLI runs) to a type
+your process defines (e.g. `Bug` or `Task`):
 
 ```yaml
-  env:
-    AZURE_DEVOPS_TOKEN: $(System.AccessToken)
-    OIAX_ADO_WORKITEM_TYPE: Bug
+  parameters:
+    mode: reconcile
+    version: v1.0.0
+    azureDevOpsToken: $(System.AccessToken)
+    workItemType: Bug
 ```
 
 Everything else — the promotion graph, the equivalence ladder, backflow,

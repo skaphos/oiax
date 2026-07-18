@@ -90,6 +90,9 @@ func TestParseRemoteURLNeverEchoesUserinfo(t *testing.T) {
 	for _, remote := range []string{
 		"https://user:" + secret + "@dev.azure.com/acme/wrong-shape",
 		"user:" + secret + "@dev.azure.com:acme/wrong/shape/extra",
+		// %zz makes url.Parse itself fail; its error echoes the full input
+		// URL (userinfo included), so it must not be wrapped or echoed.
+		"https://user:" + secret + "@dev.azure.com/acme/%zz",
 	} {
 		_, err := azuredevops.ParseRemoteURL(remote)
 		if err == nil {

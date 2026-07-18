@@ -82,8 +82,18 @@ func TestPublishedAzurePipelinesTemplateContract(t *testing.T) {
 	if cfg, ok := params["config"]; !ok || cfg.Default == nil || *cfg.Default != ".oiax.yaml" {
 		t.Errorf("config parameter must default to .oiax.yaml, got %+v", cfg)
 	}
-	if _, ok := params["githubToken"]; !ok {
-		t.Error("githubToken parameter is missing")
+	// Both forge tokens are optional (empty default): a GitHub-hosted
+	// consumer passes githubToken, an Azure Repos consumer passes
+	// azureDevOpsToken; forge selection in the binary is automatic.
+	for _, name := range []string{"githubToken", "azureDevOpsToken", "workItemType", "forge"} {
+		p, ok := params[name]
+		if !ok {
+			t.Errorf("%s parameter is missing", name)
+			continue
+		}
+		if p.Default == nil || *p.Default != "" {
+			t.Errorf("%s parameter must default to empty, got %+v", name, p.Default)
+		}
 	}
 
 	steps := map[string]string{}
@@ -105,8 +115,12 @@ func TestPublishedAzurePipelinesTemplateContract(t *testing.T) {
 	if !strings.Contains(download, `if [ "${AGENT_OS}" != "Linux" ]`) {
 		t.Error("download step does not enforce the Linux-only agent contract")
 	}
-	if !strings.Contains(download, "sha256sum -c -") {
-		t.Error("download step does not verify the selected release asset checksum")
+	// --ignore-missing verifies exactly the downloaded asset with no grep
+	// preselection: the asset name never becomes a regex, and an asset
+	// absent from checksums.txt fails ("no file was verified") instead of
+	// passing silently. Mirrors the action.yml contract.
+	if !strings.Contains(download, "sha256sum --check --ignore-missing checksums.txt") {
+		t.Error("download step does not verify the downloaded release asset checksum")
 	}
 	if !strings.Contains(download, "##vso[task.prependpath]") {
 		t.Error("download step does not prepend the binary to the pipeline PATH")
@@ -129,7 +143,14 @@ func TestPublishedAzurePipelinesTemplateContract(t *testing.T) {
 	if !strings.Contains(run, "validate|plan|reconcile)") {
 		t.Error("run step does not validate the mode")
 	}
-	if got := envs["Run oiax"]["GITHUB_TOKEN"]; !strings.Contains(got, "parameters.githubToken") {
-		t.Errorf("run step GITHUB_TOKEN env = %q, want it wired to parameters.githubToken", got)
+	for env, param := range map[string]string{
+		"GITHUB_TOKEN":           "parameters.githubToken",
+		"AZURE_DEVOPS_TOKEN":     "parameters.azureDevOpsToken",
+		"OIAX_ADO_WORKITEM_TYPE": "parameters.workItemType",
+		"OIAX_FORGE":             "parameters.forge",
+	} {
+		if got := envs["Run oiax"][env]; !strings.Contains(got, param) {
+			t.Errorf("run step %s env = %q, want it wired to %s", env, got, param)
+		}
 	}
 }
