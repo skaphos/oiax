@@ -418,5 +418,430 @@
     "mtime": 1784236667.2831957,
     "ast_hash": "f403251e569548489b12c01e336208fa",
     "semantic_hash": ""
+  },
+  "/home/sstratton/work/skaphos/oiax/.release-please-manifest.json": {
+    "mtime": 1784345206.2303524,
+    "ast_hash": "3b7399fcfaaee9a343875695e0e63864",
+    "semantic_hash": "3b7399fcfaaee9a343875695e0e63864"
+  },
+  "/home/sstratton/work/skaphos/oiax/cmd/oiax/main.go": {
+    "mtime": 1783609357.3510466,
+    "ast_hash": "7e7f781b714ab12f0fc983425ae36bc6",
+    "semantic_hash": "7e7f781b714ab12f0fc983425ae36bc6"
+  },
+  "/home/sstratton/work/skaphos/oiax/go.mod": {
+    "mtime": 1783609357.3580766,
+    "ast_hash": "9f112754349ed81a89640d33af3b4e49",
+    "semantic_hash": "9f112754349ed81a89640d33af3b4e49"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/actioncontract/action_test.go": {
+    "mtime": 1784345206.2435524,
+    "ast_hash": "34849ac9e5947e66f18ebb978a3e110b",
+    "semantic_hash": "34849ac9e5947e66f18ebb978a3e110b"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/cli/cli_test.go": {
+    "mtime": 1784345206.2435524,
+    "ast_hash": "4b8d72725766c177af8d7980d03dd3eb",
+    "semantic_hash": "4b8d72725766c177af8d7980d03dd3eb"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/cli/gendocs.go": {
+    "mtime": 1783609357.3715825,
+    "ast_hash": "2eb8e66c3da18aadaf8bf03dd1c36333",
+    "semantic_hash": "2eb8e66c3da18aadaf8bf03dd1c36333"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/cli/graph.go": {
+    "mtime": 1783884311.6777852,
+    "ast_hash": "475053387489e5a6e8e718dfc5875fd2",
+    "semantic_hash": "475053387489e5a6e8e718dfc5875fd2"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/cli/plan.go": {
+    "mtime": 1783884311.6777852,
+    "ast_hash": "f61568938152e78e59139af1dded440c",
+    "semantic_hash": "f61568938152e78e59139af1dded440c"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/cli/plan_reconcile_test.go": {
+    "mtime": 1784345206.2435524,
+    "ast_hash": "ff9966ba4cb7d45654755bb316c8d958",
+    "semantic_hash": "ff9966ba4cb7d45654755bb316c8d958"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/cli/reconcile.go": {
+    "mtime": 1783884311.6777852,
+    "ast_hash": "93f38c35bae1ca5430e3c813e8b1b06a",
+    "semantic_hash": "93f38c35bae1ca5430e3c813e8b1b06a"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/cli/root.go": {
+    "mtime": 1783884311.6777852,
+    "ast_hash": "33079deee4fb1087488705a98c25c1b0",
+    "semantic_hash": "33079deee4fb1087488705a98c25c1b0"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/cli/validate.go": {
+    "mtime": 1783884311.6777852,
+    "ast_hash": "6abbe12d77584382dca3555397dd2d12",
+    "semantic_hash": "6abbe12d77584382dca3555397dd2d12"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/cli/version.go": {
+    "mtime": 1783884311.6777852,
+    "ast_hash": "0659099357f20e6c197edc62e96a8f56",
+    "semantic_hash": "0659099357f20e6c197edc62e96a8f56"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/cli/wiring.go": {
+    "mtime": 1783884311.6777852,
+    "ast_hash": "d97fb529456fe852d568acec06eb687c",
+    "semantic_hash": "d97fb529456fe852d568acec06eb687c"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/cli/wiring_test.go": {
+    "mtime": 1783884311.6821852,
+    "ast_hash": "bf81a867a8e7f30fa5da7907b4a92221",
+    "semantic_hash": "bf81a867a8e7f30fa5da7907b4a92221"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/config/config.go": {
+    "mtime": 1783884311.6821852,
+    "ast_hash": "f91663aa12c9f9e8b63386a525d11c28",
+    "semantic_hash": "f91663aa12c9f9e8b63386a525d11c28"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/config/config_test.go": {
+    "mtime": 1783884311.6821852,
+    "ast_hash": "ea3cc82b3fa7e0bffe663d0de2211388",
+    "semantic_hash": "ea3cc82b3fa7e0bffe663d0de2211388"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/engine/edge.go": {
+    "mtime": 1784345206.2435524,
+    "ast_hash": "d20bbd8c4dc78e0b3103a4b8e7301d78",
+    "semantic_hash": "d20bbd8c4dc78e0b3103a4b8e7301d78"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/engine/evaluate_test.go": {
+    "mtime": 1784345206.2435524,
+    "ast_hash": "c48936e9af98ec29cefacc20e88fe6b2",
+    "semantic_hash": "c48936e9af98ec29cefacc20e88fe6b2"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/engine/graph.go": {
+    "mtime": 1784345206.2479525,
+    "ast_hash": "2c39a361e17a6407f9352d5a08906472",
+    "semantic_hash": "2c39a361e17a6407f9352d5a08906472"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/engine/plan.go": {
+    "mtime": 1784345206.2479525,
+    "ast_hash": "5ed68a45ef3b9455ed2eecbcf472ff97",
+    "semantic_hash": "5ed68a45ef3b9455ed2eecbcf472ff97"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/engine/plan_test.go": {
+    "mtime": 1784345206.2479525,
+    "ast_hash": "3df03b567f468f108590f1e214d215ad",
+    "semantic_hash": "3df03b567f468f108590f1e214d215ad"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/engine/refname.go": {
+    "mtime": 1783884311.6821852,
+    "ast_hash": "1cef45cd625410a5500996e863723d06",
+    "semantic_hash": "1cef45cd625410a5500996e863723d06"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/engine/types.go": {
+    "mtime": 1784345206.2479525,
+    "ast_hash": "f1ea372fc73f70a958dd0d248d3354c4",
+    "semantic_hash": "f1ea372fc73f70a958dd0d248d3354c4"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/engine/validate.go": {
+    "mtime": 1784345206.2479525,
+    "ast_hash": "5e0ad4da5cea24a39df680e90ad6ac36",
+    "semantic_hash": "5e0ad4da5cea24a39df680e90ad6ac36"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/engine/validate_test.go": {
+    "mtime": 1784345206.2479525,
+    "ast_hash": "2f97cb46c50b7a9fce101e7b46f57b04",
+    "semantic_hash": "2f97cb46c50b7a9fce101e7b46f57b04"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/forge/forge.go": {
+    "mtime": 1784345206.2479525,
+    "ast_hash": "23a328759d50ef16b159765f82b9ff10",
+    "semantic_hash": "23a328759d50ef16b159765f82b9ff10"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/forge/github/github.go": {
+    "mtime": 1784345206.2479525,
+    "ast_hash": "b645ce0a518451636c9447b153811116",
+    "semantic_hash": "b645ce0a518451636c9447b153811116"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/forge/github/github_test.go": {
+    "mtime": 1784345206.2523525,
+    "ast_hash": "77daa316c6db3ea1d4e580f05bc7c2bc",
+    "semantic_hash": "77daa316c6db3ea1d4e580f05bc7c2bc"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/forge/github/marker.go": {
+    "mtime": 1784345206.2523525,
+    "ast_hash": "ddb419f0dc0af1586037126439aff2aa",
+    "semantic_hash": "ddb419f0dc0af1586037126439aff2aa"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/git/git.go": {
+    "mtime": 1784345206.2523525,
+    "ast_hash": "4183da68f1076545644d31e31c69a02f",
+    "semantic_hash": "4183da68f1076545644d31e31c69a02f"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/git/git_test.go": {
+    "mtime": 1784345206.2523525,
+    "ast_hash": "72b9ab938cf8e0f7082b400c9c41b6a4",
+    "semantic_hash": "72b9ab938cf8e0f7082b400c9c41b6a4"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/git/showfile_internal_test.go": {
+    "mtime": 1783884311.6909852,
+    "ast_hash": "cbbde89bf6168aa970f60608bbb6c295",
+    "semantic_hash": "cbbde89bf6168aa970f60608bbb6c295"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/git/version_internal_test.go": {
+    "mtime": 1783884311.6909852,
+    "ast_hash": "d8e2561c3dfb63487ff45fe3836c47fb",
+    "semantic_hash": "d8e2561c3dfb63487ff45fe3836c47fb"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/gittest/gittest.go": {
+    "mtime": 1783884311.6909852,
+    "ast_hash": "40a62d445f8c810b9fcc52061e9ed10e",
+    "semantic_hash": "40a62d445f8c810b9fcc52061e9ed10e"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/reconcile/logging.go": {
+    "mtime": 1783609357.381048,
+    "ast_hash": "e1c63c527e4a980382a01ce95e94948a",
+    "semantic_hash": "e1c63c527e4a980382a01ce95e94948a"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/reconcile/logging_test.go": {
+    "mtime": 1783609357.3822272,
+    "ast_hash": "fc3b0f46dee0bf0e78d454695f0d99ef",
+    "semantic_hash": "fc3b0f46dee0bf0e78d454695f0d99ef"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/reconcile/reconcile.go": {
+    "mtime": 1784345206.2523525,
+    "ast_hash": "db2f18063377b477cfc7db7e34bae077",
+    "semantic_hash": "db2f18063377b477cfc7db7e34bae077"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/reconcile/reconcile_test.go": {
+    "mtime": 1784345206.2523525,
+    "ast_hash": "781c82e3d82e7451b23c02dd98b1ed93",
+    "semantic_hash": "781c82e3d82e7451b23c02dd98b1ed93"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/reconcile/render.go": {
+    "mtime": 1784345206.2523525,
+    "ast_hash": "eb4b7c0f4597c7b591f05e8e1e760f8b",
+    "semantic_hash": "eb4b7c0f4597c7b591f05e8e1e760f8b"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/reconcile/render_test.go": {
+    "mtime": 1784345206.2567525,
+    "ast_hash": "a88cf90b7a4596e14f529d9f1d8ba54a",
+    "semantic_hash": "a88cf90b7a4596e14f529d9f1d8ba54a"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/version/version.go": {
+    "mtime": 1783609357.3822272,
+    "ast_hash": "8782a6f6638751bbc6e496870c6bf711",
+    "semantic_hash": "8782a6f6638751bbc6e496870c6bf711"
+  },
+  "/home/sstratton/work/skaphos/oiax/pkg/api/v1/types.go": {
+    "mtime": 1784345206.2567525,
+    "ast_hash": "a3058db489af46dc46730d08c042cff0",
+    "semantic_hash": "a3058db489af46dc46730d08c042cff0"
+  },
+  "/home/sstratton/work/skaphos/oiax/pkg/api/v1/types_test.go": {
+    "mtime": 1784345206.2567525,
+    "ast_hash": "c885ec76a56e1606dfb50d963adf2376",
+    "semantic_hash": "c885ec76a56e1606dfb50d963adf2376"
+  },
+  "/home/sstratton/work/skaphos/oiax/release-please-config.json": {
+    "mtime": 1783609357.3851867,
+    "ast_hash": "7f1807b2dec7b61e488ad1adc9ac7f7c",
+    "semantic_hash": "7f1807b2dec7b61e488ad1adc9ac7f7c"
+  },
+  "/home/sstratton/work/skaphos/oiax/tools/go.mod": {
+    "mtime": 1783609357.3852189,
+    "ast_hash": "321ef52efa2d02f58a2854df10610c75",
+    "semantic_hash": "321ef52efa2d02f58a2854df10610c75"
+  },
+  "/home/sstratton/work/skaphos/oiax/.github/copilot-instructions.md": {
+    "mtime": 1783609357.349076,
+    "ast_hash": "949fe1462c7690b94a5623136ca50908",
+    "semantic_hash": "949fe1462c7690b94a5623136ca50908"
+  },
+  "/home/sstratton/work/skaphos/oiax/.github/workflows/ci.yml": {
+    "mtime": 1783884311.6689851,
+    "ast_hash": "aca40eb917463f2e3ae13d4eee99daae",
+    "semantic_hash": "aca40eb917463f2e3ae13d4eee99daae"
+  },
+  "/home/sstratton/work/skaphos/oiax/.github/workflows/release-please.yml": {
+    "mtime": 1784345206.2303524,
+    "ast_hash": "5dba15ff4e6b4d9a774e03b93631bcee",
+    "semantic_hash": "5dba15ff4e6b4d9a774e03b93631bcee"
+  },
+  "/home/sstratton/work/skaphos/oiax/.github/workflows/release.yml": {
+    "mtime": 1783884311.6689851,
+    "ast_hash": "a5c8f47fc3bec01e0b78639a28581123",
+    "semantic_hash": "a5c8f47fc3bec01e0b78639a28581123"
+  },
+  "/home/sstratton/work/skaphos/oiax/.golangci.yml": {
+    "mtime": 1783609357.350137,
+    "ast_hash": "8599d120b93684e240afbee9f23f5d18",
+    "semantic_hash": "8599d120b93684e240afbee9f23f5d18"
+  },
+  "/home/sstratton/work/skaphos/oiax/.goreleaser.yaml": {
+    "mtime": 1783609357.350137,
+    "ast_hash": "86041515861b819995bd593b06e88242",
+    "semantic_hash": "86041515861b819995bd593b06e88242"
+  },
+  "/home/sstratton/work/skaphos/oiax/AGENTS.md": {
+    "mtime": 1783609357.350137,
+    "ast_hash": "c4916b4948c4c59759566c8edc070afa",
+    "semantic_hash": "c4916b4948c4c59759566c8edc070afa"
+  },
+  "/home/sstratton/work/skaphos/oiax/CHANGELOG.md": {
+    "mtime": 1784345206.2303524,
+    "ast_hash": "713e87057da9565c02b0d46d2e778668",
+    "semantic_hash": "713e87057da9565c02b0d46d2e778668"
+  },
+  "/home/sstratton/work/skaphos/oiax/CONTRIBUTING.md": {
+    "mtime": 1783609357.350137,
+    "ast_hash": "93fa9a2297ee8dce057b6a9c5eb60a7b",
+    "semantic_hash": "93fa9a2297ee8dce057b6a9c5eb60a7b"
+  },
+  "/home/sstratton/work/skaphos/oiax/LICENSES/MIT.txt": {
+    "mtime": 1784345206.2303524,
+    "ast_hash": "7f3f7b89e1143e060efe34288339b6b7",
+    "semantic_hash": "7f3f7b89e1143e060efe34288339b6b7"
+  },
+  "/home/sstratton/work/skaphos/oiax/README.md": {
+    "mtime": 1784345206.2303524,
+    "ast_hash": "d9bbb654b098bfab3307dc9194ae3e91",
+    "semantic_hash": "d9bbb654b098bfab3307dc9194ae3e91"
+  },
+  "/home/sstratton/work/skaphos/oiax/RELEASE.md": {
+    "mtime": 1783960623.3008282,
+    "ast_hash": "0a9db06003cd2d454e3f419e52606861",
+    "semantic_hash": "0a9db06003cd2d454e3f419e52606861"
+  },
+  "/home/sstratton/work/skaphos/oiax/Taskfile.yml": {
+    "mtime": 1783609357.350137,
+    "ast_hash": "3152327fb1f6ff44ac2f8c8e0c605604",
+    "semantic_hash": "3152327fb1f6ff44ac2f8c8e0c605604"
+  },
+  "/home/sstratton/work/skaphos/oiax/action.yml": {
+    "mtime": 1783960623.3008282,
+    "ast_hash": "0813bbb9c0b5da13116e19cc8fcb558b",
+    "semantic_hash": "0813bbb9c0b5da13116e19cc8fcb558b"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/README.md": {
+    "mtime": 1783960623.3008282,
+    "ast_hash": "c92e081ce03c03cfb9ebbdcd64a8b282",
+    "semantic_hash": "c92e081ce03c03cfb9ebbdcd64a8b282"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/adr/0001-adopt-the-name-oiax.md": {
+    "mtime": 1783609357.3561678,
+    "ast_hash": "0c33eab1e3ef072b3bd82ae3f8211dc9",
+    "semantic_hash": "0c33eab1e3ef072b3bd82ae3f8211dc9"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/adr/0002-content-based-divergence-detection.md": {
+    "mtime": 1783609357.3565507,
+    "ast_hash": "5102ed67d81e669bc555da9c5a140b86",
+    "semantic_hash": "5102ed67d81e669bc555da9c5a140b86"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/adr/0003-pinned-configuration-ref.md": {
+    "mtime": 1783609357.3565507,
+    "ast_hash": "8fe034edf8986c6a6112f9aa7bc2aa13",
+    "semantic_hash": "8fe034edf8986c6a6112f9aa7bc2aa13"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/adr/0004-backflow-execution.md": {
+    "mtime": 1783884311.6689851,
+    "ast_hash": "7ede787c682e950fa3830e411a2402a2",
+    "semantic_hash": "7ede787c682e950fa3830e411a2402a2"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/adr/0005-config-api-v1.md": {
+    "mtime": 1783884311.6733851,
+    "ast_hash": "1386ca4a242e5b7682d707cb3e0e3745",
+    "semantic_hash": "1386ca4a242e5b7682d707cb3e0e3745"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/adr/0006-merge-commit-backflow-strategy.md": {
+    "mtime": 1784345206.2303524,
+    "ast_hash": "9cd05f97b93e993d6a105c6db02ac5fe",
+    "semantic_hash": "9cd05f97b93e993d6a105c6db02ac5fe"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/adr/0007-git-shell-out.md": {
+    "mtime": 1784345206.2303524,
+    "ast_hash": "fe5c1dddc66bb196db891786820afbec",
+    "semantic_hash": "fe5c1dddc66bb196db891786820afbec"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/adr/0008-durable-backflow-conflict-artifact.md": {
+    "mtime": 1784345206.2347524,
+    "ast_hash": "5b99074b4f046ea498db24d67dd17313",
+    "semantic_hash": "5b99074b4f046ea498db24d67dd17313"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/architecture.md": {
+    "mtime": 1783884311.6733851,
+    "ast_hash": "e4a689aa87f6cbb16ccc0e941cbaeb2e",
+    "semantic_hash": "e4a689aa87f6cbb16ccc0e941cbaeb2e"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/code-map.md": {
+    "mtime": 1783884311.6733851,
+    "ast_hash": "0af3a3c045e17086382f77ef11aa189f",
+    "semantic_hash": "0af3a3c045e17086382f77ef11aa189f"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/guides/README.md": {
+    "mtime": 1784345206.2347524,
+    "ast_hash": "bc111d7b4b29ba0c2db4aaed85efbe45",
+    "semantic_hash": "bc111d7b4b29ba0c2db4aaed85efbe45"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/guides/agent-install.md": {
+    "mtime": 1783960623.3008282,
+    "ast_hash": "22f2fbc2c2547688894ec2d448f73d1a",
+    "semantic_hash": "22f2fbc2c2547688894ec2d448f73d1a"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/guides/backflow.md": {
+    "mtime": 1784345206.2347524,
+    "ast_hash": "13699831498bfa263e24573422ad10e8",
+    "semantic_hash": "13699831498bfa263e24573422ad10e8"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/guides/getting-started.md": {
+    "mtime": 1783884311.6769466,
+    "ast_hash": "dd0a2b9ade6bdc889c0544edd1c27b35",
+    "semantic_hash": "dd0a2b9ade6bdc889c0544edd1c27b35"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/guides/github-action.md": {
+    "mtime": 1784345206.2347524,
+    "ast_hash": "0a1974de860b98bfb61d5014a0261a64",
+    "semantic_hash": "0a1974de860b98bfb61d5014a0261a64"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/guides/minimizing-divergence.md": {
+    "mtime": 1784345206.2347524,
+    "ast_hash": "05c284c8a7445c6c3e293944e58e79f4",
+    "semantic_hash": "05c284c8a7445c6c3e293944e58e79f4"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/guides/operating.md": {
+    "mtime": 1784345206.2347524,
+    "ast_hash": "76c6fb365677ea9d72fd22af7076b5f1",
+    "semantic_hash": "76c6fb365677ea9d72fd22af7076b5f1"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/guides/promotion-graphs.md": {
+    "mtime": 1784345206.2347524,
+    "ast_hash": "983d4dd7db2f59d25cf44b73ad39c39b",
+    "semantic_hash": "983d4dd7db2f59d25cf44b73ad39c39b"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/guides/recipes.md": {
+    "mtime": 1784345206.2347524,
+    "ast_hash": "2cf005375d2edc18b3883e6a77f60f62",
+    "semantic_hash": "2cf005375d2edc18b3883e6a77f60f62"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/guides/troubleshooting.md": {
+    "mtime": 1783884311.6769466,
+    "ast_hash": "776053c88ff1991d612cc7cc3f7dd6d3",
+    "semantic_hash": "776053c88ff1991d612cc7cc3f7dd6d3"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/reference/cli.md": {
+    "mtime": 1783884901.0951989,
+    "ast_hash": "7b6013c867461629fc6688dbf003447b",
+    "semantic_hash": "7b6013c867461629fc6688dbf003447b"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/reference/configuration.md": {
+    "mtime": 1784345206.2347524,
+    "ast_hash": "610ff5e1e6a2b4d84ac554cb834ac928",
+    "semantic_hash": "610ff5e1e6a2b4d84ac554cb834ac928"
+  },
+  "/home/sstratton/work/skaphos/oiax/docs/reference/plan-format.md": {
+    "mtime": 1784345206.2347524,
+    "ast_hash": "7b4ed9da8c43d9d2e302797d4a4eb5d6",
+    "semantic_hash": "7b4ed9da8c43d9d2e302797d4a4eb5d6"
+  },
+  "/home/sstratton/work/skaphos/oiax/internal/config/testdata/environments.yaml": {
+    "mtime": 1783884311.6821852,
+    "ast_hash": "f403251e569548489b12c01e336208fa",
+    "semantic_hash": "f403251e569548489b12c01e336208fa"
   }
 }
