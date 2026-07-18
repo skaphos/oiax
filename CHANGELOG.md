@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.1.0](https://github.com/skaphos/oiax/compare/v1.0.3...v1.1.0) (2026-07-18)
+
+
+### Features
+
+* **backflow:** durable forge-side conflict artifact (SKA-601) ([#37](https://github.com/skaphos/oiax/issues/37)) ([d67c70d](https://github.com/skaphos/oiax/commit/d67c70dfd645637dd2ffd1fa93fee166d314129f))
+* **backflow:** merge-commit backflow strategy — foundation (SKA-599) ([#34](https://github.com/skaphos/oiax/issues/34)) ([9834101](https://github.com/skaphos/oiax/commit/9834101e813e319e28b662307cb39b3e168945cd))
+* **backflow:** merge-commit execution, fences, and plan output (SKA-599) ([#35](https://github.com/skaphos/oiax/issues/35)) ([1c56544](https://github.com/skaphos/oiax/commit/1c56544ab65d2fe1109a8570eed9736226149a5c))
+* **plan:** per-edge equivalence-ladder diagnostics in plan output (SKA-600) ([#30](https://github.com/skaphos/oiax/issues/30)) ([e9139e4](https://github.com/skaphos/oiax/commit/e9139e47730be62bccd998ce87a448665a904d12))
+* run Oiax from Azure Pipelines + Azure DevOps forge provider (CI-neutral core, template, provider) ([#38](https://github.com/skaphos/oiax/issues/38)) ([2342c23](https://github.com/skaphos/oiax/commit/2342c23c1568e08c4483fc68a3bd0532ee59cf12))
+
 ## [1.0.3](https://github.com/skaphos/oiax/compare/v1.0.2...v1.0.3) (2026-07-13)
 
 
