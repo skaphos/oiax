@@ -179,6 +179,15 @@ Azure Repos PRs; conflict artifacts to work items), but no `azuredevops`
 provider ships today. Until it does, Oiax manages GitHub pull requests
 only, whatever CI host it runs on.
 
+Oiax does already *detect* Azure Repos: a pipeline run whose checkout is
+an Azure Repos repository (or an `origin` remote on `dev.azure.com` /
+`visualstudio.com`) fails fast with a clear not-yet-supported error
+instead of running the GitHub provider against the wrong forge. The
+`OIAX_FORGE` environment variable overrides detection (`github` or
+`azuredevops`) — set `OIAX_FORGE=github` if the detection misfires for a
+repository whose promotion pull requests genuinely live on GitHub. See
+the [configuration reference](../reference/configuration.md#environment-variables).
+
 ## Next steps
 
 - [Set up a token that triggers CI](tokens.md) — the GitHub App setup.

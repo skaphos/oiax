@@ -75,7 +75,7 @@ generated [CLI reference](cli.md) for per-command flags):
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--config` | `.oiax.yaml` | Path to the configuration file. |
-| `--config-ref` | see note | Ref the configuration is read from, via `git show <ref>:<path>`. Default: the repository default branch (`origin/HEAD`) for `plan`/`reconcile`, the working-tree file for `validate`/`graph`. When the default branch cannot be resolved (no `origin/HEAD`), `plan`/`reconcile` fall back to the working-tree file locally but refuse under GitHub Actions — pin this flag to recover. |
+| `--config-ref` | see note | Ref the configuration is read from, via `git show <ref>:<path>`. Default: the repository default branch (`origin/HEAD`) for `plan`/`reconcile`, the working-tree file for `validate`/`graph`. When the default branch cannot be resolved (no `origin/HEAD`), `plan`/`reconcile` fall back to the working-tree file locally but refuse under CI (GitHub Actions or Azure Pipelines) — pin this flag to recover. |
 | `--output`, `-o` | `text` | Output format for plan-producing commands: `text` or `json`. |
 
 ## Environment variables
@@ -84,6 +84,7 @@ generated [CLI reference](cli.md) for per-command flags):
 | --- | --- | --- |
 | `GITHUB_TOKEN` | none | **Required for `plan` and `reconcile`** (`validate` and `graph` touch no forge). Token the GitHub provider authenticates with — creating, updating, closing, and listing managed requests, and pushing backflow branches. See [Architecture — Tokens](../architecture.md#tokens) for the token-type tradeoffs (`GITHUB_TOKEN` works out of the box but is degraded: pull-request workflow runs wait for write-user approval instead of starting automatically). |
 | `OIAX_LOG_FORMAT` | `text` | Structured log format: `text` or `json`. |
+| `OIAX_FORGE` | auto-detect | Forge provider override: `github` or `azuredevops`. Unset, Oiax detects the forge from the environment (GitHub Actions; Azure Pipelines' repository provider) or the `origin` remote URL, defaulting to `github`. `azuredevops` is recognized but its provider is not implemented yet: selecting it fails with a clear pointer instead of running the GitHub provider against an Azure Repos repository. |
 
 ## Exit codes
 

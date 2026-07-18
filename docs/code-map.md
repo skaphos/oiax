@@ -73,6 +73,16 @@ requests, manages labels and `oiax/` refs, adopts safe HTTP 422 duplicate
 creates, paginates and bounds merged-request discovery, and applies
 bounded retries where replay is safe.
 
+## `internal/forge/azuredevops`
+
+The home of the future Azure Repos provider (roadmap). Today: Azure
+DevOps repository identity — the organization/project/repository triple
+— resolved from the Azure Pipelines environment (`TfsGit` builds) or by
+parsing `dev.azure.com`/`visualstudio.com` remote URLs. Forge selection
+in the CLI uses it to detect Azure Repos checkouts and name the
+repository it declines to serve; errors never echo URL userinfo (where
+PATs are commonly embedded).
+
 ## `internal/cli`
 
 The Cobra command tree: `validate`, `plan`, `reconcile`, `graph`,

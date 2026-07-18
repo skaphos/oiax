@@ -62,7 +62,8 @@ commands do not need it, only `plan`/`reconcile`.
 
 ## `cannot resolve the repository default branch`
 
-**Symptom.** Under Actions, `plan`/`reconcile` fails with:
+**Symptom.** Under CI (GitHub Actions or Azure Pipelines), `plan`/`reconcile`
+fails with:
 
 ```
 cannot resolve the repository default branch (origin/HEAD is not set); pin --config-ref to the default branch, for example --config-ref origin/main
@@ -70,15 +71,16 @@ cannot resolve the repository default branch (origin/HEAD is not set); pin --con
 
 **Cause.** Oiax reads configuration from a pinned ref — by default the
 repository default branch (`origin/HEAD`). When that ref is not set (a
-remote-less or misconfigured checkout), it cannot resolve. Under Actions
+remote-less or misconfigured checkout), it cannot resolve. Under CI
 it refuses rather than silently reading the triggering ref, which would
 run untrusted PR configuration with write credentials.
 
-**Fix.** The `skaphos/oiax` Action prepares refs for you (it runs `git
-remote set-head origin --auto`), so this usually means a checkout step ran
-without that preparation. Either use the Action, or pin the ref
-explicitly: `--config-ref origin/main` (CLI) / `config-ref: origin/main`
-(Action). Locally, a remote-less repo simply falls back to the
+**Fix.** The `skaphos/oiax` Action and the Azure Pipelines template
+prepare refs for you (they run `git remote set-head origin --auto`), so
+this usually means a checkout step ran without that preparation. Either
+use the Action/template, or pin the ref explicitly: `--config-ref
+origin/main` (CLI) / `config-ref: origin/main` (Action) /
+`configRef: origin/main` (template). Locally, a remote-less repo simply falls back to the
 working-tree file.
 
 ## `apiVersion "…v1alpha1" is deprecated`
@@ -260,7 +262,30 @@ URL. Neither was usable.
 
 **Fix.** Under Actions this is set for you. Locally, ensure `origin`
 points at the GitHub repository (`git remote -v`), or export
-`GITHUB_REPOSITORY=owner/repo`.
+`GITHUB_REPOSITORY=owner/repo`. Under Azure Pipelines building a
+GitHub-hosted repository, the agent's `BUILD_REPOSITORY_NAME` supplies
+the pair automatically.
+
+## `Azure Repos is not yet a supported forge provider`
+
+**Symptom.** `plan` or `reconcile` fails with:
+
+```
+Azure Repos is not yet a supported forge provider: Oiax manages GitHub
+pull requests only today (…): not implemented
+```
+
+**Cause.** Forge selection detected an Azure Repos repository — an Azure
+Pipelines build of an Azure Repos checkout, an `origin` remote on
+`dev.azure.com`/`visualstudio.com`, or an explicit `OIAX_FORGE=azuredevops`
+— and there is no Azure Repos provider yet. Oiax refuses rather than run
+the GitHub provider against the wrong forge.
+
+**Fix.** If the repository whose pull requests Oiax should manage
+actually lives on GitHub (the detection misfired — say, a mirror), set
+`OIAX_FORGE=github`. If it genuinely lives in Azure Repos, Oiax cannot
+manage its pull requests yet: Azure Repos is a roadmap item — see
+[Deploying Oiax from Azure Pipelines](azure-pipelines.md#azure-repos).
 
 ## Still stuck?
 

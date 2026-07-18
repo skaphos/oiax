@@ -816,6 +816,26 @@ func TestPlanRefusesUnresolvableDefaultBranchUnderAzurePipelines(t *testing.T) {
 	}
 }
 
+// TestPlanRefusesAzureReposForge proves the azuredevops forge selection
+// fails with the roadmap pointer instead of letting the GitHub provider
+// run against an Azure Repos repository. This exercises the real
+// newForge (no fake substituted).
+func TestPlanRefusesAzureReposForge(t *testing.T) {
+	setupRepo(t)
+	t.Setenv("OIAX_FORGE", "azuredevops")
+
+	out, err := run(t, "plan")
+	if err == nil {
+		t.Fatalf("plan succeeded, want the Azure Repos not-implemented refusal:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "Azure Repos is not yet a supported forge provider") {
+		t.Errorf("error = %v, want the Azure Repos roadmap refusal", err)
+	}
+	if !strings.Contains(err.Error(), "OIAX_FORGE=github") {
+		t.Errorf("error = %v, want the OIAX_FORGE=github escape hatch", err)
+	}
+}
+
 // TestPlanAssertsGitFloorBeforeConfigRead proves the version floor is asserted
 // before any other git subprocess. With --config-ref set, config resolution
 // runs `git show --end-of-options <ref>:<path>` during loadGraph; a fake git

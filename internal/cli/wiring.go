@@ -14,15 +14,38 @@ import (
 	"github.com/skaphos/oiax/internal/cienv"
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
+	"github.com/skaphos/oiax/internal/forge/azuredevops"
 	"github.com/skaphos/oiax/internal/forge/github"
 	"github.com/skaphos/oiax/internal/git"
 	"github.com/skaphos/oiax/internal/reconcile"
 )
 
+// forgeKind names a forge provider implementation the CLI can wire.
+type forgeKind string
+
+const (
+	forgeGitHub      forgeKind = "github"
+	forgeAzureDevOps forgeKind = "azuredevops"
+)
+
 // newForge builds the forge provider a coordinator runs against. It is a
-// package variable so tests can substitute a fake; production resolves the
-// GitHub repository and token from the environment.
+// package variable so tests can substitute a fake; production selects the
+// provider (resolveForgeKind) and resolves the repository and token from
+// the environment. The azuredevops selection is recognized but its
+// provider is not implemented yet: it fails with a clear pointer instead
+// of letting the GitHub provider mangle an Azure Repos repository.
 var newForge = func(ctx context.Context, logger *slog.Logger) (forge.Forge, error) {
+	kind, err := resolveForgeKind(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if kind == forgeAzureDevOps {
+		const msg = "Azure Repos is not yet a supported forge provider: Oiax manages GitHub pull requests only today (see docs/guides/azure-pipelines.md); set OIAX_FORGE=github if this repository's promotion requests live on GitHub"
+		if repo, rerr := azuredevops.ResolveRepo(ctx); rerr == nil {
+			return nil, fmt.Errorf("forge provider for %s: %s: %w", repo, msg, forge.ErrNotImplemented)
+		}
+		return nil, fmt.Errorf("%s: %w", msg, forge.ErrNotImplemented)
+	}
 	owner, repo, err := resolveRepo(ctx)
 	if err != nil {
 		return nil, err
@@ -32,10 +55,47 @@ var newForge = func(ctx context.Context, logger *slog.Logger) (forge.Forge, erro
 		Repo:  repo,
 		Token: os.Getenv("GITHUB_TOKEN"),
 		// Route the provider's degradation warning through the logger so it
-		// is both logged and (under Actions) annotated. The token is never
+		// is both logged and (under CI) annotated. The token is never
 		// part of the warning.
 		Warn: func(msg string) { logger.Warn(msg) },
 	}, nil
+}
+
+// resolveForgeKind selects the forge provider. An explicit OIAX_FORGE
+// wins (github or azuredevops; anything else is an error). Otherwise
+// detection, cheapest signal first: GITHUB_REPOSITORY (set by the
+// Actions runtime) means GitHub; under Azure Pipelines the agent's
+// BUILD_REPOSITORY_PROVIDER distinguishes an Azure Repos checkout
+// (TfsGit) from a GitHub-hosted one (GitHub); failing both, an origin
+// remote that parses as an Azure DevOps URL selects azuredevops. The
+// default is github — the first provider, whose own repository
+// resolution produces the actionable error when nothing matches.
+func resolveForgeKind(ctx context.Context) (forgeKind, error) {
+	if v := os.Getenv("OIAX_FORGE"); v != "" {
+		switch strings.ToLower(v) {
+		case string(forgeGitHub):
+			return forgeGitHub, nil
+		case string(forgeAzureDevOps):
+			return forgeAzureDevOps, nil
+		default:
+			return "", fmt.Errorf("invalid OIAX_FORGE %q (want github or azuredevops)", v)
+		}
+	}
+	if os.Getenv("GITHUB_REPOSITORY") != "" {
+		return forgeGitHub, nil
+	}
+	switch p := os.Getenv("BUILD_REPOSITORY_PROVIDER"); {
+	case strings.EqualFold(p, "TfsGit"):
+		return forgeAzureDevOps, nil
+	case strings.EqualFold(p, "GitHub"):
+		return forgeGitHub, nil
+	}
+	if out, err := exec.CommandContext(ctx, "git", "remote", "get-url", "origin").Output(); err == nil {
+		if _, aerr := azuredevops.ParseRemoteURL(strings.TrimSpace(string(out))); aerr == nil {
+			return forgeAzureDevOps, nil
+		}
+	}
+	return forgeGitHub, nil
 }
 
 // requireGitFloor asserts the system git satisfies oiax's version floor before
@@ -162,8 +222,10 @@ func writeAzureSummary(cmd *cobra.Command, plan engine.Plan) {
 }
 
 // resolveRepo determines the GitHub owner/repo. GITHUB_REPOSITORY
-// (owner/repo, set by the Action runtime) wins; otherwise it is parsed from
-// the origin remote URL.
+// (owner/repo, set by the Action runtime) wins; an Azure Pipelines build
+// of a GitHub-hosted repository publishes the same pair as
+// BUILD_REPOSITORY_NAME; otherwise it is parsed from the origin remote
+// URL.
 func resolveRepo(ctx context.Context) (owner, repo string, err error) {
 	if r := os.Getenv("GITHUB_REPOSITORY"); r != "" {
 		o, n, ok := strings.Cut(r, "/")
@@ -171,6 +233,14 @@ func resolveRepo(ctx context.Context) (owner, repo string, err error) {
 			return "", "", fmt.Errorf("invalid GITHUB_REPOSITORY %q", r)
 		}
 		return o, n, nil
+	}
+	// The provider gate matters: for Azure Repos (TfsGit) the variable
+	// holds a bare repository name, not owner/repo, and must not be
+	// misread. A malformed value falls through to the origin remote.
+	if strings.EqualFold(os.Getenv("BUILD_REPOSITORY_PROVIDER"), "github") {
+		if o, n, ok := strings.Cut(os.Getenv("BUILD_REPOSITORY_NAME"), "/"); ok && o != "" && n != "" {
+			return o, n, nil
+		}
 	}
 	out, err := exec.CommandContext(ctx, "git", "remote", "get-url", "origin").Output()
 	if err != nil {

@@ -135,6 +135,7 @@ func TestResolveRepoFromEnv(t *testing.T) {
 // current directory's repository.
 func TestResolveRepoFallsBackToOriginRemote(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "")
+	t.Setenv("BUILD_REPOSITORY_PROVIDER", "")
 
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -155,6 +156,7 @@ func TestResolveRepoFallsBackToOriginRemote(t *testing.T) {
 // is available.
 func TestResolveRepoNoOriginRemote(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "")
+	t.Setenv("BUILD_REPOSITORY_PROVIDER", "")
 
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -163,4 +165,116 @@ func TestResolveRepoNoOriginRemote(t *testing.T) {
 	if _, _, err := resolveRepo(context.Background()); err == nil {
 		t.Fatal("resolveRepo() = nil error, want a failure with no origin remote configured")
 	}
+}
+
+// TestResolveRepoFromAzureGitHubBuild proves an Azure Pipelines build of a
+// GitHub-hosted repository resolves owner/repo from BUILD_REPOSITORY_NAME
+// — gated on BUILD_REPOSITORY_PROVIDER=GitHub, so an Azure Repos build
+// (TfsGit, bare repository name) never misparses, and a malformed value
+// falls through to the origin remote rather than erroring.
+func TestResolveRepoFromAzureGitHubBuild(t *testing.T) {
+	t.Setenv("GITHUB_REPOSITORY", "")
+	t.Setenv("BUILD_REPOSITORY_PROVIDER", "GitHub")
+	t.Setenv("BUILD_REPOSITORY_NAME", "skaphos/oiax")
+
+	owner, repo, err := resolveRepo(context.Background())
+	if err != nil {
+		t.Fatalf("resolveRepo(): %v", err)
+	}
+	if owner != "skaphos" || repo != "oiax" {
+		t.Errorf("resolveRepo() = (%q, %q), want (%q, %q)", owner, repo, "skaphos", "oiax")
+	}
+
+	// TfsGit publishes a bare repository name; it must not be consumed.
+	t.Setenv("BUILD_REPOSITORY_PROVIDER", "TfsGit")
+	t.Setenv("BUILD_REPOSITORY_NAME", "deploy")
+	dir := t.TempDir()
+	t.Chdir(dir)
+	gittest.InitRepo(t, dir)
+	gittest.Run(t, dir, "remote", "add", "origin", "https://github.com/from/remote.git")
+	owner, repo, err = resolveRepo(context.Background())
+	if err != nil {
+		t.Fatalf("resolveRepo(): %v", err)
+	}
+	if owner != "from" || repo != "remote" {
+		t.Errorf("resolveRepo() = (%q, %q), want the origin remote to win over a TfsGit repository name", owner, repo)
+	}
+}
+
+// TestResolveForgeKind pins provider selection: the OIAX_FORGE override
+// (including its rejection of unknown values), the environment signals
+// from GitHub Actions and Azure Pipelines, remote-URL detection, and the
+// github default.
+func TestResolveForgeKind(t *testing.T) {
+	clear := func(t *testing.T) {
+		t.Setenv("OIAX_FORGE", "")
+		t.Setenv("GITHUB_REPOSITORY", "")
+		t.Setenv("BUILD_REPOSITORY_PROVIDER", "")
+	}
+
+	t.Run("explicit override", func(t *testing.T) {
+		clear(t)
+		for value, want := range map[string]forgeKind{
+			"github":      forgeGitHub,
+			"azuredevops": forgeAzureDevOps,
+			"AzureDevOps": forgeAzureDevOps,
+		} {
+			t.Setenv("OIAX_FORGE", value)
+			got, err := resolveForgeKind(context.Background())
+			if err != nil {
+				t.Fatalf("OIAX_FORGE=%s: %v", value, err)
+			}
+			if got != want {
+				t.Errorf("OIAX_FORGE=%s → %s, want %s", value, got, want)
+			}
+		}
+	})
+
+	t.Run("invalid override", func(t *testing.T) {
+		clear(t)
+		t.Setenv("OIAX_FORGE", "gitlab")
+		if _, err := resolveForgeKind(context.Background()); err == nil {
+			t.Fatal("OIAX_FORGE=gitlab accepted, want an error")
+		}
+	})
+
+	t.Run("github actions env", func(t *testing.T) {
+		clear(t)
+		t.Setenv("GITHUB_REPOSITORY", "skaphos/oiax")
+		if got, _ := resolveForgeKind(context.Background()); got != forgeGitHub {
+			t.Errorf("got %s, want github", got)
+		}
+	})
+
+	t.Run("azure pipelines provider env", func(t *testing.T) {
+		clear(t)
+		t.Setenv("BUILD_REPOSITORY_PROVIDER", "TfsGit")
+		if got, _ := resolveForgeKind(context.Background()); got != forgeAzureDevOps {
+			t.Errorf("TfsGit → %s, want azuredevops", got)
+		}
+		t.Setenv("BUILD_REPOSITORY_PROVIDER", "GitHub")
+		if got, _ := resolveForgeKind(context.Background()); got != forgeGitHub {
+			t.Errorf("GitHub → %s, want github", got)
+		}
+	})
+
+	t.Run("azure remote detection", func(t *testing.T) {
+		clear(t)
+		dir := t.TempDir()
+		t.Chdir(dir)
+		gittest.InitRepo(t, dir)
+		gittest.Run(t, dir, "remote", "add", "origin", "https://dev.azure.com/acme/platform/_git/deploy")
+		if got, _ := resolveForgeKind(context.Background()); got != forgeAzureDevOps {
+			t.Errorf("dev.azure.com remote → %s, want azuredevops", got)
+		}
+	})
+
+	t.Run("github default", func(t *testing.T) {
+		clear(t)
+		dir := t.TempDir() // no git repository at all: still github
+		t.Chdir(dir)
+		if got, err := resolveForgeKind(context.Background()); err != nil || got != forgeGitHub {
+			t.Errorf("default = (%s, %v), want (github, nil)", got, err)
+		}
+	})
 }
