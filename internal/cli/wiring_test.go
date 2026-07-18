@@ -2,8 +2,11 @@ package cli
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 
+	"github.com/skaphos/oiax/internal/forge/azuredevops"
 	"github.com/skaphos/oiax/internal/gittest"
 )
 
@@ -277,4 +280,40 @@ func TestResolveForgeKind(t *testing.T) {
 			t.Errorf("default = (%s, %v), want (github, nil)", got, err)
 		}
 	})
+}
+
+// TestNewForgeSelectsAzureDevOps proves that OIAX_FORGE=azuredevops now
+// constructs the Azure DevOps provider — not the earlier not-implemented
+// refusal, and not the GitHub provider — resolving the repository from the
+// origin remote and wiring the token and work-item type from the environment.
+// Construction touches no network (no API call is made until a command runs).
+func TestNewForgeSelectsAzureDevOps(t *testing.T) {
+	t.Setenv("OIAX_FORGE", "azuredevops")
+	t.Setenv("GITHUB_REPOSITORY", "")
+	t.Setenv("BUILD_REPOSITORY_PROVIDER", "")
+	t.Setenv("AZURE_DEVOPS_TOKEN", "secret-pat")
+	t.Setenv("OIAX_ADO_WORKITEM_TYPE", "Bug")
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	gittest.InitRepo(t, dir)
+	gittest.Run(t, dir, "remote", "add", "origin", "https://dev.azure.com/acme/platform/_git/deploy")
+
+	f, err := newForge(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("newForge(): %v", err)
+	}
+	p, ok := f.(*azuredevops.Provider)
+	if !ok {
+		t.Fatalf("newForge() = %T, want *azuredevops.Provider", f)
+	}
+	if p.Repo.Organization != "acme" || p.Repo.Project != "platform" || p.Repo.Name != "deploy" {
+		t.Errorf("Repo = %+v, want acme/platform/deploy", p.Repo)
+	}
+	if p.Token != "secret-pat" {
+		t.Error("Token not wired from AZURE_DEVOPS_TOKEN")
+	}
+	if p.WorkItemType != "Bug" {
+		t.Errorf("WorkItemType = %q, want Bug", p.WorkItemType)
+	}
 }

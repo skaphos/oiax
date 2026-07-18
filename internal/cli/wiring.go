@@ -31,20 +31,25 @@ const (
 // newForge builds the forge provider a coordinator runs against. It is a
 // package variable so tests can substitute a fake; production selects the
 // provider (resolveForgeKind) and resolves the repository and token from
-// the environment. The azuredevops selection is recognized but its
-// provider is not implemented yet: it fails with a clear pointer instead
-// of letting the GitHub provider mangle an Azure Repos repository.
+// the environment.
 var newForge = func(ctx context.Context, logger *slog.Logger) (forge.Forge, error) {
 	kind, err := resolveForgeKind(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if kind == forgeAzureDevOps {
-		const msg = "Azure Repos is not yet a supported forge provider: Oiax manages GitHub pull requests only today (see docs/guides/azure-pipelines.md); set OIAX_FORGE=github if this repository's promotion requests live on GitHub"
-		if repo, rerr := azuredevops.ResolveRepo(ctx); rerr == nil {
-			return nil, fmt.Errorf("forge provider for %s: %s: %w", repo, msg, forge.ErrNotImplemented)
+		repo, rerr := azuredevops.ResolveRepo(ctx)
+		if rerr != nil {
+			return nil, fmt.Errorf("resolve Azure DevOps repository: %w", rerr)
 		}
-		return nil, fmt.Errorf("%s: %w", msg, forge.ErrNotImplemented)
+		return &azuredevops.Provider{
+			Repo:  repo,
+			Token: os.Getenv("AZURE_DEVOPS_TOKEN"),
+			// The Azure Boards work-item type durable conflict artifacts are
+			// created as. Empty falls back to the provider default ("Issue");
+			// Agile/Scrum/CMMI projects set OIAX_ADO_WORKITEM_TYPE.
+			WorkItemType: os.Getenv("OIAX_ADO_WORKITEM_TYPE"),
+		}, nil
 	}
 	owner, repo, err := resolveRepo(ctx)
 	if err != nil {

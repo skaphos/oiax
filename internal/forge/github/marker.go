@@ -28,12 +28,10 @@ const (
 )
 
 var (
-	serializeMarker     = mk.Serialize
-	parseMarker         = mk.Parse
-	replaceMarker       = mk.Replace
-	validateMarker      = mk.Validate
-	sanitizeMarkerValue = mk.Sanitize
-	validMarkerValue    = mk.ValidValue
+	serializeMarker = mk.Serialize
+	parseMarker     = mk.Parse
+	replaceMarker   = mk.Replace
+	validateMarker  = mk.Validate
 
 	markerVersionPattern = mk.VersionPattern
 	markerVersionNum     = mk.VersionNum
