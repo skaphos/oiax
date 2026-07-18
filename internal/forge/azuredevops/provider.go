@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/skaphos/oiax/internal/engine"
@@ -82,6 +83,13 @@ type Provider struct {
 	retryMax     int
 	retryBackoff time.Duration
 	maxRespBytes int64
+
+	// repoID memoizes the repository's immutable GUID so TargetMergeMethods,
+	// called once per target branch during a reconcile, resolves it with a
+	// single GET rather than one per edge.
+	repoIDOnce sync.Once
+	repoIDVal  string
+	repoIDErr  error
 }
 
 var _ forge.Forge = (*Provider)(nil)
@@ -175,36 +183,41 @@ func (p *Provider) ListManagedRequests(ctx context.Context, filter forge.Request
 			"&searchCriteria.queryTimeRangeType=closed&searchCriteria.minTime=" + url.QueryEscape(minTime)
 	}
 
-	var pulls []adoPull
+	// Each match travels with its own PR's closedDate so the merged-discovery
+	// sort keys off the right request. Sorting a positional index into the
+	// unfiltered page would misalign the instant any PR is dropped by the
+	// filters below (a human PR, another graph, another type — the common case).
+	type matched struct {
+		cr         engine.ChangeRequest
+		closedDate string
+	}
+	var matches []matched
 	for page := 0; page < maxListPages; page++ {
 		pageURL := base + "&$top=100&$skip=" + strconv.Itoa(page*100)
 		var list adoPullList
 		if _, err := p.do(ctx, http.MethodGet, pageURL, "", nil, &list); err != nil {
 			return nil, fmt.Errorf("list managed requests: %w", err)
 		}
-		pulls = append(pulls, list.Value...)
+		for _, pr := range list.Value {
+			m, ok := mk.Parse(pr.Description)
+			if !ok {
+				continue
+			}
+			m, ok = p.managed(pr, m)
+			if !ok {
+				continue
+			}
+			if m.Graph != filter.Graph {
+				continue
+			}
+			if filter.Type != "" && m.Type != string(filter.Type) {
+				continue
+			}
+			matches = append(matches, matched{changeRequest(pr, m), pr.ClosedDate})
+		}
 		if len(list.Value) < 100 {
 			break
 		}
-	}
-
-	var out []engine.ChangeRequest
-	for _, pr := range pulls {
-		m, ok := mk.Parse(pr.Description)
-		if !ok {
-			continue
-		}
-		m, ok = p.managed(pr, m)
-		if !ok {
-			continue
-		}
-		if m.Graph != filter.Graph {
-			continue
-		}
-		if filter.Type != "" && m.Type != string(filter.Type) {
-			continue
-		}
-		out = append(out, changeRequest(pr, m))
 	}
 	// Merged discovery must return newest-merged first: the baseline rung
 	// consumes the most recently merged managed request per edge, and the
@@ -212,9 +225,13 @@ func (p *Provider) ListManagedRequests(ctx context.Context, filter forge.Request
 	// guarantee an order, so sort by closedDate descending. Open discovery needs
 	// no order — Oiax allows at most one open request per edge.
 	if filter.State == forge.RequestStateMerged {
-		sort.SliceStable(out, func(i, j int) bool {
-			return pulls[i].ClosedDate > pulls[j].ClosedDate
+		sort.SliceStable(matches, func(i, j int) bool {
+			return matches[i].closedDate > matches[j].closedDate
 		})
+	}
+	out := make([]engine.ChangeRequest, len(matches))
+	for i := range matches {
+		out[i] = matches[i].cr
 	}
 	return out, nil
 }

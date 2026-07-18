@@ -81,13 +81,20 @@ const (
 // so a branch name can never masquerade as a revision.
 var oidPattern = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 
-// looksLikeJWT reports whether tok is a JSON Web Token — three base64url
-// segments separated by dots whose header begins "eyJ". Azure Pipelines'
-// $(System.AccessToken) is a JWT and authenticates as Bearer; a personal
-// access token is not and authenticates as HTTP Basic. Detecting the shape lets
-// one AZURE_DEVOPS_TOKEN carry either credential (see ADR 0009).
+// looksLikeJWT reports whether tok is a JSON Web Token — three dot-separated
+// base64url segments whose header decodes to a JSON object. Azure Pipelines'
+// $(System.AccessToken) is a JWT and authenticates as Bearer; a personal access
+// token is not and authenticates as HTTP Basic. Detecting the shape lets one
+// AZURE_DEVOPS_TOKEN carry either credential (see ADR 0009). The header is
+// actually decoded rather than prefix-matched so a PAT that merely happens to
+// start with "eyJ" and contain two dots is not misrouted as a Bearer token.
 func looksLikeJWT(tok string) bool {
-	return strings.HasPrefix(tok, "eyJ") && strings.Count(tok, ".") == 2
+	parts := strings.Split(tok, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	hdr, err := base64.RawURLEncoding.DecodeString(parts[0])
+	return err == nil && len(hdr) > 0 && hdr[0] == '{'
 }
 
 // authorization returns the Authorization header value for a REST call: Bearer

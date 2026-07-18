@@ -443,14 +443,21 @@ func (p *Provider) TargetMergeMethods(ctx context.Context, branch string) (forge
 
 // repositoryID resolves the repository's GUID, needed to tell a policy scoped to
 // this repository from one scoped to a sibling repository in the same project.
+// The GUID is immutable, so it is fetched once and memoized (do already
+// exhausts transient retries, so a cached error is non-transient for the life of
+// this short-lived reconcile).
 func (p *Provider) repositoryID(ctx context.Context) (string, error) {
-	var repo struct {
-		ID string `json:"id"`
-	}
-	if _, err := p.do(ctx, http.MethodGet, p.gitPath(""), "", nil, &repo); err != nil {
-		return "", err
-	}
-	return repo.ID, nil
+	p.repoIDOnce.Do(func() {
+		var repo struct {
+			ID string `json:"id"`
+		}
+		if _, err := p.do(ctx, http.MethodGet, p.gitPath(""), "", nil, &repo); err != nil {
+			p.repoIDErr = err
+			return
+		}
+		p.repoIDVal = repo.ID
+	})
+	return p.repoIDVal, p.repoIDErr
 }
 
 // scopeMatches reports whether a policy scope applies to branch in this

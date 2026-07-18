@@ -122,7 +122,9 @@ func TestLooksLikeJWT(t *testing.T) {
 	if !looksLikeJWT(jwtToken) {
 		t.Error("a three-segment eyJ token should be detected as a JWT")
 	}
-	for _, notJWT := range []string{"", "plainpat", "eyJonly.onedot", "a.b.c", testToken} {
+	// "abc.def.ghi" has three dot-separated segments but its first segment does
+	// not base64url-decode to a JSON object, so it is a PAT, not a JWT.
+	for _, notJWT := range []string{"", "plainpat", "eyJonly.onedot", "a.b.c", "abc.def.ghi", testToken} {
 		if looksLikeJWT(notJWT) {
 			t.Errorf("%q should not be detected as a JWT", notJWT)
 		}
@@ -212,7 +214,14 @@ func TestListManagedRequestsMergedUsesCompletedStatus(t *testing.T) {
 		if r.URL.Query().Get("searchCriteria.minTime") == "" {
 			t.Error("merged discovery should bound by minTime")
 		}
-		writeJSON(t, w, http.StatusOK, map[string]any{"count": 2, "value": []map[string]any{
+		// A non-managed PR (no oiax marker) with the NEWEST closedDate leads the
+		// page. It is filtered out, so the managed slice is shorter than and
+		// misaligned with the page — the case that exposes a positional-index
+		// sort. Its recent closedDate must not leak into the managed ordering.
+		human := pullSpec{id: 9, source: "feature", dest: "prod", status: "completed", closedDate: "2026-08-01T00:00:00Z"}.toPull()
+		human["description"] = "human PR, no oiax marker"
+		writeJSON(t, w, http.StatusOK, map[string]any{"count": 3, "value": []map[string]any{
+			human,
 			pullSpec{id: 1, source: "dev", dest: "prod", graph: "g", typ: "promotion", sourceHead: "old", status: "completed", closedDate: "2026-01-01T00:00:00Z"}.toPull(),
 			pullSpec{id: 2, source: "dev", dest: "prod", graph: "g", typ: "promotion", sourceHead: "new", status: "completed", closedDate: "2026-07-01T00:00:00Z"}.toPull(),
 		}})
@@ -223,8 +232,8 @@ func TestListManagedRequestsMergedUsesCompletedStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListManagedRequests: %v", err)
 	}
-	if len(got) != 2 || got[0].SourceHead != "new" {
-		t.Fatalf("merged discovery must sort newest-closed first, got %+v", got)
+	if len(got) != 2 || got[0].SourceHead != "new" || got[1].SourceHead != "old" {
+		t.Fatalf("merged discovery must sort newest-closed first (unaffected by a filtered-out PR), got %+v", got)
 	}
 }
 
