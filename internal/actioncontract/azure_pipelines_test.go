@@ -30,8 +30,9 @@ type pipelineTemplate struct {
 // Pipelines steps template to the same wrapper contract as the composite
 // Action: a checksum-verified Linux release binary download, ref
 // preparation, and a mode-validated run — with no promotion logic in
-// YAML. The template targets GitHub-hosted repositories; the forge is
-// still GitHub.
+// YAML. The template serves both supported forges — a GitHub-hosted
+// repository (githubToken) or Azure Repos (azureDevOpsToken), with
+// automatic forge selection and a `forge` override parameter.
 func TestPublishedAzurePipelinesTemplateContract(t *testing.T) {
 	path := filepath.Join("..", "..", "templates", "azure-pipelines", "oiax.yml")
 	b, err := os.ReadFile(path)

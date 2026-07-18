@@ -123,8 +123,19 @@ func TestLooksLikeJWT(t *testing.T) {
 		t.Error("a three-segment eyJ token should be detected as a JWT")
 	}
 	// "abc.def.ghi" has three dot-separated segments but its first segment does
-	// not base64url-decode to a JSON object, so it is a PAT, not a JWT.
-	for _, notJWT := range []string{"", "plainpat", "eyJonly.onedot", "a.b.c", "abc.def.ghi", testToken} {
+	// not base64url-decode to a JSON object, so it is a PAT, not a JWT. The
+	// last three are the parse-not-prefix-match cases: headers that decode to
+	// truncated JSON starting with '{', to a valid non-object JSON value, and
+	// to JSON null must all be classified as PATs (Basic), never Bearer.
+	notObject := func(payload string) string {
+		return base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".x.y"
+	}
+	for _, notJWT := range []string{
+		"", "plainpat", "eyJonly.onedot", "a.b.c", "abc.def.ghi", testToken,
+		notObject(`{"truncated`),
+		notObject(`123`),
+		notObject(`null`),
+	} {
 		if looksLikeJWT(notJWT) {
 			t.Errorf("%q should not be detected as a JWT", notJWT)
 		}

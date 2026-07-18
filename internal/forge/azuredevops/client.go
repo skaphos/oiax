@@ -86,15 +86,21 @@ var oidPattern = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 // $(System.AccessToken) is a JWT and authenticates as Bearer; a personal access
 // token is not and authenticates as HTTP Basic. Detecting the shape lets one
 // AZURE_DEVOPS_TOKEN carry either credential (see ADR 0009). The header is
-// actually decoded rather than prefix-matched so a PAT that merely happens to
-// start with "eyJ" and contain two dots is not misrouted as a Bearer token.
+// fully parsed as JSON rather than prefix-matched so a PAT that merely happens
+// to decode to something '{'-shaped with two dots is not misrouted as a Bearer
+// token (a misroute is an authentication failure).
 func looksLikeJWT(tok string) bool {
 	parts := strings.Split(tok, ".")
 	if len(parts) != 3 {
 		return false
 	}
 	hdr, err := base64.RawURLEncoding.DecodeString(parts[0])
-	return err == nil && len(hdr) > 0 && hdr[0] == '{'
+	if err != nil {
+		return false
+	}
+	var obj map[string]any
+	// Unmarshal succeeds with a nil map for JSON "null"; require a real object.
+	return json.Unmarshal(hdr, &obj) == nil && obj != nil
 }
 
 // authorization returns the Authorization header value for a REST call: Bearer
