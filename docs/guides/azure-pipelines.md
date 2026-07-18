@@ -23,10 +23,10 @@ release binary, prepares git refs, and runs it. No promotion logic lives
 in YAML. Linux agents only (x64 and ARM64); `ubuntu-latest` satisfies
 Oiax's git ≥ 2.45 floor.
 
-> **Release status.** The template reference below resolves only after
-> the first v1 release exists; Oiax has not cut it yet. The pipeline
-> below is the shape you will use; it becomes runnable when the first
-> release ships.
+> **Availability.** The Azure Pipelines template and the Azure Repos forge
+> provider ship in Oiax **1.1.0**. Pin the `oiax` repository resource and
+> the `version` parameter to `v1.1.0` or newer, as the examples below do —
+> earlier releases have no template to reference.
 
 ## The complete pipeline
 
@@ -53,7 +53,7 @@ resources:
     - repository: oiax
       type: github
       name: skaphos/oiax
-      ref: refs/tags/v1.0.0        # pin template and version together
+      ref: refs/tags/v1.1.0        # pin template and version together
       endpoint: my-github-connection
 
 pool:
@@ -65,7 +65,7 @@ steps:
     persistCredentials: true       # required: the template's ref-prepare fetch is authenticated
   - template: templates/azure-pipelines/oiax.yml@oiax
     parameters:
-      version: v1.0.0
+      version: v1.1.0
       mode: reconcile              # validate | plan | reconcile
       githubToken: $(OIAX_GITHUB_TOKEN)
 ```
@@ -135,7 +135,7 @@ resources:
     - repository: oiax
       type: github
       name: skaphos/oiax
-      ref: refs/tags/v1.0.0
+      ref: refs/tags/v1.1.0
       endpoint: my-github-connection    # ← the service connection name
 
 steps:
@@ -144,7 +144,7 @@ steps:
     persistCredentials: true
   - template: templates/azure-pipelines/oiax.yml@oiax
     parameters:
-      version: v1.0.0
+      version: v1.1.0
       mode: reconcile
       githubToken: $(OIAX_GITHUB_TOKEN) # ← Oiax's own forge token, a secret variable
 ```
@@ -166,7 +166,7 @@ subscribes to GitHub webhooks through the connection. Two notes:
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `version` | *(required)* | Exact Oiax release to download, e.g. `v1.0.0`. Unlike the Action — whose `@v1` ref carries a release manifest that picks the binary — a template ref cannot see what release it came from, so you pin the binary explicitly. Keep it in step with the `ref` you pin the `oiax` repository resource to. |
+| `version` | *(required)* | Exact Oiax release to download, e.g. `v1.1.0`. Unlike the Action — whose `@v1` ref carries a release manifest that picks the binary — a template ref cannot see what release it came from, so you pin the binary explicitly. Keep it in step with the `ref` you pin the `oiax` repository resource to. |
 | `mode` | `reconcile` | What to run: `validate`, `plan`, or `reconcile`. |
 | `config` | `.oiax.yaml` | Path to the configuration file. |
 | `configRef` | *(empty)* | Ref to read configuration from. Empty means the repository default branch — the [pinned-ref](promotion-graphs.md#where-configuration-is-read-from) default. |
@@ -299,7 +299,7 @@ credentials directly — no service connection is involved:
 - template: templates/azure-pipelines/oiax.yml@oiax
   parameters:
     mode: reconcile
-    version: v1.0.0
+    version: v1.1.0
     azureDevOpsToken: $(System.AccessToken)
 ```
 
@@ -319,7 +319,7 @@ your process defines (e.g. `Bug` or `Task`):
 ```yaml
   parameters:
     mode: reconcile
-    version: v1.0.0
+    version: v1.1.0
     azureDevOpsToken: $(System.AccessToken)
     workItemType: Bug
 ```

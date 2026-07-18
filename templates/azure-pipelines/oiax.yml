@@ -17,7 +17,7 @@
 #       - repository: oiax
 #         type: github
 #         name: skaphos/oiax
-#         ref: refs/tags/v1.0.0        # pin template and version together
+#         ref: refs/tags/v1.1.0        # pin template and version together
 #         endpoint: <github-service-connection>
 #
 #   steps:
@@ -26,7 +26,7 @@
 #       persistCredentials: true       # required: the ref-prepare fetch
 #     - template: templates/azure-pipelines/oiax.yml@oiax
 #       parameters:
-#         version: v1.0.0
+#         version: v1.1.0
 #         githubToken: $(OIAX_GITHUB_TOKEN)
 #
 # Unlike the Action — whose @v1 ref carries a release manifest that picks
@@ -43,7 +43,7 @@
 
 parameters:
   - name: version
-    displayName: Exact Oiax release version to download (for example v1.0.0)
+    displayName: Exact Oiax release version to download (for example v1.1.0)
     type: string
   - name: mode
     displayName: "What to run: validate, plan, or reconcile"

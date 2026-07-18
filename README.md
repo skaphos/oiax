@@ -3,12 +3,13 @@
 Declarative Git branch promotion reconciler for branch-per-environment
 GitOps repositories.
 
-> **Status: pre-release.** The core reconciler is implemented — edge
-> evaluation through the full equivalence ladder, the GitHub forge
-> provider, managed promotion requests, and backflow (see the
-> [roadmap](docs/architecture.md#roadmap)). No release is cut yet; the
-> first is 1.0.0, in progress, so install from source (see
-> [Quickstart](#quickstart)) until then. New here? Start with the
+> **Status: released.** Oiax is published on [GitHub
+> Releases](https://github.com/skaphos/oiax/releases): edge evaluation
+> through the full equivalence ladder, the GitHub forge provider (and
+> Azure DevOps as of 1.1.0), managed promotion requests, and backflow. Run
+> it with the `skaphos/oiax@v1` Action or the [Azure Pipelines
+> template](docs/guides/azure-pipelines.md); the floating `@v1` tag tracks
+> the latest `v1.x.y`. New here? Start with the
 > [getting-started guide](docs/guides/getting-started.md).
 
 Branch-based GitOps repositories model environments as long-lived
