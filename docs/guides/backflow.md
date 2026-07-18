@@ -151,6 +151,25 @@ one with an explanatory comment (only when the old request's encoded head
 is an ancestor of the new one, so overlapping runs stay monotonic). The
 managed request carries the labels `oiax` and `oiax/backflow`.
 
+### Re-pushes when the target advances (accepted, bounded)
+
+The branch name is fixed by the source head, but the commits it carries are
+replayed onto the **current target head**. So while the source head is
+unchanged, two reconciles that observe the **same** target head reproduce a
+byte-identical push and converge — the run is idempotent. But when the
+target branch **advances** between reconciles, the replay lands on the new
+base and produces a different head SHA, so Oiax force-pushes the branch onto
+it. That re-push updates the open return PR and **re-triggers its CI**, and
+it keeps happening on each reconcile until the hotfix merges.
+
+This is intended and accepted: a return request must merge into the *live*
+target, so tracking the moving target is correct, and the churn is bounded —
+it stops as soon as the return merges (or a new hotfix supersedes it), and it
+never escapes the `oiax/` namespace. If the re-triggered CI is expensive,
+land the return promptly or reduce how often the target moves under it. See
+[ADR 0004 §O4](../adr/0004-backflow-execution.md) for the determinism
+rationale.
+
 ## "Already returned" — the identity check
 
 Oiax treats a downstream commit as already-returned if **any** of these
