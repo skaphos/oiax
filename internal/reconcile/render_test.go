@@ -154,7 +154,7 @@ func TestRenderMarkdownWithoutEdgeSummaries(t *testing.T) {
 
 // TestRenderMarkdownEscapesTableCells guards the step-summary table against a
 // branch name containing '|'. Such a name is legal — `git check-ref-format`
-// accepts it and engine.validateRefName rejects only " ~^:?*[\" and control
+// accepts it and the v1 config validator rejects only " ~^:?*[\\", and control
 // characters — so unescaped it would open extra columns and corrupt the table,
 // in both the edges rows and the actions rows.
 func TestRenderMarkdownEscapesTableCells(t *testing.T) {

@@ -12,11 +12,16 @@ import. Defines `PromotionGraph` and its spec types for
 `oiax.skaphos.dev/v1alpha1` is accepted as a deprecated alias), plus the
 enums (roles, drift policies, merge methods, backflow strategies). Field
 doc comments are
-the configuration documentation. Everything else in the module is
-`internal` until external consumers demonstrate a real need.
+the configuration documentation. It also owns the canonical semantic
+validation and defaulting ([ADR 0010](adr/0010-exported-config-validation.md)):
+`(*PromotionGraph).Validate` is the single rule set `oiax validate` runs,
+so an external Go integrator gets the identical checks without importing
+`internal/`, and `(*PromotionGraph).Default` is the documented defaulting
+pass. Everything else in the module is `internal` until external
+consumers demonstrate a real need.
 
 Key types: `PromotionGraph`, `PromotionGraphSpec`, `Branch`,
-`Promotion`, `Backflow`.
+`Promotion`, `Backflow`. Key methods: `Validate`, `Default`.
 
 ## `internal/config`
 
@@ -29,9 +34,9 @@ Entrypoints: `config.Load`, `config.Parse`, `config.DefaultPath`.
 
 ## `internal/engine`
 
-The provider-neutral core: graph conversion and defaulting
-(`FromConfig`), semantic validation (`Graph.Validate` — acyclicity,
-edge/branch references, role constraints, backflow consistency), the
+The provider-neutral core: graph conversion and default resolution
+(`FromConfig` — semantic validation lives on the public document type,
+`pkg/api/v1`'s `Validate`, and runs before conversion), the
 observed-state types (`EdgeState`, `BranchState`, `ChangeRequest`), and
 the pure planner (`BuildPlan` → `Plan` of `Action`s).
 

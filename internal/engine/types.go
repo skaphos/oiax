@@ -10,7 +10,13 @@ type Equivalence string
 
 const (
 	// EquivalenceReachability: commits in `rev-list to..from` decided the
-	// edge. Exact when promotion edges merge with merge commits.
+	// edge. Exact when promotion edges merge with merge commits. It is also
+	// the rung recorded on a DIVERGED edge (unpromoted survivors remained):
+	// no content rung settled it, so ancestry is what decided the outcome. A
+	// distinct "diverged" label was considered and deferred — swapping the
+	// value emitted for existing diverged edges would break the frozen
+	// planFormatVersion 1 value set, and InSync already separates settled
+	// from diverged (see docs/reference/plan-format.md#equivalence).
 	EquivalenceReachability Equivalence = "reachability"
 	// EquivalencePatchIdentity: stable patch-ids (`git patch-id --stable`)
 	// matched candidate commits to the destination. Handles rebase merges
@@ -152,10 +158,6 @@ const (
 	ActionUpdateManagedRequest   ActionType = "updateManagedRequest"
 	ActionCloseObsoleteRequest   ActionType = "closeObsoleteRequest"
 	ActionReportDivergence       ActionType = "reportDivergence"
-	// ActionNoOp is reserved: part of the frozen type enum (see
-	// docs/reference/plan-format.md) so consumers must accept it as a
-	// no-effect action, but BuildPlan never emits it today.
-	ActionNoOp ActionType = "noOp"
 )
 
 // Action is one planned step, with enough context to explain itself.
@@ -163,8 +165,15 @@ type Action struct {
 	Type ActionType `json:"type"`
 	From string     `json:"from"`
 	To   string     `json:"to"`
-	// Unpromoted counts the commits the action moves (promotion) or
-	// returns (backflow).
+	// Unpromoted is a plain commit count whose meaning follows Type: the
+	// commits the action moves (createPromotionRequest /
+	// updateManagedRequest), returns (createBackflowRequest — len(ToReturn),
+	// after already-returned filtering), or reports (reportDivergence —
+	// destination commits unrepresented in the source). It is NOT the
+	// EdgeState.Unpromoted field of the same name. The overloaded JSON name
+	// is part of the frozen planFormatVersion 1 contract (see
+	// docs/reference/plan-format.md#unpromoted); a per-type rename waits for
+	// version 2.
 	Unpromoted int `json:"unpromoted,omitempty"`
 	// Equivalence records which ladder rung produced the decision.
 	Equivalence Equivalence `json:"equivalence,omitempty"`

@@ -78,7 +78,13 @@ present in the JSON, even when its value is the type's zero value (e.g.
 | `updateManagedRequest` | An open managed promotion request exists but its recorded `sourceHead` baseline is stale; the source branch advanced. |
 | `closeObsoleteRequest` | An open managed request now proposes nothing — the edge synchronized out-of-band — or the request is otherwise obsolete. |
 | `reportDivergence` | Destination content is not represented in the source and no backflow or drift policy accounts for it. This is not a create/update/close action; nothing is proposed. |
-| `noOp` | Reserved; not currently emitted by `BuildPlan`. Consumers must still accept it as a no-effect action per the closed enum. |
+
+> **Removed reserved value.** Before 1.2.0 this page also listed a
+> reserved `noOp` value. No release ever emitted it, so removing it
+> changes no plan any version has produced or will produce; a consumer
+> written to accept it is unaffected (it simply never sees one). The
+> version-1 contract freezes the *shape* of what is emitted — it does not
+> oblige the enum to keep a value that never appears on the wire.
 
 ### `unpromoted`
 
@@ -95,8 +101,12 @@ of the same name:
   downstream-only count once already-returned commits are filtered out.
 - **`reportDivergence`** — the number of destination commits not
   represented in the source.
-- **`closeObsoleteRequest` / `noOp`** — absent; these actions carry no
-  commit count.
+- **`closeObsoleteRequest`** — absent; a close carries no commit count.
+
+Splitting the overloaded name into per-type fields (e.g. `returned` on a
+backflow action) was considered and deferred: renaming or forking a
+version-1 field is exactly what the freeze forbids, and the meaning is
+fully determined by `type`. A rename waits for `planFormatVersion: 2`.
 
 ### `equivalence`
 
@@ -123,6 +133,16 @@ are observable:
 | `patch-identity` | Stable patch-id (`git patch-id --stable`) match. Reserved; not currently emitted on any `Action`. |
 | `head-tree` | `tree(from) == tree(to)`. Reserved; not currently emitted on any `Action`. |
 | `baseline` | The recorded promotion baseline (`sourceHead`) settled the edge. Reserved; not currently emitted on any `Action`. |
+
+A distinct `diverged` value for edges that end diverged (instead of
+reusing `reachability` for them) was considered and deferred: unlike the
+purely additive fields version 1 permits, it would change the value
+emitted for an *existing* situation — a consumer that branches on
+`equivalence` today would see plans it has never seen before without any
+new scenario occurring. `inSync: false` (on an [`Edge`](#edge)) and the
+action `type` already identify a diverged edge unambiguously. If a future
+`planFormatVersion: 2` reshapes the enum, that is where a `diverged`
+label belongs.
 
 ### `request`
 

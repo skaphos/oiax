@@ -58,8 +58,11 @@ type BackflowPolicy struct {
 }
 
 // FromConfig converts a parsed configuration document into the engine
-// model, applying defaults. It does not validate; call Validate on the
-// result.
+// model, resolving the same defaults v1.PromotionGraph.Default documents
+// (an unset drift is DriftForbidden, an unset backflow strategy is
+// cherry-pick, and the merge strategy's unset expectedMergeMethod is
+// merge). It does not validate; call Validate on the v1 document first —
+// the canonical semantic rules live in pkg/api/v1, not here.
 func FromConfig(cfg *v1.PromotionGraph) *Graph {
 	g := &Graph{
 		Name:     cfg.Metadata.Name,
