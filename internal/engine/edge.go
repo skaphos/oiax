@@ -16,7 +16,12 @@ type EdgeObservation struct {
 	Candidates []Commit
 
 	// DownstreamOnly are commits in from..to (destination content absent from
-	// the source), newest first. Passed straight through to EdgeState.
+	// the source), newest first, passed straight through to EdgeState. The
+	// observation layer has already reduced the raw range to content-carrying
+	// commits: on a backflow-source destination, to the returnable subset a
+	// cherry-pick can move; on any other destination, to the subset genuinely
+	// unrepresented on the source (ADR-0002 Amendment 1 — patch-id residue,
+	// empty commits, and benign merge residue are cleared before evaluation).
 	DownstreamOnly []Commit
 
 	// SourceHeadShort is the short SHA of the backflow source head — the

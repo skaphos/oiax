@@ -96,7 +96,11 @@ type EdgeState struct {
 	Unpromoted []Commit `json:"unpromoted"`
 	// Equivalence is the ladder rung that settled the edge.
 	Equivalence Equivalence `json:"equivalence"`
-	// DownstreamOnly holds destination content absent from the source.
+	// DownstreamOnly holds destination content absent from the source —
+	// already reduced by observation to content-carrying commits (the
+	// returnable subset on a backflow source; the genuinely-unrepresented
+	// subset, per ADR-0002 Amendment 1, everywhere else), so a raw
+	// `rev-list from..to` residue of benign merges never reaches the planner.
 	DownstreamOnly []Commit `json:"downstreamOnly"`
 	// ToReturn holds the downstream-only commits that must be backflowed to
 	// the backflow target: DownstreamOnly minus everything already returned
@@ -201,7 +205,10 @@ type EdgeSummary struct {
 	// DownstreamOnly counts destination content absent from the source. On
 	// an edge whose destination is a backflow source this is the RETURNABLE
 	// count — merge and empty commits, which cherry-pick cannot return, are
-	// already filtered out by observation. Absent when zero.
+	// already filtered out by observation. On any other edge it is the
+	// genuinely-unrepresented count (ADR-0002 Amendment 1): patch-id residue,
+	// empty commits, and benign merge residue are cleared, so it can be
+	// smaller than a raw `git rev-list --count from..to`. Absent when zero.
 	DownstreamOnly int `json:"downstreamOnly,omitempty"`
 	// ToReturn counts the downstream-only commits still to backflow.
 	// Populated only when To is a configured backflow source (see

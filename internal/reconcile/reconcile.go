@@ -303,9 +303,94 @@ func (c *Coordinator) observe(ctx context.Context, from, to string, open, merged
 			}
 			obs.SourceHeadShort = short
 		}
+	} else if len(downstream) > 0 {
+		// The destination is NOT a backflow source, so its downstream-only
+		// residue is headed for ActionReportDivergence (or the drift: expected
+		// ignore). The raw from..to range includes content already represented
+		// upstream — promotion merge commits, diffs since returned by other
+		// means — and reporting it raw is exactly the ancestry-only model
+		// ADR-0002 rejects (Amendment 1). Filter to genuinely-unrepresented
+		// content before evaluation, mirroring the cherry-pick returnable
+		// restriction above.
+		if err := c.observeDownstreamReport(ctx, from, to, mb, &obs); err != nil {
+			return engine.EdgeObservation{}, wrap(err)
+		}
 	}
 
 	return obs, nil
+}
+
+// observeDownstreamReport filters the raw downstream-only range (from..to) of
+// a non-backflow-source destination down to the content genuinely
+// unrepresented on the upstream source, per ADR-0002 Amendment 1: the
+// divergence report obeys the same content posture as promotion detection.
+// Three rungs, mirroring the backflow returnable filter but pointed upstream:
+//
+//   - a diff-carrying commit whose stable patch-id already appears on the
+//     source since the merge base is represented by content — cleared;
+//   - an empty non-merge commit carries no content — cleared;
+//   - a merge commit is cleared only when mechanically re-merging its parents
+//     reproduces its exact tree (benign residue of a merge-commit promotion
+//     process); an evil merge — a tree the mechanical merge does not produce,
+//     carrying conflict-resolution or strategy-option edits — is kept.
+//
+// Whatever survives is genuine drift and is reported. Errors are returned
+// unwrapped; the caller adds the edge context.
+func (c *Coordinator) observeDownstreamReport(ctx context.Context, from, to, mb string, obs *engine.EdgeObservation) error {
+	// Patch-ids of the downstream range (from..to), keyed by commit SHA. As in
+	// the backflow filter, merge commits and empty commits contribute no entry.
+	dpid, err := c.Git.PatchIDs(ctx, from, to)
+	if err != nil {
+		return err
+	}
+	// Patch-ids present on the source since divergence — the upstream mirror
+	// of the backflow filter's ReturnedPatchIDs. Skipped when the branches
+	// share no common ancestor, matching the destination-set guard in observe.
+	sourceIDs := make(map[string]struct{})
+	if mb != "" {
+		sp, err := c.Git.PatchIDs(ctx, mb, from)
+		if err != nil {
+			return err
+		}
+		for _, pid := range sp {
+			sourceIDs[pid] = struct{}{}
+		}
+	}
+	merges, err := c.Git.MergeCommitSHAs(ctx, from, to)
+	if err != nil {
+		return err
+	}
+	drifted := make([]engine.Commit, 0, len(obs.DownstreamOnly))
+	for _, cm := range obs.DownstreamOnly {
+		if pid, ok := dpid[cm.SHA]; ok {
+			if _, represented := sourceIDs[pid]; represented {
+				continue
+			}
+			drifted = append(drifted, cm)
+			continue
+		}
+		if _, isMerge := merges[cm.SHA]; !isMerge {
+			// No patch-id and not a merge: an empty commit, no content.
+			continue
+		}
+		benign, err := c.Git.MergeReproducible(ctx, cm.SHA)
+		if err != nil {
+			return err
+		}
+		if !benign {
+			drifted = append(drifted, cm)
+		}
+	}
+	if cleared := len(obs.DownstreamOnly) - len(drifted); cleared > 0 {
+		c.log().Debug("downstream residue cleared by content",
+			"from", from, "to", to,
+			"downstreamOnly", len(obs.DownstreamOnly), "cleared", cleared, "drifted", len(drifted))
+	}
+	if len(drifted) == 0 {
+		drifted = nil
+	}
+	obs.DownstreamOnly = drifted
+	return nil
 }
 
 // observeCherryPickBackflow gathers the identity-ladder inputs a cherry-pick

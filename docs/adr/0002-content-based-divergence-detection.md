@@ -1,6 +1,6 @@
 # 0002 — Detect divergence by content, not ancestry
 
-- Status: accepted
+- Status: accepted (with amendment — see Decision)
 - Date: 2026-07-08
 
 ## Context
@@ -36,6 +36,31 @@ optimization. The first conclusive rung wins. Rung 4 makes the merged
 promotion request the durable record of what was promoted: Git remains
 the source of truth for content, the forge holds the promotion baseline,
 and desired state is reconstructible without any Oiax-private database.
+
+**Amendment 1 — the divergence report follows the same posture
+(2026-07-18).** The downstream-only divergence report (a
+non-backflow-source destination's `from..to` residue, surfaced as
+`reportDivergence` / exit 3) originally reported the raw ancestry count —
+the rejected "ancestry only" model, pointed downstream. On repositories
+migrating from a hand-made merge-commit promotion process, historical
+`merge` residue that upstream content has since superseded produced
+false-positive red builds and pushed operators toward `drift: expected`,
+which over-suppresses. The report now filters the range to
+genuinely-unrepresented content before evaluation:
+
+- a diff-carrying commit whose stable patch-id already appears on the
+  source since the merge base is cleared (returned by content);
+- an empty non-merge commit is cleared (no content);
+- a merge commit is cleared only when mechanically re-merging its two
+  parents (`git merge-tree --write-tree`) reproduces its exact tree —
+  benign residue. An **evil merge** — a tree the mechanical merge does
+  not produce (conflict-resolution or strategy-option edits), a
+  conflicted re-merge, or an octopus merge — is real content and is
+  still reported.
+
+Dropping merges blind (`--no-merges`, as the backflow returnable filter
+does) would be wrong here: backflow asks "can a cherry-pick move this,"
+the report asks "is this drift," and an evil merge is drift.
 
 ## Consequences
 
