@@ -1,16 +1,16 @@
-# Graph Report - ska-54-templatable-pr-text  (2026-07-18)
+# Graph Report - graphify-update  (2026-07-19)
 
 ## Corpus Check
-- 100 files · ~160,753 words
+- 100 files · ~162,005 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1593 nodes · 4066 edges · 91 communities (80 shown, 11 thin omitted)
-- Extraction: 91% EXTRACTED · 9% INFERRED · 0% AMBIGUOUS · INFERRED: 352 edges (avg confidence: 0.81)
+- 1600 nodes · 4102 edges · 84 communities (74 shown, 10 thin omitted)
+- Extraction: 91% EXTRACTED · 9% INFERRED · 0% AMBIGUOUS · INFERRED: 358 edges (avg confidence: 0.81)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `e8340f95`
+- Built from commit: `2a6d9cba`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -19,13 +19,13 @@
 - Provider
 - github_test.go
 - Coordinator
-- newPlanCommand
+- loadGraph
 - Context
 - Backflow Execution
-- ChangeRequest
+- fakeForge
 - BuildPlan
-- Load
-- run
+- Code map
+- plan_reconcile_test.go
 - git_test.go
 - render_test.go
 - oiax validate
@@ -51,7 +51,7 @@
 - Backflow: returning hotfixes
 - GoReleaser Publication
 - CI Workflow
-- Code map
+- ChangeRequest
 - Recipes
 - Architecture
 - AGENTS.md
@@ -78,35 +78,28 @@
 - github.com/skaphos/oiax
 - github.com/skaphos/oiax/tools
 - Provider
-- .Validate
+- types.go
 - tmpl.go
-- ConflictArtifactID
+- artifacts.go
 - ParseRemoteURL
 - Deploying Oiax from Azure Pipelines
-- artifacts.go
-- loadGraph
+- errNoResponse
 - 0009 — Azure DevOps forge provider
-- git.go
-- NewRootCommand
 - 0004-backflow-execution.md
 - azure_pipelines_test.go
 - Request-text templates
-- Detect
 - 0008 — Durable backflow-conflict artifact
 - 0011 — Templatable request text
 - Governance change-record templates
-- newGraphCommand
 - 0002 — Detect divergence by content, not ancestry
 - 0004 — Backflow execution
 - 0005 — Config API v1
-- newGenCommand
-- planExitCode
 
 ## God Nodes (most connected - your core abstractions)
-1. `Context` - 144 edges
-2. `Plan` - 66 edges
-3. `testGraph()` - 64 edges
-4. `gitHarness()` - 64 edges
+1. `Context` - 147 edges
+2. `Plan` - 67 edges
+3. `testGraph()` - 65 edges
+4. `gitHarness()` - 65 edges
 5. `checkout()` - 59 edges
 6. `writeJSON()` - 51 edges
 7. `newProvider()` - 46 edges
@@ -117,14 +110,14 @@
 ## Surprising Connections (you probably didn't know these)
 - `BuildPlan()` --conceptually_related_to--> `Reconciliation Loop`  [INFERRED]
   internal/engine/plan.go → docs/architecture.md
+- `Forge` --implements--> ``internal/forge/github``  [INFERRED]
+  internal/forge/forge.go → docs/code-map.md
 - `ChangeRequest` --conceptually_related_to--> `Managed Change Requests`  [INFERRED]
   internal/engine/types.go → docs/architecture.md
 - `EdgeState` --shares_data_with--> `Content Equivalence Ladder`  [INFERRED]
   internal/engine/types.go → docs/architecture.md
-- `Forge` --implements--> ``internal/forge/github``  [INFERRED]
+- `Forge` --references--> ``internal/forge``  [EXTRACTED]
   internal/forge/forge.go → docs/code-map.md
-- `oiax` --semantically_similar_to--> `argoproj-labs/gitops-promoter (prior art)`  [INFERRED] [semantically similar]
-  README.md → docs/architecture.md
 
 ## Import Cycles
 - None detected.
@@ -136,47 +129,51 @@
 - **Backflow Execution Model** — adr0006_merge_commit_backflow, docs_guides_backflow_deterministic_request, docs_guides_backflow_conflict_handling [EXTRACTED 1.00]
 - **Reconciliation Layer Model** — docs_architecture_pure_reconciliation_layers, docs_code_map_engine_core, docs_code_map_reconcile_layer, docs_code_map_git_layer [EXTRACTED 1.00]
 
-## Communities (91 total, 11 thin omitted)
+## Communities (84 total, 10 thin omitted)
 
 ### Community 0 - "reconcile_test.go"
 Cohesion: 0.10
-Nodes (98): Plan, BackflowBranchName(), assertExclusionReason(), checkout(), commitOn(), conflictHarness(), containsSHA(), countBackflowOutcome() (+90 more)
+Nodes (99): Plan, BackflowBranchName(), assertExclusionReason(), checkout(), commitOn(), conflictHarness(), containsSHA(), countBackflowOutcome() (+91 more)
 
 ### Community 1 - "Provider"
 Cohesion: 0.08
-Nodes (34): apiError, apiError, errNoResponse, ghIssue, ghLabel, ghPull, ghRef, ghRepo (+26 more)
+Nodes (33): apiError, apiError, ghIssue, ghLabel, ghPull, ghRef, ghRepo, ghUser (+25 more)
 
 ### Community 2 - "github_test.go"
 Cohesion: 0.08
 Nodes (83): ghFake, ghFakeIssue, ghFakePull, issueSpec, prSpec, ghNum(), HandlerFunc, Mutex (+75 more)
 
 ### Community 3 - "Coordinator"
-Cohesion: 0.11
-Nodes (26): EdgeObservation, backflowToReturn(), EvaluateEdge(), Commit, commits(), Commit, T, idSet() (+18 more)
+Cohesion: 0.06
+Nodes (54): `internal/engine`, Action, ActionType, BackflowExclusion, BackflowExclusionReason, BranchState, Commit, EdgeObservation (+46 more)
 
-### Community 4 - "newPlanCommand"
-Cohesion: 0.18
-Nodes (16): forgeKind, Command, newPlanCommand(), Command, newReconcileCommand(), buildCoordinator(), buildLogger(), Command (+8 more)
+### Community 4 - "loadGraph"
+Cohesion: 0.05
+Nodes (55): Kind, exitCodeError, forgeKind, options, versionInfo, `internal/config`, Detect(), T (+47 more)
+
+### Community 5 - "Context"
+Cohesion: 0.19
+Nodes (4): Cmd, Runner, gitCommand(), Context
 
 ### Community 6 - "Backflow Execution"
 Cohesion: 0.05
 Nodes (42): Downloaded Artifact Verification, Oiax Composite GitHub Action, Action Pinned Config Ref, Git Ref Preparation, Release Binary Download, Human-in-the-Loop Steering, Adopt the Name Oiax, Tiller Ecosystem Collision (+34 more)
 
-### Community 7 - "ChangeRequest"
+### Community 7 - "fakeForge"
 Cohesion: 0.11
-Nodes (13): fakeForge, ChangeRequest, RequestType, BranchPush, CreateRequest, MergeMethods, Reason, RequestFilter (+5 more)
+Nodes (12): fakeForge, BranchPush, ConflictArtifact, ConflictArtifactID, ConflictArtifactSpec, CreateRequest, MergeMethods, Reason (+4 more)
 
 ### Community 8 - "BuildPlan"
-Cohesion: 0.09
-Nodes (58): `internal/engine`, Action, ActionType, BackflowExclusion, BackflowExclusionReason, BackflowPolicy, BranchState, Commit (+50 more)
+Cohesion: 0.22
+Nodes (30): FromConfig(), PromotionGraph, PromotionGraph, T, TestFromConfigAgreesWithDefault(), TestFromConfigAppliesDriftDefault(), TestFromConfigPreservesCherryPickMergeMethods(), TestFromConfigResolvesBackflowDefaults() (+22 more)
 
-### Community 9 - "Load"
-Cohesion: 0.26
-Nodes (14): `internal/config`, config.DefaultPath, PromotionGraph, IsDeprecatedAPIVersion(), Load(), Parse(), T, TestLoadAcceptsFileAtLimit() (+6 more)
+### Community 9 - "Code map"
+Cohesion: 0.17
+Nodes (12): `cmd/oiax`, Code map, `internal/cienv`, `internal/forge`, `internal/forge/azuredevops`, `internal/forge/github`, `internal/forge/marker`, `internal/reconcile` (+4 more)
 
-### Community 10 - "run"
-Cohesion: 0.10
-Nodes (55): T, run(), TestDeprecatedAPIVersionWarns(), TestGenDocs(), TestGraphCommand(), TestInvalidOutputFlagRejected(), TestPlanAndReconcileAreHonestAboutScope(), TestRootRejectsJSONOutputWithoutSubcommand() (+47 more)
+### Community 10 - "plan_reconcile_test.go"
+Cohesion: 0.08
+Nodes (68): main(), run(), T, run(), TestDeprecatedAPIVersionWarns(), TestGenDocs(), TestGraphCommand(), TestInvalidOutputFlagRejected() (+60 more)
 
 ### Community 11 - "git_test.go"
 Cohesion: 0.20
@@ -203,8 +200,8 @@ Cohesion: 0.33
 Nodes (6): 0007 — Keep the git layer a shell-out to the git binary, Consequences, Context, Decision, Links, Options considered
 
 ### Community 18 - "Content Equivalence Ladder"
-Cohesion: 0.14
-Nodes (18): Git 2.45 Runtime Contract, Git Runner Shell-Out, ADR 0001: Adopt the name Oiax, Rationale: Tiller collided with Helm v2's Tiller in the target ecosystem; Oiax is the literal Greek for tiller and keeps the hand-on-the-helm intent, ADR 0002: Detect divergence by content, not ancestry, Rationale: squash/rebase merges rewrite SHAs; ancestry-only detection leaves edges permanently diverged and PR creation fails with HTTP 422; a private state database would violate the no-control-plane posture, Declarative Branch Promotion Reconciler, Content Equivalence Ladder (+10 more)
+Cohesion: 0.15
+Nodes (17): Git 2.45 Runtime Contract, Git Runner Shell-Out, ADR 0001: Adopt the name Oiax, Rationale: Tiller collided with Helm v2's Tiller in the target ecosystem; Oiax is the literal Greek for tiller and keeps the hand-on-the-helm intent, ADR 0002: Detect divergence by content, not ancestry, Rationale: squash/rebase merges rewrite SHAs; ancestry-only detection leaves edges permanently diverged and PR creation fails with HTTP 422; a private state database would violate the no-control-plane posture, Declarative Branch Promotion Reconciler, Content Equivalence Ladder (+9 more)
 
 ### Community 19 - "NewLogger"
 Cohesion: 0.15
@@ -219,8 +216,8 @@ Cohesion: 0.14
 Nodes (17): Live Merge-Method Fence, Merge-Commit Backflow Strategy, Skip-in-Range Fence, Conflict Issue Marker-and-Label Identity, Durable Backflow Conflict Artifact, Lock-Free Conflict Issue Convergence, Oiax Installation Artifacts, Agent Installation Confirmation Gate (+9 more)
 
 ### Community 22 - "Contributing to oiax"
-Cohesion: 0.13
-Nodes (18): Agent Safety Rules (do not violate), Commits, Contributing to oiax, Design invariants, Documentation, Generated artifacts, Local validation, Workflow (+10 more)
+Cohesion: 0.12
+Nodes (19): Agent Safety Rules (do not violate), Commits, Contributing to oiax, Design invariants, Documentation, Generated artifacts, Local validation, Workflow (+11 more)
 
 ### Community 23 - "Changelog"
 Cohesion: 0.13
@@ -240,7 +237,7 @@ Nodes (24): CLI Exit-Code Contract, Read-Only Drift Gate, Plan-First Rollout, oi
 
 ### Community 27 - "writeJSON"
 Cohesion: 0.10
-Nodes (48): adoFake, adoFakePull, adoFakeWI, pullSpec, T, issueStates(), TestCloseConflictArtifactUsesCompletedCategoryState(), TestCreateConflictArtifactEscapesBodyAndTags() (+40 more)
+Nodes (49): adoFake, adoFakePull, adoFakeWI, pullSpec, T, issueStates(), TestCloseConflictArtifactUsesCompletedCategoryState(), TestCreateConflictArtifactEscapesBodyAndTags() (+41 more)
 
 ### Community 28 - "Installing Oiax with an AI agent"
 Cohesion: 0.14
@@ -278,9 +275,9 @@ Nodes (11): Floating Major Action Tag, GoReleaser Publication, Release Tag Monot
 Cohesion: 0.24
 Nodes (10): Skaphos Contribution Governance, Cross-Platform Test Matrix, DCO Sign-Off Gate, Generated Artifact Drift Check, REUSE License Gate, GoReleaser Snapshot Build, Staticcheck and Govulncheck, CI Workflow (+2 more)
 
-### Community 37 - "Code map"
-Cohesion: 0.17
-Nodes (27): `cmd/oiax`, Code map, `internal/cienv`, `internal/forge`, `internal/forge/azuredevops`, `internal/forge/github`, `internal/forge/marker`, `internal/reconcile` (+19 more)
+### Community 37 - "ChangeRequest"
+Cohesion: 0.29
+Nodes (18): ChangeRequest, RequestType, Forge, RequestFilter, RequestState, assertAscending(), containsID(), T (+10 more)
 
 ### Community 38 - "Recipes"
 Cohesion: 0.22
@@ -351,20 +348,20 @@ Cohesion: 0.67
 Nodes (3): Deterministic Backflow Return Branch, Event-Driven Concurrency Without Locks, Supersede Stale Backflow Request
 
 ### Community 65 - "Provider"
-Cohesion: 0.10
-Nodes (29): adoPull, adoPullList, forkRef, gitRef, propertiesCollection, refList, refUpdateResult, refUpdateResults (+21 more)
+Cohesion: 0.11
+Nodes (26): adoPull, adoPullList, forkRef, gitRef, propertiesCollection, refList, refUpdateResult, refUpdateResults (+18 more)
 
-### Community 66 - ".Validate"
-Cohesion: 0.26
-Nodes (8): findCycle(), Branch, Promotion, PromotionGraph, sortedBranchNames(), validateRefName(), validateRequestTemplate(), validateTemplatePath()
+### Community 66 - "types.go"
+Cohesion: 0.08
+Nodes (33): BackflowPolicy, Branch, Expectations, Promotion, Branch, Graph, Expectations, Promotion (+25 more)
 
 ### Community 67 - "tmpl.go"
-Cohesion: 0.08
-Nodes (51): Branch, FuncMap, checkBodySafety(), compileTemplate(), Default(), execute(), funcMap(), PromotionGraph (+43 more)
+Cohesion: 0.12
+Nodes (36): FuncMap, checkBodySafety(), compileTemplate(), Default(), execute(), funcMap(), PromotionGraph, NewCommit() (+28 more)
 
-### Community 68 - "ConflictArtifactID"
-Cohesion: 0.18
-Nodes (9): workItem, ConflictArtifact, ConflictArtifactID, ConflictArtifactSpec, artifactID(), fieldString(), Provider, htmlBody() (+1 more)
+### Community 68 - "artifacts.go"
+Cohesion: 0.14
+Nodes (18): policyConfiguration, policyList, policyScope, policySettings, wiqlResult, wiState, wiStates, workItem (+10 more)
 
 ### Community 69 - "ParseRemoteURL"
 Cohesion: 0.26
@@ -374,25 +371,9 @@ Nodes (14): Repo, orgFromCollectionURI(), ParseRemoteURL(), pathSegments(), repo
 Cohesion: 0.14
 Nodes (14): Azure Repos, Choosing a mode, Connecting Azure DevOps to GitHub, Create the service connection, Deploying Oiax from Azure Pipelines, `fetchDepth: 0` is not optional, Next steps, Parameters (+6 more)
 
-### Community 71 - "artifacts.go"
-Cohesion: 0.21
-Nodes (12): policyConfiguration, policyList, policyScope, policySettings, wiqlResult, wiState, wiStates, workItemBatch (+4 more)
-
-### Community 72 - "loadGraph"
-Cohesion: 0.22
-Nodes (11): exitCodeError, options, effectiveConfigRef(), Command, Graph, loadGraph(), readWorkingTreeFile(), requireTextOutput() (+3 more)
-
 ### Community 73 - "0009 — Azure DevOps forge provider"
 Cohesion: 0.22
 Nodes (9): 0009 — Azure DevOps forge provider, Authentication and the token, Consequences, Context, Decision, Links, Marker storage on a managed request, Options considered (+1 more)
-
-### Community 74 - "git.go"
-Cohesion: 0.16
-Nodes (10): capWriter, CherryPickConflict, Commit, MergeConflict, checkMinVersion(), Buffer, parseGitVersion(), T (+2 more)
-
-### Community 76 - "NewRootCommand"
-Cohesion: 0.27
-Nodes (7): versionInfo, main(), Execute(), NewRootCommand(), Command, newVersionCommand(), printVersion()
 
 ### Community 78 - "azure_pipelines_test.go"
 Cohesion: 0.50
@@ -401,10 +382,6 @@ Nodes (3): pipelineTemplate, T, TestPublishedAzurePipelinesTemplateContract()
 ### Community 79 - "Request-text templates"
 Cohesion: 0.22
 Nodes (9): Configuration keys, Functions, Rendering rules and constraints, Request-text templates, `spec.templates.backflowMergeMessage`, `spec.templates.promotion`, `.backflow`, `.backflowConflict`, Untrusted variables, Variable context (+1 more)
-
-### Community 80 - "Detect"
-Cohesion: 0.40
-Nodes (4): Kind, Detect(), T, TestDetect()
 
 ### Community 82 - "0008 — Durable backflow-conflict artifact"
 Cohesion: 0.33
@@ -418,10 +395,6 @@ Nodes (6): 0011 — Templatable request text, Consequences, Context, Decision, L
 Cohesion: 0.33
 Nodes (6): A minimal change-record setup, Backflow and conflict records, Governance change-record templates, Next steps, Untrusted input, one more time, What renders when
 
-### Community 85 - "newGraphCommand"
-Cohesion: 0.53
-Nodes (4): Command, Graph, newGraphCommand(), printGraph()
-
 ### Community 86 - "0002 — Detect divergence by content, not ancestry"
 Cohesion: 0.40
 Nodes (5): 0002 — Detect divergence by content, not ancestry, Consequences, Context, Decision, Options considered
@@ -434,10 +407,6 @@ Nodes (5): 0004 — Backflow execution, Consequences, Context, Decision, Options
 Cohesion: 0.40
 Nodes (5): 0005 — Config API v1, Consequences, Context, Decision, Options considered
 
-### Community 89 - "newGenCommand"
-Cohesion: 0.83
-Nodes (3): Command, newGenCommand(), writeCommandReference()
-
 ## Ambiguous Edges - Review These
 - `oiax` → `Design proposal in skaphos-resources under tools/oiax/`  [AMBIGUOUS]
   AGENTS.md · relation: rationale_for
@@ -445,22 +414,22 @@ Nodes (3): Command, newGenCommand(), writeCommandReference()
 ## Knowledge Gaps
 - **329 isolated node(s):** `github.com/skaphos/oiax`, `actionMetadata`, `pipelineTemplate`, `versionInfo`, `Graph` (+324 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **11 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **What is the exact relationship between `oiax` and `Design proposal in skaphos-resources under tools/oiax/`?**
   _Edge tagged AMBIGUOUS (relation: rationale_for) - confidence is low._
-- **Why does `Code map` connect `Code map` to `BuildPlan`, `Load`, `README.md`, `oiax validate`, `Contributing to oiax`?**
-  _High betweenness centrality (0.259) - this node is a cross-community bridge._
-- **Why does `Context` connect `Context` to `Provider`, `Provider`, `tmpl.go`, `ConflictArtifactID`, `newPlanCommand`, `ParseRemoteURL`, `artifacts.go`, `ChangeRequest`, `Coordinator`, `run`, `Provider`, `NewLogger`?**
-  _High betweenness centrality (0.179) - this node is a cross-community bridge._
-- **Why does ``internal/engine`` connect `BuildPlan` to `reconcile_test.go`, `Code map`, `Contributing to oiax`, `ChangeRequest`?**
-  _High betweenness centrality (0.138) - this node is a cross-community bridge._
+- **Why does `Code map` connect `Code map` to `Coordinator`, `loadGraph`, `README.md`, `oiax validate`, `Contributing to oiax`?**
+  _High betweenness centrality (0.261) - this node is a cross-community bridge._
+- **Why does `Context` connect `Context` to `Provider`, `Provider`, `tmpl.go`, `artifacts.go`, `ChangeRequest`, `loadGraph`, `fakeForge`, `ParseRemoteURL`, `Coordinator`, `plan_reconcile_test.go`, `Provider`, `NewLogger`?**
+  _High betweenness centrality (0.201) - this node is a cross-community bridge._
+- **Why does ``internal/engine`` connect `Coordinator` to `reconcile_test.go`, `ChangeRequest`, `BuildPlan`, `Code map`, `Contributing to oiax`?**
+  _High betweenness centrality (0.141) - this node is a cross-community bridge._
 - **Are the 5 inferred relationships involving `testGraph()` (e.g. with `TestScenarioBackflowMixedDropAndApplyConverges()` and `TestScenarioBackflowPushIsByteIdenticalAcrossIndependentRepos()`) actually correct?**
   _`testGraph()` has 5 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 5 inferred relationships involving `gitHarness()` (e.g. with `InitRepo()` and `TestScenarioBackflowMixedDropAndApplyConverges()`) actually correct?**
+  _`gitHarness()` has 5 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `github.com/skaphos/oiax`, `actionMetadata`, `pipelineTemplate` to the rest of the system?**
   _329 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `reconcile_test.go` be split into smaller, more focused modules?**
-  _Cohesion score 0.10396039603960396 - nodes in this community are weakly interconnected._
