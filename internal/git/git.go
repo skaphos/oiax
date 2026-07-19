@@ -517,6 +517,84 @@ func (r *Runner) PatchIDs(ctx context.Context, base, tip string) (map[string]str
 	return ids, nil
 }
 
+// MergeCommitSHAs returns the set of merge commits (two or more parents) in
+// the range base..branch. The divergence-report content filter needs it to
+// tell merge residue — which PatchIDs cannot fingerprint, a merge having no
+// single diff — apart from empty non-merge commits, which carry no content
+// at all.
+func (r *Runner) MergeCommitSHAs(ctx context.Context, base, branch string) (map[string]struct{}, error) {
+	baseRef, err := r.resolveBranchRef(ctx, base)
+	if err != nil {
+		return nil, err
+	}
+	branchRef, err := r.resolveBranchRef(ctx, branch)
+	if err != nil {
+		return nil, err
+	}
+	out, err := r.run(ctx, "rev-list", "--merges", fmt.Sprintf("%s..%s", baseRef, branchRef))
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]struct{})
+	if out == "" {
+		return set, nil
+	}
+	for _, sha := range strings.Split(out, "\n") {
+		set[sha] = struct{}{}
+	}
+	return set, nil
+}
+
+// MergeReproducible reports whether a merge commit is reproduced exactly by
+// mechanically re-merging its two parents (`git merge-tree --write-tree`).
+// True means the commit's tree is what the automatic merge produces, so the
+// commit introduces no content of its own — benign residue of a merge-commit
+// promotion process. False means the recorded tree is one the mechanical
+// merge does not produce — an "evil merge" whose conflict-resolution or
+// strategy-option edits are real content — or the re-merge conflicts, in
+// which case the recorded resolution is necessarily hand-made. Octopus merges
+// (three or more parents) and non-merge commits cannot be re-merged pairwise
+// and report false, the conservative direction: unverifiable content stays
+// visible as drift.
+//
+// sha must be an object id from prior git output (e.g. MergeCommitSHAs) and
+// is guarded as such.
+func (r *Runner) MergeReproducible(ctx context.Context, sha string) (bool, error) {
+	if !oidPattern.MatchString(sha) {
+		return false, fmt.Errorf("invalid merge commit oid %q", sha)
+	}
+	parents, err := r.run(ctx, "rev-list", "--parents", "-n", "1", sha)
+	if err != nil {
+		return false, err
+	}
+	// One line: "<commit> <parent>...". Exactly two parents or bust.
+	fields := strings.Fields(parents)
+	if len(fields) != 3 {
+		return false, nil
+	}
+	actual, err := r.run(ctx, "rev-parse", "--verify", sha+"^{tree}")
+	if err != nil {
+		return false, err
+	}
+	// --allow-unrelated-histories mirrors whatever the original merge did: if
+	// its parents share no ancestor the mechanical merge still runs instead of
+	// erroring out, and the tree comparison decides.
+	merged, err := r.run(ctx, "merge-tree", "--write-tree", "--allow-unrelated-histories", fields[1], fields[2])
+	if err != nil {
+		// Exit 1 is a content conflict: the mechanical merge does not apply
+		// cleanly, so the recorded resolution is hand-made content. Any other
+		// failure is operational and propagates.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, err
+	}
+	// On success the first output line is the merged tree oid.
+	mergedTree, _, _ := strings.Cut(merged, "\n")
+	return mergedTree == actual, nil
+}
+
 // TreeSHA returns the tree object SHA of a branch head. Equal trees on two
 // branches mean identical content even when the commits differ (the
 // head-tree rung, which detects a squash at the moment of merge).

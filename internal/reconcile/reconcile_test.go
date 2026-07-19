@@ -470,6 +470,141 @@ func TestPlanReportsDownstreamDivergence(t *testing.T) {
 	}
 }
 
+// countReports tallies ActionReportDivergence actions for one edge and
+// returns the count plus the last matching action for detail assertions.
+func countReports(plan engine.Plan, from, to string) (int, engine.Action) {
+	var n int
+	var last engine.Action
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionReportDivergence && a.From == from && a.To == to {
+			n++
+			last = a
+		}
+	}
+	return n, last
+}
+
+// TestPlanReportClearsBenignMergeResidue is the ADR-0002 Amendment 1
+// migration scenario from issue #53: a repository moving off a hand-made
+// merge-commit promotion process carries historical promotion merges on the
+// destination that the source has since advanced past. The residue is content
+// already represented upstream, so the report must clear it (exit 0), not
+// surface a spurious divergence — and an empty commit is equally contentless.
+func TestPlanReportClearsBenignMergeResidue(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	// development advances to c1; a hand-made promotion merges it into test.
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "v1\n", "c1 on development")
+	checkout(t, r, "test")
+	gitExec(t, r.Dir, "merge", "-q", "--no-ff", "-m", "merge: Promote v1 into test", "development")
+	gitExec(t, r.Dir, "commit", "-q", "--allow-empty", "-m", "empty ceremony commit")
+	// development then advances past the promoted version.
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "v2\n", "c2 on development")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if reports, a := countReports(plan, "development", "test"); reports != 0 {
+		t.Fatalf("benign merge residue reported as divergence: %+v", a)
+	}
+	// The genuine forward promotion (c2) must still be planned — clearing the
+	// report must not mask promotion detection.
+	var promotions int
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionCreatePromotionRequest && a.From == "development" && a.To == "test" {
+			promotions++
+		}
+	}
+	if promotions != 1 {
+		t.Fatalf("want 1 promotion request for development->test, got %d: %+v", promotions, plan.Actions)
+	}
+}
+
+// TestPlanReportKeepsEvilMerge: a merge whose tree the mechanical re-merge of
+// its parents does not produce (-s ours drops the source's content) carries
+// real downstream content, so the report must keep it even though --no-merges
+// alone would hide it.
+func TestPlanReportKeepsEvilMerge(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "v1\n", "c1 on development")
+	// test records a merge of development that discards its content: an evil
+	// merge — reachability says promoted, the tree says otherwise.
+	checkout(t, r, "test")
+	gitExec(t, r.Dir, "merge", "-q", "-s", "ours", "--no-ff", "-m", "ours-merge development", "development")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	reports, a := countReports(plan, "development", "test")
+	if reports != 1 {
+		t.Fatalf("want 1 report-divergence for the evil merge, got %d: %+v", reports, plan.Actions)
+	}
+	if a.Unpromoted != 1 {
+		t.Errorf("reported count = %d, want 1 (the evil merge)", a.Unpromoted)
+	}
+}
+
+// TestPlanReportClearsReturnedPatchID: a hotfix commit on the destination
+// whose identical diff already exists on the source (returned by rebase or
+// cherry-pick before the source advanced) is represented by content and must
+// not be reported.
+func TestPlanReportClearsReturnedPatchID(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	checkout(t, r, "test")
+	commitOn(t, r.Dir, "hotfix.txt", "h\n", "hotfix on test")
+	// The same diff lands on development as a distinct commit, then
+	// development advances.
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "hotfix.txt", "h\n", "hotfix returned to development")
+	commitOn(t, r.Dir, "app.txt", "v1\n", "c1 on development")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if reports, a := countReports(plan, "development", "test"); reports != 0 {
+		t.Fatalf("content-returned hotfix reported as divergence: %+v", a)
+	}
+}
+
+// TestPlanReportMixedResidueCountsOnlyDrift: benign merge residue and one
+// genuine downstream-only commit coexist; the report survives but counts only
+// the genuine drift, so the operator sees the real number, not the residue.
+func TestPlanReportMixedResidueCountsOnlyDrift(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "v1\n", "c1 on development")
+	checkout(t, r, "test")
+	gitExec(t, r.Dir, "merge", "-q", "--no-ff", "-m", "merge: Promote v1 into test", "development")
+	commitOn(t, r.Dir, "drift.txt", "drift\n", "genuine drift on test")
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "v2\n", "c2 on development")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	reports, a := countReports(plan, "development", "test")
+	if reports != 1 {
+		t.Fatalf("want 1 report-divergence for development->test, got %d: %+v", reports, plan.Actions)
+	}
+	if a.Unpromoted != 1 {
+		t.Errorf("reported count = %d, want 1 (residue must not inflate the count)", a.Unpromoted)
+	}
+}
+
 func TestApplyCreateResolvesLiveHead(t *testing.T) {
 	r, _ := gitHarness(t)
 	checkout(t, r, "development")

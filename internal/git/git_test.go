@@ -1128,3 +1128,142 @@ func TestCommitExists(t *testing.T) {
 		t.Fatal("CommitExists accepted a non-oid input")
 	}
 }
+
+// TestMergeCommitSHAs covers the report filter's merge/empty discriminator:
+// only merge commits in base..branch appear in the set.
+func TestMergeCommitSHAs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+	writeCommit(t, dir, "app.txt", "v0\n", "c0")
+	runGit(t, dir, "branch", "dev")
+
+	// main gains an ordinary commit, an empty commit, and a merge of dev.
+	runGit(t, dir, "checkout", "-q", "dev")
+	writeCommit(t, dir, "feature.txt", "f\n", "feature on dev")
+	runGit(t, dir, "checkout", "-q", "main")
+	writeCommit(t, dir, "app.txt", "v1\n", "c1 on main")
+	runGit(t, dir, "commit", "-q", "--allow-empty", "-m", "empty on main")
+	runGit(t, dir, "merge", "-q", "--no-ff", "-m", "merge dev into main", "dev")
+	mergeSHA := runGit(t, dir, "rev-parse", "HEAD")
+
+	set, err := r.MergeCommitSHAs(ctx, "dev", "main")
+	if err != nil {
+		t.Fatalf("MergeCommitSHAs: %v", err)
+	}
+	if len(set) != 1 {
+		t.Fatalf("merge set = %v, want exactly the merge commit", set)
+	}
+	if _, ok := set[mergeSHA]; !ok {
+		t.Fatalf("merge set %v does not contain merge commit %s", set, mergeSHA)
+	}
+
+	empty, err := r.MergeCommitSHAs(ctx, "main", "dev")
+	if err != nil {
+		t.Fatalf("MergeCommitSHAs(empty range): %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("merge set for merge-free range = %v, want empty", empty)
+	}
+}
+
+// TestMergeReproducible covers the evil-merge discriminator behind ADR-0002
+// Amendment 1: a clean mechanical merge is benign residue (true); a tree the
+// mechanical merge does not produce (-s ours), a conflicted re-merge (hand
+// resolution), an octopus merge, and a non-merge commit all report false.
+func TestMergeReproducible(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("benign merge is reproducible", func(t *testing.T) {
+		t.Parallel()
+		r, dir := newRepo(t)
+		writeCommit(t, dir, "app.txt", "v0\n", "c0")
+		runGit(t, dir, "branch", "dev")
+		runGit(t, dir, "checkout", "-q", "dev")
+		writeCommit(t, dir, "feature.txt", "f\n", "feature on dev")
+		runGit(t, dir, "checkout", "-q", "main")
+		writeCommit(t, dir, "other.txt", "o\n", "c1 on main")
+		runGit(t, dir, "merge", "-q", "--no-ff", "-m", "merge dev", "dev")
+		sha := runGit(t, dir, "rev-parse", "HEAD")
+
+		ok, err := r.MergeReproducible(ctx, sha)
+		if err != nil {
+			t.Fatalf("MergeReproducible: %v", err)
+		}
+		if !ok {
+			t.Fatal("clean --no-ff merge reported not reproducible, want benign")
+		}
+	})
+
+	t.Run("strategy-option merge is not", func(t *testing.T) {
+		t.Parallel()
+		r, dir := newRepo(t)
+		writeCommit(t, dir, "app.txt", "v0\n", "c0")
+		runGit(t, dir, "branch", "dev")
+		runGit(t, dir, "checkout", "-q", "dev")
+		writeCommit(t, dir, "feature.txt", "f\n", "feature on dev")
+		runGit(t, dir, "checkout", "-q", "main")
+		// -s ours records a merge whose tree drops dev's content — a tree the
+		// mechanical merge would never produce.
+		runGit(t, dir, "merge", "-q", "-s", "ours", "--no-ff", "-m", "ours-merge dev", "dev")
+		sha := runGit(t, dir, "rev-parse", "HEAD")
+
+		ok, err := r.MergeReproducible(ctx, sha)
+		if err != nil {
+			t.Fatalf("MergeReproducible: %v", err)
+		}
+		if ok {
+			t.Fatal("-s ours merge reported reproducible, want evil")
+		}
+	})
+
+	t.Run("conflicted resolution is not", func(t *testing.T) {
+		t.Parallel()
+		r, dir := newRepo(t)
+		writeCommit(t, dir, "app.txt", "v0\n", "c0")
+		runGit(t, dir, "branch", "dev")
+		runGit(t, dir, "checkout", "-q", "dev")
+		writeCommit(t, dir, "app.txt", "dev\n", "edit on dev")
+		runGit(t, dir, "checkout", "-q", "main")
+		writeCommit(t, dir, "app.txt", "main\n", "edit on main")
+		// The merge conflicts; the recorded resolution is hand-made content.
+		mergeCmd := exec.CommandContext(ctx, "git", "merge", "--no-ff", "-m", "resolve", "dev")
+		mergeCmd.Dir = dir
+		mergeCmd.Env = gittest.Env()
+		_ = mergeCmd.Run() // conflict expected
+		writeCommit(t, dir, "app.txt", "resolved\n", "resolve conflict")
+		sha := runGit(t, dir, "rev-parse", "HEAD")
+
+		ok, err := r.MergeReproducible(ctx, sha)
+		if err != nil {
+			t.Fatalf("MergeReproducible: %v", err)
+		}
+		if ok {
+			t.Fatal("conflict-resolution merge reported reproducible, want evil")
+		}
+	})
+
+	t.Run("octopus and non-merge report false", func(t *testing.T) {
+		t.Parallel()
+		r, dir := newRepo(t)
+		plain := writeCommit(t, dir, "app.txt", "v0\n", "c0")
+		for _, b := range []string{"a", "b"} {
+			runGit(t, dir, "checkout", "-q", "-b", b, "main")
+			writeCommit(t, dir, b+".txt", b+"\n", "on "+b)
+		}
+		runGit(t, dir, "checkout", "-q", "main")
+		runGit(t, dir, "merge", "-q", "--no-ff", "-m", "octopus", "a", "b")
+		octopus := runGit(t, dir, "rev-parse", "HEAD")
+
+		if ok, err := r.MergeReproducible(ctx, octopus); err != nil || ok {
+			t.Fatalf("MergeReproducible(octopus) = %v, %v; want false, nil", ok, err)
+		}
+		if ok, err := r.MergeReproducible(ctx, plain); err != nil || ok {
+			t.Fatalf("MergeReproducible(non-merge) = %v, %v; want false, nil", ok, err)
+		}
+		if _, err := r.MergeReproducible(ctx, "main"); err == nil {
+			t.Fatal("MergeReproducible accepted a non-oid input")
+		}
+	})
+}

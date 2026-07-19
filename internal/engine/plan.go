@@ -197,6 +197,9 @@ func planDownstream(g *Graph, e EdgeState) []Action {
 	}
 	// A non-backflow-source destination with expected drift is intentionally
 	// ignored; otherwise its downstream content is a reported divergence.
+	// DownstreamOnly is already content-filtered by observation (ADR-0002
+	// Amendment 1), so anything still here is genuine drift, not merge or
+	// patch-id residue.
 	if b, ok := g.Branches[e.To.Name]; ok && b.Drift == v1.DriftExpected {
 		return nil
 	}
