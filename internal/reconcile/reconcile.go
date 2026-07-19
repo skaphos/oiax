@@ -31,6 +31,7 @@ import (
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
 	"github.com/skaphos/oiax/internal/git"
+	"github.com/skaphos/oiax/internal/tmpl"
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
@@ -67,6 +68,10 @@ type Coordinator struct {
 	// (mirroring the pinned-config-ref refusal in effectiveConfigRef). The
 	// recovery is the same either way: fetch full history (fetch-depth: 0).
 	RefuseShallow bool
+	// Templates renders the human-facing text of created requests and
+	// conflict artifacts (SKA-54). A nil Templates uses the built-in
+	// defaults, mirroring Log's nil-safety.
+	Templates *tmpl.Set
 }
 
 // Result carries what Apply did, for exit-code and summary decisions.
@@ -731,14 +736,24 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 			if err != nil {
 				return res, fmt.Errorf("apply create %s->%s: %w", a.From, a.To, err)
 			}
+			// Text renders once, here at creation: an existing managed
+			// request's human body is never re-rendered (updates rewrite only
+			// the marker), so volatile template output cannot thrash it. A
+			// render failure fails the apply loudly — a governance template's
+			// scaffold is the change record, so a request without it must not
+			// be opened (fail closed).
+			title, body, err := c.promotionText(ctx, a, head)
+			if err != nil {
+				return res, fmt.Errorf("apply create %s->%s: %w", a.From, a.To, err)
+			}
 			if _, err := c.Forge.CreateRequest(ctx, forge.CreateRequest{
 				Graph:      c.Graph.Name,
 				Type:       engine.RequestTypePromotion,
 				Source:     a.From,
 				Target:     a.To,
 				SourceHead: head,
-				Title:      fmt.Sprintf("oiax: promote %s to %s", a.From, a.To),
-				Body:       promotionBody(a),
+				Title:      title,
+				Body:       body,
 			}); err != nil {
 				return res, fmt.Errorf("apply create %s->%s: %w", a.From, a.To, err)
 			}
@@ -842,6 +857,11 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 	// what it carries (O4).
 	branch := engine.BackflowBranchName(a.From, a.To, st.SourceHeadShort)
 
+	// The template context for every backflow surface this action can
+	// touch (request, merge message, conflict artifact): assembled once
+	// from the same live state the replay operates on.
+	tc := c.backflowContext(a, st, string(engine.RequestTypeBackflow))
+
 	// Replay onto the target head inside an ephemeral detached worktree, always
 	// cleaned up, so the caller's branch and index are never mutated.
 	wt, cleanup, err := c.Git.Worktree(ctx, a.To)
@@ -852,12 +872,20 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 
 	var head string
 	if c.Graph.Backflow.Strategy == v1.BackflowStrategyMerge {
+		// The templatable merge-commit message (SKA-54): empty when no
+		// template is configured, keeping git's default. The rendered
+		// message is a deterministic function of the merge inputs, so
+		// re-runs at the same heads still produce an identical SHA.
+		msg, _, err := c.templates().MergeMessage(tc)
+		if err != nil {
+			return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+		}
 		// Merge strategy (ADR-0006): a single --no-ff merge of the source head
 		// onto the target head returns the downstream set wholesale, producing a
 		// two-parent merge commit. A merge conflict maps to the SAME reported-
 		// divergence (exit 3) path a cherry-pick conflict uses: push nothing,
 		// create nothing, worktree left clean by git merge --abort.
-		head, err = wt.Merge(ctx, st.To.Head)
+		head, err = wt.Merge(ctx, st.To.Head, msg)
 		if err != nil {
 			var conflict *git.MergeConflict
 			if errors.As(err, &conflict) {
@@ -947,15 +975,21 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 	}
 
 	// Open (or adopt) the managed backflow request. The head branch is the
-	// pushed oiax/ branch; the base is the backflow target.
+	// pushed oiax/ branch; the base is the backflow target. Text renders
+	// once, at creation (an adopt on 422 never rewrites the body), and a
+	// render failure fails the apply — fail closed, as on promotion.
+	title, body, err := c.templates().Backflow(tc)
+	if err != nil {
+		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+	}
 	if _, err := c.Forge.CreateRequest(ctx, forge.CreateRequest{
 		Graph:      c.Graph.Name,
 		Type:       engine.RequestTypeBackflow,
 		Source:     branch,
 		Target:     a.To,
 		SourceHead: head,
-		Title:      fmt.Sprintf("oiax: backflow %s to %s", a.From, a.To),
-		Body:       backflowBody(a, len(toReturn), c.Graph.Backflow.Strategy),
+		Title:      title,
+		Body:       body,
 	}); err != nil {
 		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
 	}
@@ -1261,65 +1295,98 @@ func toEngineCommits(cs []git.Commit) []engine.Commit {
 	return out
 }
 
-// promotionBody is the human body of a created promotion request; the
-// provider appends the machine-readable marker after it.
-func promotionBody(a engine.Action) string {
-	return fmt.Sprintf(
-		"Oiax opened this request to promote %d commit(s) from `%s` into `%s`.\n\n"+
-			"This request is managed by Oiax. Do not edit the metadata block below.",
-		a.Unpromoted, a.From, a.To)
+// templates returns the wired template set, or the built-in defaults when
+// none was injected — mirroring log()'s nil-safety. The rendered human
+// text always sits ABOVE the machine-readable marker the provider appends;
+// the marker itself is never templatable (see internal/tmpl).
+func (c *Coordinator) templates() *tmpl.Set {
+	if c.Templates != nil {
+		return c.Templates
+	}
+	return tmpl.Default()
 }
 
-// backflowBody is the human body of a created backflow request; the provider
-// appends the machine-readable marker after it. The mechanism wording follows
-// the edge's backflow strategy so the request describes how the commits land.
-func backflowBody(a engine.Action, count int, strategy v1.BackflowStrategy) string {
+// promotionText renders the title and body of a promotion request to
+// create. The built-in text needs only the action's count and the live
+// head; a CUSTOMIZED template (global or per-edge) gets the full variable
+// context, re-deriving the unpromoted commit list from live state —
+// through the same observe/evaluate path the plan used, including the
+// baseline rung (the merged-request listing), so the listed commits are
+// the post-ladder set, never raw rev-list output. The extra observation
+// cost is paid only on the rare create action of an edge whose text is
+// actually customized.
+func (c *Coordinator) promotionText(ctx context.Context, a engine.Action, head string) (title, body string, err error) {
+	tc := tmpl.Context{
+		Graph:      c.Graph.Name,
+		Type:       string(engine.RequestTypePromotion),
+		From:       a.From,
+		To:         a.To,
+		Count:      a.Unpromoted,
+		SourceHead: head,
+	}
+	if c.templates().PromotionCustomized(a.From, a.To) {
+		merged, err := c.Forge.ListManagedRequests(ctx, forge.RequestFilter{
+			Graph: c.Graph.Name,
+			Type:  engine.RequestTypePromotion,
+			State: forge.RequestStateMerged,
+		})
+		if err != nil {
+			return "", "", err
+		}
+		obs, err := c.observe(ctx, a.From, a.To, nil, merged)
+		if err != nil {
+			return "", "", err
+		}
+		st := engine.EvaluateEdge(obs)
+		short, err := c.Git.ShortSHA(ctx, a.From)
+		if err != nil {
+			return "", "", err
+		}
+		tc.Count = len(st.Unpromoted)
+		tc.Commits = tmplCommits(st.Unpromoted)
+		tc.SourceHeadShort = short
+	}
+	return c.templates().Promotion(a.From, a.To, tc)
+}
+
+// backflowContext assembles the template context the backflow surfaces
+// share (the managed request, the merge-commit message, and — with
+// Conflict filled in by the caller — the conflict artifact), from the same
+// re-derived live state the replay operates on. Count is the true return
+// count; Commits is capped (tmplCommits).
+func (c *Coordinator) backflowContext(a engine.Action, st engine.EdgeState, typ string) tmpl.Context {
+	strategy := c.Graph.Backflow.Strategy
 	mechanism := "cherry-pick"
 	if strategy == v1.BackflowStrategyMerge {
 		mechanism = "merge commit"
 	}
-	return fmt.Sprintf(
-		"Oiax opened this request to return %d downstream-only commit(s) from `%s` back to `%s` by %s.\n\n"+
-			"This request is managed by Oiax. Do not edit the metadata block below.",
-		count, a.From, a.To, mechanism)
+	return tmpl.Context{
+		Graph:           c.Graph.Name,
+		Type:            typ,
+		From:            a.From,
+		To:              a.To,
+		Count:           len(st.ToReturn),
+		Commits:         tmplCommits(st.ToReturn),
+		SourceHead:      st.To.Head,
+		SourceHeadShort: st.SourceHeadShort,
+		Strategy:        string(strategy),
+		Mechanism:       mechanism,
+	}
 }
 
-// backflowConflictBody is the human body of a durable backflow-conflict
-// artifact (SKA-601), a sibling of backflowBody; the provider appends the
-// machine-readable marker after it. It names the failing commit (SHA +
-// subject), the a.From -> a.To edge, and — for the cherry-pick strategy
-// (whole == false) — the count of commits that applied cleanly before the
-// conflict, or — for the merge strategy (whole == true) — a note that the
-// whole source set was attempted (a merge has no per-commit clean count, so
-// applied is ignored). It carries the operator playbook linking the backflow
-// guide. The cherry-pick/merge distinction is carried solely by whole (one
-// source of truth); strategy is deliberately NOT a parameter. The failing
-// subject is attacker-influenceable free text and lives ONLY in this human
-// body, never in a marker identity field.
-func backflowConflictBody(a engine.Action, sha, subject, sourceHeadShort string, applied int, whole bool) string {
-	var mechanism string
-	if whole {
-		mechanism = "The merge strategy attempted the whole downstream source set in a " +
-			"single `--no-ff` merge; the merge conflicts, so nothing is returned."
-	} else {
-		mechanism = fmt.Sprintf(
-			"The cherry-pick strategy applied %d commit(s) cleanly before this one "+
-				"conflicted; the replay is aborted and nothing is returned.", applied)
+// tmplCommits converts engine commits to the template commit list,
+// applying the documented count cap; Context.Count carries the true total,
+// so a template can say "and N more". Order is preserved (newest first).
+func tmplCommits(cs []engine.Commit) []tmpl.Commit {
+	n := min(len(cs), tmpl.MaxCommits)
+	if n == 0 {
+		return nil
 	}
-	return fmt.Sprintf(
-		"Oiax could not return the downstream-only commits from `%s` to `%s`: the "+
-			"backflow replay conflicts on the `%s` -> `%s` edge (source `%s`).\n\n"+
-			"**Failing commit:** `%s` — %s\n\n"+
-			"%s\n\n"+
-			"### What to do\n\n"+
-			"Resolve by promoting or cherry-picking the fix by hand, or mark the commit "+
-			"`Oiax-Backflow: skip` if it should never return. See the "+
-			"[backflow guide](docs/guides/backflow.md#when-a-replay-conflicts) for the "+
-			"full playbook.\n\n"+
-			"Oiax manages this issue. It closes automatically once the conflict clears "+
-			"(the replay succeeds, the edge converges, or the commit becomes "+
-			"returned/skipped). Do not edit the metadata block below.",
-		a.From, a.To, a.From, a.To, sourceHeadShort, sha, subject, mechanism)
+	out := make([]tmpl.Commit, n)
+	for i := range n {
+		out[i] = tmpl.NewCommit(cs[i].SHA, cs[i].Subject)
+	}
+	return out
 }
 
 // canonicalConflictArtifacts groups the open conflict artifacts by
@@ -1389,13 +1456,27 @@ func (c *Coordinator) recordBackflowConflict(
 	existing, ok := canon[edge]
 
 	// (5) The spec to create or refresh with, keyed to this run's live head.
+	// The failing subject is attacker-influenceable free text and lives ONLY
+	// in the rendered human text, never in a marker identity field. Unlike
+	// the create paths, a render failure here follows this function's
+	// best-effort posture (ADR 0008): warn and leave the artifact for the
+	// next run rather than downgrade the exit-3 divergence to exit 1.
+	tc := c.backflowContext(a, st, "conflict")
+	tc.Conflict = &tmpl.Conflict{SHA: sha, Subject: subject, Applied: applied, Whole: whole}
+	title, body, terr := c.templates().BackflowConflict(tc)
+	if terr != nil {
+		c.log().Warn(fmt.Sprintf(
+			"backflow conflict artifact text render failed for %s -> %s; leaving for next run",
+			a.From, a.To), "err", terr)
+		return nil
+	}
 	spec := forge.ConflictArtifactSpec{
 		Graph:      c.Graph.Name,
 		Source:     a.From,
 		Target:     a.To,
 		SourceHead: curHead,
-		Title:      fmt.Sprintf("oiax: backflow conflict %s -> %s", a.From, a.To),
-		Body:       backflowConflictBody(a, sha, subject, st.SourceHeadShort, applied, whole),
+		Title:      title,
+		Body:       body,
 	}
 
 	// (6) Absent: create.

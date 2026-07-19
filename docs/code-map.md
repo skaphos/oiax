@@ -63,6 +63,16 @@ backflow replay and lifecycle, merge-method warnings, plan rendering,
 CI annotations (GitHub Actions and Azure Pipelines dialects), and
 step-summary output.
 
+## `internal/tmpl`
+
+Renders the human-facing text Oiax authors (request titles/bodies, the
+conflict artifact, the merge-strategy merge-commit message) from
+`spec.templates` — Go `text/template` over a documented context with a
+curated, deterministic funcmap. Compiles and sample-renders everything
+at configuration load, enforces the marker-ownership and untrusted-text
+rules, and ships built-in defaults byte-identical to the pre-template
+strings ([ADR 0011](adr/0011-templatable-request-text.md)).
+
 ## `internal/forge`
 
 The provider-neutral forge abstraction: the `Forge` interface

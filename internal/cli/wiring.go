@@ -18,6 +18,7 @@ import (
 	"github.com/skaphos/oiax/internal/forge/github"
 	"github.com/skaphos/oiax/internal/git"
 	"github.com/skaphos/oiax/internal/reconcile"
+	"github.com/skaphos/oiax/internal/tmpl"
 )
 
 // forgeKind names a forge provider implementation the CLI can wire.
@@ -120,20 +121,22 @@ func requireGitFloor(cmd *cobra.Command) (*git.Runner, error) {
 }
 
 // buildCoordinator assembles the coordinator for a plan-producing command:
-// the structured logger, the forge provider, and the git runner over the
-// working directory. runner is the instance requireGitFloor already asserted
-// the version floor on, so the floor is checked exactly once.
-func buildCoordinator(cmd *cobra.Command, g *engine.Graph, runner *git.Runner) (*reconcile.Coordinator, error) {
+// the structured logger, the forge provider, the git runner over the
+// working directory, and the resolved template set. runner is the instance
+// requireGitFloor already asserted the version floor on, so the floor is
+// checked exactly once.
+func buildCoordinator(cmd *cobra.Command, g *engine.Graph, ts *tmpl.Set, runner *git.Runner) (*reconcile.Coordinator, error) {
 	logger := buildLogger(cmd)
 	f, err := newForge(cmd.Context(), logger)
 	if err != nil {
 		return nil, err
 	}
 	return &reconcile.Coordinator{
-		Git:   runner,
-		Forge: f,
-		Graph: g,
-		Log:   logger,
+		Git:       runner,
+		Forge:     f,
+		Graph:     g,
+		Log:       logger,
+		Templates: ts,
 		// Under a detected CI host a shallow clone is a hard error, not a
 		// warning: the run is unattended and a spurious promotion PR would land
 		// before anyone reads the degraded-mode warning. Locally it stays a

@@ -21,6 +21,8 @@ Task-oriented walkthroughs — see the [guides index](guides/README.md):
 - [Setting up a token that triggers CI](guides/tokens.md) — the GitHub
   App token setup that keeps managed PRs from stalling.
 - [Backflow: returning hotfixes](guides/backflow.md).
+- [Governance change-record templates](guides/governance-templates.md) —
+  make managed PRs carry your change-management scaffold.
 - [Operating Oiax day to day](guides/operating.md) — reading plans,
   reviewing managed PRs, branch protection, offboarding, scale, divergence.
 - [Recipes](guides/recipes.md) — drift gates, PR validation, previewing a
@@ -41,6 +43,8 @@ Task-oriented walkthroughs — see the [guides index](guides/README.md):
   regenerate with `task docs:cli-ref`.
 - [Configuration reference](reference/configuration.md) — every
   `.oiax.yaml` key, flag, and exit code.
+- [Request-text templates](reference/templates.md) — the
+  `spec.templates` keys, the variable context, and the rendering rules.
 - [Plan JSON format](reference/plan-format.md) — the frozen
   `planFormatVersion: 1` field-level contract for `oiax plan -o json`.
 
@@ -58,6 +62,7 @@ Architecture Decision Records live in [adr/](adr/):
 - [0008 — Durable backflow-conflict artifact](adr/0008-durable-backflow-conflict-artifact.md)
 - [0009 — Azure DevOps forge provider](adr/0009-azure-devops-forge-provider.md)
 - [0010 — Exported validation and defaulting on the config API](adr/0010-exported-config-validation.md)
+- [0011 — Templatable request text](adr/0011-templatable-request-text.md)
 
 ## Process
 

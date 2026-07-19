@@ -207,3 +207,67 @@ spec:
 		})
 	}
 }
+
+// TestParseAcceptsTemplates locks the spec.templates configuration surface
+// (SKA-54) against the strict KnownFields decoder: every documented key
+// parses, and a typo inside a template block is still rejected.
+func TestParseAcceptsTemplates(t *testing.T) {
+	doc := []byte(`apiVersion: oiax.skaphos.dev/v1
+kind: PromotionGraph
+metadata:
+  name: environments
+spec:
+  branches:
+    development: {role: source}
+    main: {role: terminal}
+  promotions:
+    - from: development
+      to: main
+      templates:
+        title: "edge title {{.From}}"
+  backflow:
+    sources: [main]
+    target: development
+    strategy: merge
+  templates:
+    promotion:
+      title: "t"
+      bodyFile: .oiax/templates/promotion.md.tmpl
+    backflow:
+      body: "b"
+    backflowConflict:
+      title: "t"
+    backflowMergeMessage:
+      text: "m"
+`)
+	cfg, err := Parse(doc)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	tp := cfg.Spec.Templates
+	if tp == nil || tp.Promotion == nil || tp.Promotion.BodyFile != ".oiax/templates/promotion.md.tmpl" {
+		t.Fatalf("templates = %+v, want the promotion bodyFile parsed", tp)
+	}
+	if tp.BackflowMergeMessage == nil || tp.BackflowMergeMessage.Text != "m" {
+		t.Errorf("backflowMergeMessage = %+v", tp.BackflowMergeMessage)
+	}
+	if cfg.Spec.Promotions[0].Templates == nil || cfg.Spec.Promotions[0].Templates.Title == "" {
+		t.Errorf("per-edge templates = %+v", cfg.Spec.Promotions[0].Templates)
+	}
+
+	typo := []byte(`apiVersion: oiax.skaphos.dev/v1
+kind: PromotionGraph
+metadata:
+  name: environments
+spec:
+  branches:
+    development: {role: source}
+  promotions: []
+  templates:
+    promotion:
+      bodyfile: wrong-case
+`)
+	if _, err := Parse(typo); err == nil {
+		t.Fatal("Parse must reject an unknown template field (bodyfile)")
+	}
+}

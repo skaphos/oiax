@@ -45,11 +45,11 @@ exit 3 after a plan of 2 in that single case.`,
 			if err != nil {
 				return err
 			}
-			g, err := loadGraph(cmd, opts, ref)
+			g, ts, err := loadGraph(cmd, opts, ref)
 			if err != nil {
 				return err
 			}
-			coord, err := buildCoordinator(cmd, g, runner)
+			coord, err := buildCoordinator(cmd, g, ts, runner)
 			if err != nil {
 				return err
 			}

@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/skaphos/oiax/internal/config"
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/git"
+	"github.com/skaphos/oiax/internal/tmpl"
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
@@ -131,19 +134,24 @@ func requireTextOutput(cmdName string, opts *options) error {
 }
 
 // loadGraph loads, converts, and semantically validates the promotion
-// graph, reporting every violation at once. configRef selects the source: a
+// graph, reporting every violation at once, and resolves the configured
+// template set (SKA-54) alongside it. configRef selects the source: a
 // non-empty ref is read as committed at that ref (git show <ref>:<path>),
 // the pinned-configuration-ref rule; an empty configRef reads the
-// working-tree file at configPath.
-func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Graph, error) {
+// working-tree file at configPath. Template file references (bodyFile /
+// file) are read from the SAME source as the document itself, so pull-
+// request template content is never executed with privileged credentials
+// (ADR 0003), and a broken template fails here — in validate's round trip —
+// not deep inside an apply.
+func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Graph, *tmpl.Set, error) {
 	var cfg *v1.PromotionGraph
 	var err error
+	runner := &git.Runner{}
 	if configRef != "" {
-		runner := &git.Runner{}
 		var data []byte
 		data, err = runner.ShowFile(cmd.Context(), configRef, opts.configPath)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		cfg, err = config.Parse(data)
 		if err != nil {
@@ -153,7 +161,7 @@ func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Gra
 		cfg, err = config.Load(opts.configPath)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if config.IsDeprecatedAPIVersion(cfg.APIVersion) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: apiVersion %q is deprecated; migrate to %q\n", v1.APIVersionV1Alpha1, v1.APIVersion)
@@ -166,9 +174,31 @@ func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Gra
 		for _, v := range violations {
 			fmt.Fprintf(cmd.ErrOrStderr(), "invalid: %v\n", v)
 		}
-		return nil, fmt.Errorf("%s: %d validation errors", opts.configPath, len(violations))
+		return nil, nil, fmt.Errorf("%s: %d validation errors", opts.configPath, len(violations))
 	}
-	return engine.FromConfig(cfg), nil
+	ts, err := tmpl.Resolve(cfg, func(path string) ([]byte, error) {
+		if configRef != "" {
+			return runner.ShowFile(cmd.Context(), configRef, path)
+		}
+		return readWorkingTreeFile(path)
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", opts.configPath, err)
+	}
+	return engine.FromConfig(cfg), ts, nil
+}
+
+// readWorkingTreeFile reads a repository-relative template file from the
+// working tree, capped just past the template size limit so a pathological
+// file is rejected by Resolve's bound rather than read into memory whole —
+// mirroring config.Load's own cap.
+func readWorkingTreeFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(io.LimitReader(f, tmpl.MaxFileBytes+1))
 }
 
 // effectiveConfigRef resolves the ref plan and reconcile read configuration

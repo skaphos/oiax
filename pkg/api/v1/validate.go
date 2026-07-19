@@ -134,6 +134,9 @@ func (g *PromotionGraph) Validate() []error {
 		if to, ok := g.Spec.Branches[p.To]; ok && to.Role == RoleSource {
 			report("branch %q has role %q but is the destination of promotion edge %s -> %s", p.To, RoleSource, p.From, p.To)
 		}
+
+		errs = append(errs, validateRequestTemplate(
+			fmt.Sprintf("promotion edge %s -> %s: templates", p.From, p.To), p.Templates)...)
 	}
 
 	if cycle := findCycle(g.Spec.Promotions); cycle != nil {
@@ -141,7 +144,117 @@ func (g *PromotionGraph) Validate() []error {
 	}
 
 	errs = append(errs, g.validateBackflow()...)
+	errs = append(errs, g.validateTemplates()...)
 	return errs
+}
+
+// validateTemplates checks the shape of spec.templates: mutual exclusion of
+// inline and file sources, file-path hygiene, and slot/policy coherence.
+// Template SYNTAX is deliberately not checked here — parsing needs the
+// curated function set, which is an implementation detail; `oiax validate`
+// compiles and sample-renders every template at load instead, so syntax
+// errors still surface in the same round trip.
+func (g *PromotionGraph) validateTemplates() []error {
+	t := g.Spec.Templates
+	if t == nil {
+		return nil
+	}
+	var errs []error
+	report := func(format string, args ...any) {
+		errs = append(errs, fmt.Errorf(format, args...))
+	}
+
+	errs = append(errs, validateRequestTemplate("templates.promotion", t.Promotion)...)
+	errs = append(errs, validateRequestTemplate("templates.backflow", t.Backflow)...)
+	errs = append(errs, validateRequestTemplate("templates.backflowConflict", t.BackflowConflict)...)
+
+	// The backflow slots template artifacts only the backflow flow authors;
+	// declaring them without a backflow policy is dead configuration and
+	// almost certainly a mistake, so it is rejected like an unknown field.
+	if g.Spec.Backflow == nil {
+		if t.Backflow != nil {
+			report("templates.backflow requires spec.backflow to be declared")
+		}
+		if t.BackflowConflict != nil {
+			report("templates.backflowConflict requires spec.backflow to be declared")
+		}
+	}
+
+	if m := t.BackflowMergeMessage; m != nil {
+		if m.Text == "" && m.File == "" {
+			report("templates.backflowMergeMessage: declare text or file")
+		}
+		if m.Text != "" && m.File != "" {
+			report("templates.backflowMergeMessage: text and file are mutually exclusive")
+		}
+		if m.File != "" {
+			if err := validateTemplatePath(m.File); err != nil {
+				report("templates.backflowMergeMessage: invalid file %q: %v", m.File, err)
+			}
+		}
+		// The merge-commit message exists only on the merge strategy;
+		// cherry-pick replays original commits whose messages git owns
+		// (the -x provenance trailer is load-bearing identity, ADR 0004).
+		if g.Spec.Backflow == nil || g.Spec.Backflow.Strategy != BackflowStrategyMerge {
+			report("templates.backflowMergeMessage requires spec.backflow.strategy %q", BackflowStrategyMerge)
+		}
+	}
+	return errs
+}
+
+// validateRequestTemplate checks one title/body template slot: at least one
+// field set, body and bodyFile mutually exclusive, and a clean repository-
+// relative bodyFile path.
+func validateRequestTemplate(where string, t *RequestTemplate) []error {
+	if t == nil {
+		return nil
+	}
+	var errs []error
+	report := func(format string, args ...any) {
+		errs = append(errs, fmt.Errorf(format, args...))
+	}
+	if t.Title == "" && t.Body == "" && t.BodyFile == "" {
+		report("%s: declare title, body, or bodyFile", where)
+	}
+	if t.Body != "" && t.BodyFile != "" {
+		report("%s: body and bodyFile are mutually exclusive", where)
+	}
+	if t.BodyFile != "" {
+		if err := validateTemplatePath(t.BodyFile); err != nil {
+			report("%s: invalid bodyFile %q: %v", where, t.BodyFile, err)
+		}
+	}
+	return errs
+}
+
+// validateTemplatePath checks a template file reference: a clean
+// repository-relative path, forward slashes only, that cannot escape the
+// repository. The path is later handed to `git show <ref>:<path>` (or a
+// working-tree read), so the same string must be safe for both.
+func validateTemplatePath(p string) error {
+	if strings.HasPrefix(p, "/") {
+		return fmt.Errorf("must be repository-relative, not absolute")
+	}
+	if strings.Contains(p, "\\") {
+		return fmt.Errorf("must use forward slashes")
+	}
+	if strings.HasPrefix(p, "-") {
+		return fmt.Errorf("must not begin with '-'")
+	}
+	for _, r := range p {
+		if r < 0o40 || r == 0o177 {
+			return fmt.Errorf("must not contain control characters")
+		}
+	}
+	for _, component := range strings.Split(p, "/") {
+		switch component {
+		case "":
+			return fmt.Errorf("must not contain empty path components")
+		case ".", "..":
+			return fmt.Errorf("must not contain %q path components", component)
+		}
+	}
+	return nil
 }
 
 func (g *PromotionGraph) validateBackflow() []error {

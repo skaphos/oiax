@@ -23,7 +23,7 @@ planned.`,
 			if err := requireTextOutput("graph", opts); err != nil {
 				return err
 			}
-			g, err := loadGraph(cmd, opts, opts.configRef)
+			g, _, err := loadGraph(cmd, opts, opts.configRef)
 			if err != nil {
 				return err
 			}

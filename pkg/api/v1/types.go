@@ -116,6 +116,12 @@ type PromotionGraphSpec struct {
 	// Backflow optionally declares how exceptional downstream changes
 	// (hotfixes) are returned to the authoritative source branch.
 	Backflow *Backflow `yaml:"backflow,omitempty" json:"backflow,omitempty"`
+	// Templates optionally customizes the human-facing text Oiax authors
+	// on the requests and artifacts it manages. Templates are Go
+	// text/template documents rendered with a documented variable context
+	// and a curated function set only — configuration stays declarative
+	// data, never executable code. Unset slots use Oiax's built-in text.
+	Templates *Templates `yaml:"templates,omitempty" json:"templates,omitempty"`
 }
 
 // Branch holds per-branch settings.
@@ -138,6 +144,10 @@ type Promotion struct {
 	// Expectations optionally declares reporting-only expectations for
 	// the edge.
 	Expectations *Expectations `yaml:"expectations,omitempty" json:"expectations,omitempty"`
+	// Templates optionally overrides spec.templates.promotion for
+	// promotion requests created on this edge only — a prod-facing edge
+	// can carry a heavier change-record scaffold than a dev edge.
+	Templates *RequestTemplate `yaml:"templates,omitempty" json:"templates,omitempty"`
 }
 
 // Expectations are validation and reporting metadata for an edge. Oiax
@@ -172,4 +182,63 @@ type Backflow struct {
 	// "merge"), because only a merge commit preserves the returned
 	// commits' original SHAs and ancestry.
 	ExpectedMergeMethod MergeMethod `yaml:"expectedMergeMethod,omitempty" json:"expectedMergeMethod,omitempty"`
+}
+
+// Templates customizes the human-facing text Oiax authors: managed-request
+// titles and bodies, the durable backflow-conflict artifact, and — for the
+// merge backflow strategy — the --no-ff merge-commit message. Each slot is
+// optional; an unset slot renders Oiax's built-in text.
+//
+// Oiax authors only the HUMAN text: the machine-readable marker block is
+// appended by the provider after the rendered body and is never
+// templatable. A template whose output could be mistaken for (or swallow)
+// the marker is rejected. See docs/reference/templates.md for the variable
+// context and the constraints templates must respect.
+type Templates struct {
+	// Promotion is the graph-wide template for promotion requests.
+	// spec.promotions[].templates overrides it per edge.
+	Promotion *RequestTemplate `yaml:"promotion,omitempty" json:"promotion,omitempty"`
+	// Backflow is the template for managed backflow requests.
+	Backflow *RequestTemplate `yaml:"backflow,omitempty" json:"backflow,omitempty"`
+	// BackflowConflict is the template for the durable backflow-conflict
+	// artifact (a forge issue or work item).
+	BackflowConflict *RequestTemplate `yaml:"backflowConflict,omitempty" json:"backflowConflict,omitempty"`
+	// BackflowMergeMessage is the template for the --no-ff merge-commit
+	// message the merge backflow strategy authors. It requires
+	// spec.backflow.strategy "merge". Unset keeps git's default merge
+	// message. The rendered message is deterministic for fixed inputs, so
+	// re-runs still push identical SHAs; changing the template (or the
+	// inputs) changes the replayed merge commit's SHA, which re-pushes the
+	// managed branch once — bounded, self-healing churn.
+	BackflowMergeMessage *TextTemplate `yaml:"backflowMergeMessage,omitempty" json:"backflowMergeMessage,omitempty"`
+}
+
+// RequestTemplate customizes one managed request's (or conflict
+// artifact's) title and body. Title is always inline (titles are a single
+// line); the body is inline (body) or read from a repository file
+// (bodyFile) — the two are mutually exclusive. A referenced file is read
+// from the same pinned source as the configuration itself (ADR 0003): the
+// pinned config ref for plan/reconcile, the working tree for
+// validate/graph.
+type RequestTemplate struct {
+	// Title is an inline text/template for the request title. Rendered
+	// output is reduced to a single line and length-capped.
+	Title string `yaml:"title,omitempty" json:"title,omitempty"`
+	// Body is an inline text/template for the human body above the
+	// marker block. Mutually exclusive with BodyFile.
+	Body string `yaml:"body,omitempty" json:"body,omitempty"`
+	// BodyFile is a repository-relative path (forward slashes, no "..",
+	// not absolute) to a text/template file for the body. Mutually
+	// exclusive with Body.
+	BodyFile string `yaml:"bodyFile,omitempty" json:"bodyFile,omitempty"`
+}
+
+// TextTemplate is a single-text template slot: inline (text) or a
+// repository file reference (file), mutually exclusive.
+type TextTemplate struct {
+	// Text is the inline text/template.
+	Text string `yaml:"text,omitempty" json:"text,omitempty"`
+	// File is a repository-relative path (forward slashes, no "..", not
+	// absolute) to a text/template file. Mutually exclusive with Text.
+	File string `yaml:"file,omitempty" json:"file,omitempty"`
 }

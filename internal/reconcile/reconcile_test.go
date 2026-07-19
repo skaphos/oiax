@@ -19,6 +19,7 @@ import (
 	"github.com/skaphos/oiax/internal/forge"
 	"github.com/skaphos/oiax/internal/git"
 	"github.com/skaphos/oiax/internal/gittest"
+	"github.com/skaphos/oiax/internal/tmpl"
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
@@ -2829,5 +2830,161 @@ func TestApplyBackflowConflictNilMapSafety(t *testing.T) {
 	}
 	if !res.Divergence || res.Conflicts != 1 {
 		t.Errorf("result = %+v, want Divergence=true Conflicts=1", res)
+	}
+}
+
+// testTemplates resolves a template Set the way loadGraph does, from a bare
+// document carrying only the template configuration (SKA-54).
+func testTemplates(t *testing.T, ts *v1.Templates, promotions ...v1.Promotion) *tmpl.Set {
+	t.Helper()
+	s, err := tmpl.Resolve(&v1.PromotionGraph{Spec: v1.PromotionGraphSpec{
+		Templates:  ts,
+		Promotions: promotions,
+	}}, nil)
+	if err != nil {
+		t.Fatalf("resolve templates: %v", err)
+	}
+	return s
+}
+
+// A customized promotion template gets the FULL variable context on create:
+// the post-ladder commit list (subjects included), the live count, and the
+// short source head — none of which the built-in text needs.
+func TestApplyCreatePromotionRendersCustomTemplate(t *testing.T) {
+	r, _ := gitHarness(t)
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "feature.txt", "new\n", "feat: custom text feature")
+
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph(), Templates: testTemplates(t, &v1.Templates{
+		Promotion: &v1.RequestTemplate{
+			Title: "change record {{.From}} -> {{.To}}",
+			Body:  "count={{.Count}}{{range .Commits}} [{{.ShortSHA}} {{.Subject}}]{{end}} head={{.SourceHeadShort}}",
+		},
+	})}
+
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.created) != 1 {
+		t.Fatalf("created = %d requests, want 1: %+v", len(f.created), f.created)
+	}
+	req := f.created[0]
+	if want := "change record development -> test"; req.Title != want {
+		t.Errorf("title = %q, want %q", req.Title, want)
+	}
+	short, err := r.ShortSHA(context.Background(), "development")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(req.Body, "count=1") ||
+		!strings.Contains(req.Body, "feat: custom text feature") ||
+		!strings.Contains(req.Body, "head="+short) {
+		t.Errorf("body = %q, want live count, commit subject, and short head", req.Body)
+	}
+}
+
+// The default templates keep the promotion create path cheap: no commit
+// derivation, and output identical to the pre-template text (also pinned in
+// internal/tmpl; this guards the wiring end to end).
+func TestApplyCreatePromotionDefaultTextUnchanged(t *testing.T) {
+	r, _ := gitHarness(t)
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "feature.txt", "new\n", "feat: default text")
+
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.created) != 1 {
+		t.Fatalf("created = %d, want 1", len(f.created))
+	}
+	if want := "oiax: promote development to test"; f.created[0].Title != want {
+		t.Errorf("title = %q, want %q", f.created[0].Title, want)
+	}
+	wantBody := "Oiax opened this request to promote 1 commit(s) from `development` into `test`.\n\n" +
+		"This request is managed by Oiax. Do not edit the metadata block below."
+	if f.created[0].Body != wantBody {
+		t.Errorf("body = %q, want the built-in text unchanged", f.created[0].Body)
+	}
+}
+
+// The merge backflow strategy renders the configured merge-commit message
+// into the --no-ff merge commit, and the custom backflow body renders with
+// the return set's commit context.
+func TestApplyMergeBackflowRendersMessageAndBodyTemplates(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "main")
+	commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	f := &fakeForge{createResult: engine.ChangeRequest{ID: "1", Type: engine.RequestTypeBackflow}}
+	c := &Coordinator{Git: r, Forge: f, Graph: mergeGraph(), Templates: testTemplates(t, &v1.Templates{
+		Backflow: &v1.RequestTemplate{
+			Body: "returning {{.Count}} via {{.Mechanism}}:{{range .Commits}} {{.Subject}};{{end}}",
+		},
+		BackflowMergeMessage: &v1.TextTemplate{
+			Text: "backflow: {{.From}} -> {{.To}} ({{.Count}} commit(s))\n\nGraph: {{.Graph}}",
+		},
+	})}
+
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := c.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(f.pushed) != 1 || len(f.created) != 1 {
+		t.Fatalf("want 1 push and 1 create, got pushed=%d created=%d", len(f.pushed), len(f.created))
+	}
+	msg := gitExec(t, r.Dir, "log", "-1", "--format=%B", f.pushed[0].SHA)
+	if want := "backflow: main -> development (1 commit(s))\n\nGraph: environments"; strings.TrimRight(msg, "\n") != want {
+		t.Errorf("merge commit message = %q, want %q", msg, want)
+	}
+	body := f.created[0].Body
+	if !strings.Contains(body, "returning 1 via merge commit:") || !strings.Contains(body, "hotfix on main;") {
+		t.Errorf("backflow body = %q, want mechanism and commit subject", body)
+	}
+}
+
+// The durable conflict artifact renders the configured template with the
+// failing-commit context; the untrusted subject stays in the human body
+// (the marker fields the fake records are unchanged).
+func TestBackflowConflictRendersCustomTemplate(t *testing.T) {
+	r, _, a := conflictHarness(t)
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph(), Templates: testTemplates(t, &v1.Templates{
+		BackflowConflict: &v1.RequestTemplate{
+			Title: "STUCK {{.From}} -> {{.To}}",
+			Body:  "failing={{.Conflict.SHA}} subject={{.Conflict.Subject}} applied={{.Conflict.Applied}} whole={{.Conflict.Whole}}",
+		},
+	})}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence || res.Conflicts != 1 || len(f.conflictCreated) != 1 {
+		t.Fatalf("res=%+v conflictCreated=%d, want divergence with one artifact", res, len(f.conflictCreated))
+	}
+	spec := f.conflictCreated[0]
+	if want := "STUCK main -> development"; spec.Title != want {
+		t.Errorf("title = %q, want %q", spec.Title, want)
+	}
+	mainHead, _ := r.Head(context.Background(), "main")
+	if !strings.Contains(spec.Body, "failing="+mainHead[:7]) && !strings.Contains(spec.Body, "subject=hotfix on main") {
+		t.Errorf("body = %q, want the failing commit context", spec.Body)
+	}
+	if !strings.Contains(spec.Body, "applied=0 whole=false") {
+		t.Errorf("body = %q, want cherry-pick conflict details", spec.Body)
 	}
 }

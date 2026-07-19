@@ -1,0 +1,24 @@
+Oiax opened this request to promote {{.Count}} commit(s) from
+`{{.From}}` into `{{.To}}` (source head `{{.SourceHeadShort}}`).
+
+## Change record
+
+- **Change type:** normal <!-- standard | normal | emergency -->
+- **Risk classification:** <!-- low | medium | high -->
+- **Control references:** <!-- e.g. ITGC-CM-02, SOX-A12 -->
+- **Change ticket:** <!-- link the ServiceNow / Jira / ADO work item -->
+
+## What is changing
+
+{{range .Commits}}- `{{.ShortSHA}}` {{.Subject}}
+{{end}}{{if gt .Count (len .Commits)}}…and more — see the request diff for the full list.
+{{end}}
+
+## Approver justification
+
+<!-- Reviewer: replace this comment with the business justification and
+     rollback plan before approving. Approval of this PR is the recorded
+     approval of the change. -->
+
+---
+This request is managed by Oiax. Do not edit the metadata block below.

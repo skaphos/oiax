@@ -28,6 +28,10 @@ the [reference](../reference/), and for the design see
 
 - **[Backflow: returning hotfixes](backflow.md)** — bring downstream-only
   commits back to your source branch.
+- **[Governance change-record templates](governance-templates.md)** —
+  template managed-PR titles and bodies so the PR is the auditable
+  change record: control references, risk classification, and an
+  approver-justification section.
 - **[Minimizing divergence](minimizing-divergence.md)** — practices
   upstream of Oiax that keep managed requests merging cleanly: config
   isolation, hotfix discipline, drift gates, and rollback.
@@ -44,4 +48,5 @@ the [reference](../reference/), and for the design see
 
 - [CLI reference](../reference/cli.md)
 - [Configuration reference](../reference/configuration.md)
+- [Request-text templates](../reference/templates.md)
 - [Plan JSON format](../reference/plan-format.md)
