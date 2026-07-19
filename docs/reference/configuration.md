@@ -33,6 +33,7 @@ history.
 | `spec.branches` | map | yes | Long-lived branches by name. Every branch referenced by an edge or backflow must appear. Oiax never creates long-lived branches. |
 | `spec.promotions` | list | yes | Directed promotion edges. Must form a DAG; disconnected components are allowed. |
 | `spec.backflow` | object | no | Hotfix-return policy. |
+| `spec.templates` | object | no | Custom request-text templates — see [Request-text templates](templates.md). |
 
 ### Migration / deprecated alias
 
@@ -57,6 +58,7 @@ warning to stderr. Migrate by changing the `apiVersion` string to
 | `from` | string | yes | Source branch (must be declared in `spec.branches`). |
 | `to` | string | yes | Destination branch (must be declared; distinct from `from`; each `from`/`to` pair at most once). |
 | `expectations.mergeMethod` | string | no | `merge`, `squash`, or `rebase`. Reporting metadata: Oiax warns (on stderr) when the repository's merge-button settings do not permit the configured method, and never modifies settings. Recommended where possible: disable squash on promotion targets for cheaper, exact detection. |
+| `templates` | object | no | Per-edge override of `spec.templates.promotion` for requests created on this edge (same `title`/`body`/`bodyFile` keys, overriding per field). See the [templates reference](templates.md). |
 
 ## `spec.backflow`
 
@@ -66,6 +68,31 @@ warning to stderr. Migrate by changing the `apiVersion` string to
 | `target` | string | yes | The authoritative branch commits are returned to. Must be declared, have role `source`, and not appear in `sources`. Exactly one target per graph in v1. |
 | `strategy` | string | `cherry-pick` | Return mechanism: `cherry-pick` (with `-x` provenance trailers) or `merge` (a wholesale `--no-ff` merge commit). See the [backflow guide — choosing a strategy](../guides/backflow.md#choosing-a-strategy). |
 | `expectedMergeMethod` | string | `merge` (when `strategy: merge`) | Only meaningful with `strategy: merge`, where it must be `merge`: it records that the return request lands as a merge commit. A `squash` or `rebase` value is rejected — it would erase the ancestry link the merge strategy relies on. Ignored (and need not be set) under `strategy: cherry-pick`. |
+
+## `spec.templates`
+
+Customizes the human-facing text Oiax authors — request titles and
+bodies, the backflow-conflict artifact, and the merge-strategy
+`--no-ff` merge-commit message — as Go `text/template` documents over a
+documented variable context. Unset slots keep the built-in text; the
+machine-readable marker block is never templatable. This section has its
+own exhaustive reference: **[Request-text templates](templates.md)**;
+for the change-management scaffolds it enables, see the
+[governance templates guide](../guides/governance-templates.md).
+
+| Key | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `promotion` | object | no | Graph-wide promotion request text (`title`, `body` or `bodyFile`). Overridable per edge via `spec.promotions[].templates`. |
+| `backflow` | object | no | Managed backflow request text (same keys). Requires `spec.backflow`. |
+| `backflowConflict` | object | no | Durable backflow-conflict artifact text (same keys). Requires `spec.backflow`. |
+| `backflowMergeMessage` | object | no | The `--no-ff` merge-commit message (`text` or `file`). Requires `spec.backflow.strategy: merge`. |
+
+Template files (`bodyFile`/`file`) are repository-relative and read from
+the same pinned source as the configuration itself
+([ADR 0003](../adr/0003-pinned-configuration-ref.md)). Every configured
+template is compiled and sample-rendered at load, so `oiax validate`
+rejects a broken template in the same round trip as any other
+configuration error.
 
 ## Flags
 

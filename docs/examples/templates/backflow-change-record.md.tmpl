@@ -1,0 +1,22 @@
+Oiax opened this request to return {{.Count}} downstream-only commit(s)
+from `{{.From}}` back to `{{.To}}` by {{.Mechanism}} (source head
+`{{.SourceHeadShort}}`).
+
+## Change record
+
+- **Change type:** emergency <!-- a hotfix landed downstream first -->
+- **Control references:** <!-- e.g. ITGC-CM-02 -->
+- **Original change ticket:** <!-- link the incident / hotfix ticket -->
+
+## Commits returning
+
+{{range .Commits}}- `{{.ShortSHA}}` {{.Subject}}
+{{end}}
+
+## Approver justification
+
+<!-- Reviewer: confirm the hotfix content matches what shipped and
+     replace this comment with the return justification. -->
+
+---
+This request is managed by Oiax. Do not edit the metadata block below.

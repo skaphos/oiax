@@ -833,11 +833,18 @@ func (e *MergeConflict) Error() string {
 	return fmt.Sprintf("merge conflict merging %s %q", e.SHA, e.Subject)
 }
 
-// Merge performs a `git merge --no-ff --no-edit` of sourceHead onto the
-// Runner's checked-out HEAD, producing a two-parent merge commit. It is the
+// Merge performs a `git merge --no-ff` of sourceHead onto the Runner's
+// checked-out HEAD, producing a two-parent merge commit. It is the
 // execution primitive behind backflow.strategy: merge (ADR-0006) and is
 // intended to run against a Runner bound to an ephemeral Worktree, never the
 // caller's checkout.
+//
+// message, when non-empty, is the merge commit's message (`-m`), the
+// templatable surface of SKA-54; empty keeps git's default merge message
+// (`--no-edit`). The message is part of the commit object, so determinism
+// requires the caller to pass a deterministic function of the merge inputs:
+// a changed message (e.g. an edited template) changes the replayed HEAD SHA
+// and re-pushes the managed branch once — bounded, self-healing churn.
 //
 // Both the committer AND the author identity+date are pinned to sourceHead's
 // committer identity+date, so the resulting merge commit is a deterministic
@@ -854,7 +861,7 @@ func (e *MergeConflict) Error() string {
 // cancelled context, a killed subprocess, a structural refusal) is best-effort
 // aborted and propagates as an ordinary error rather than a *MergeConflict.
 // sourceHead is guarded with oidPattern before use.
-func (r *Runner) Merge(ctx context.Context, sourceHead string) (string, error) {
+func (r *Runner) Merge(ctx context.Context, sourceHead, message string) (string, error) {
 	if !oidPattern.MatchString(sourceHead) {
 		return "", fmt.Errorf("invalid commit oid %q", sourceHead)
 	}
@@ -874,7 +881,13 @@ func (r *Runner) Merge(ctx context.Context, sourceHead string) (string, error) {
 		"GIT_AUTHOR_EMAIL=" + email,
 		"GIT_AUTHOR_DATE=" + date,
 	}
-	_, err = r.run(ctx, "merge", "--no-ff", "--no-edit", "--end-of-options", sourceHead)
+	// The message reaches git as the argument value of -m (never a shell
+	// string); an empty message keeps git's default via --no-edit.
+	args := []string{"merge", "--no-ff", "--no-edit"}
+	if message != "" {
+		args = []string{"merge", "--no-ff", "-m", message}
+	}
+	_, err = r.run(ctx, append(args, "--end-of-options", sourceHead)...)
 	r.Env = nil
 	if err == nil {
 		return r.run(ctx, "rev-parse", "HEAD")

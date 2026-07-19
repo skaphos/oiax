@@ -298,3 +298,64 @@ func TestGenDocs(t *testing.T) {
 		}
 	}
 }
+
+// templatedConfig carries a spec.templates block with a bodyFile reference,
+// for the validate-path template resolution tests (SKA-54).
+const templatedConfig = `apiVersion: oiax.skaphos.dev/v1
+kind: PromotionGraph
+metadata:
+  name: environments
+spec:
+  branches:
+    development:
+      role: source
+    main:
+      role: terminal
+  promotions:
+    - from: development
+      to: main
+  templates:
+    promotion:
+      title: "change record {{.From}} -> {{.To}}"
+      bodyFile: .oiax/templates/promotion.md.tmpl
+`
+
+// validate resolves and sample-renders configured templates from the same
+// source as the document: a working-tree run reads bodyFile from the
+// working tree, and a broken or missing template fails validation in the
+// same round trip as every other configuration error.
+func TestValidateResolvesTemplates(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".oiax.yaml"), []byte(templatedConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".oiax", "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tmplPath := filepath.Join(dir, ".oiax", "templates", "promotion.md.tmpl")
+	if err := os.WriteFile(tmplPath, []byte("Scaffold for {{.Graph}}.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	if out, err := run(t, "validate"); err != nil {
+		t.Fatalf("validate with templates: %v\n%s", err, out)
+	}
+
+	// A template syntax error fails validation and names the slot.
+	if err := os.WriteFile(tmplPath, []byte("{{.Graph"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, "validate")
+	if err == nil || !strings.Contains(out+err.Error(), "templates.promotion.body") {
+		t.Fatalf("validate must reject a broken template naming the slot, got err=%v out=%q", err, out)
+	}
+
+	// A missing template file fails validation too.
+	if err := os.Remove(tmplPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, "validate"); err == nil {
+		t.Fatal("validate must reject a missing bodyFile")
+	}
+}

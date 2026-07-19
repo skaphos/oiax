@@ -850,7 +850,7 @@ func TestMergeHappyPath(t *testing.T) {
 	}
 	defer cleanup()
 
-	head, err := wt.Merge(ctx, sourceHead)
+	head, err := wt.Merge(ctx, sourceHead, "")
 	if err != nil {
 		t.Fatalf("Merge: %v", err)
 	}
@@ -913,7 +913,7 @@ func TestMergeHappyPath(t *testing.T) {
 		t.Fatalf("Worktree: %v", err)
 	}
 	defer cleanup2()
-	head2, err := wt2.Merge(ctx, sourceHead)
+	head2, err := wt2.Merge(ctx, sourceHead, "")
 	if err != nil {
 		t.Fatalf("Merge (second run): %v", err)
 	}
@@ -944,7 +944,7 @@ func TestMergeConflict(t *testing.T) {
 	}
 	defer cleanup()
 
-	_, err = wt.Merge(ctx, sourceHead)
+	_, err = wt.Merge(ctx, sourceHead, "")
 	var conflict *git.MergeConflict
 	if !errors.As(err, &conflict) {
 		t.Fatalf("Merge error = %v, want *MergeConflict", err)
@@ -999,7 +999,7 @@ func TestMergeCancelledContextIsOperationalError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err = wt.Merge(ctx, src)
+	_, err = wt.Merge(ctx, src, "")
 	if err == nil {
 		t.Fatal("Merge on a cancelled context returned nil, want an operational error")
 	}
@@ -1016,7 +1016,7 @@ func TestMergeRejectsNonOID(t *testing.T) {
 	t.Parallel()
 	r, dir := newRepo(t)
 	writeCommit(t, dir, "a.txt", "a\n", "A")
-	if _, err := r.Merge(context.Background(), "main"); err == nil {
+	if _, err := r.Merge(context.Background(), "main", ""); err == nil {
 		t.Fatal("Merge accepted a branch name as source head")
 	}
 }
@@ -1266,4 +1266,48 @@ func TestMergeReproducible(t *testing.T) {
 			t.Fatal("MergeReproducible accepted a non-oid input")
 		}
 	})
+}
+
+// TestMergeWithMessage pins the templatable merge-commit message (SKA-54):
+// a non-empty message becomes the merge commit's message verbatim, and the
+// merge stays deterministic — a repeated run from the same inputs with the
+// same message produces the identical SHA.
+func TestMergeWithMessage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, dir := newRepo(t)
+
+	writeCommit(t, dir, "base.txt", "base\n", "base")
+	runGit(t, dir, "branch", "target")
+	sourceHead := writeCommit(t, dir, "hotfix.txt", "one\n", "first hotfix")
+
+	wt, cleanup, err := r.Worktree(ctx, "target")
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	defer cleanup()
+
+	const msg = "backflow: return main to target\n\nGraph: environments"
+	head, err := wt.Merge(ctx, sourceHead, msg)
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if got := strings.TrimRight(runGit(t, dir, "log", "-1", "--format=%B", head), "\n"); got != msg {
+		t.Errorf("merge commit message = %q, want %q", got, msg)
+	}
+
+	// Determinism: a second worktree over the same target re-merging the same
+	// source with the same message reproduces the identical SHA.
+	wt2, cleanup2, err := r.Worktree(ctx, "target")
+	if err != nil {
+		t.Fatalf("second Worktree: %v", err)
+	}
+	defer cleanup2()
+	head2, err := wt2.Merge(ctx, sourceHead, msg)
+	if err != nil {
+		t.Fatalf("second Merge: %v", err)
+	}
+	if head2 != head {
+		t.Errorf("repeated merge with message = %q, want deterministic %q", head2, head)
+	}
 }

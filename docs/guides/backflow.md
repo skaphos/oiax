@@ -49,6 +49,12 @@ spec:
 > local commits should *stay* local; use `sources` for branches whose
 > local commits should come *back*.
 
+The backflow request's title and body — and, under `strategy: merge`,
+the `--no-ff` merge-commit message — are templatable via
+`spec.templates` (see the [templates reference](../reference/templates.md)).
+Cherry-pick backflow commit messages are not: git authors them, and the
+`-x` provenance trailer they carry is load-bearing identity.
+
 ## Choosing a strategy
 
 Backflow returns downstream-only commits by one of two mechanisms, chosen

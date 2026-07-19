@@ -381,3 +381,137 @@ func TestDefaultIsIdempotent(t *testing.T) {
 		t.Error("Default is not idempotent")
 	}
 }
+
+// TestValidateTemplates covers the spec.templates shape rules: mutual
+// exclusion of inline and file sources, path hygiene, and slot/policy
+// coherence (SKA-54). Template syntax is deliberately not validated here;
+// internal/tmpl compiles and sample-renders at load.
+func TestValidateTemplates(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*PromotionGraph)
+		wantErr string
+	}{
+		{
+			name: "valid templates accepted",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Backflow.Strategy = BackflowStrategyMerge
+				c.Spec.Templates = &Templates{
+					Promotion:            &RequestTemplate{Title: "t", BodyFile: ".oiax/templates/promotion.md.tmpl"},
+					Backflow:             &RequestTemplate{Body: "b"},
+					BackflowConflict:     &RequestTemplate{Title: "t"},
+					BackflowMergeMessage: &TextTemplate{Text: "m"},
+				}
+				c.Spec.Promotions[0].Templates = &RequestTemplate{Body: "edge"}
+			},
+			wantErr: "",
+		},
+		{
+			name: "empty slot",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Templates = &Templates{Promotion: &RequestTemplate{}}
+			},
+			wantErr: "templates.promotion: declare title, body, or bodyFile",
+		},
+		{
+			name: "body and bodyFile exclusive",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Templates = &Templates{Promotion: &RequestTemplate{Body: "b", BodyFile: "f"}}
+			},
+			wantErr: "body and bodyFile are mutually exclusive",
+		},
+		{
+			name: "per-edge body and bodyFile exclusive",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Promotions[0].Templates = &RequestTemplate{Body: "b", BodyFile: "f"}
+			},
+			wantErr: "promotion edge development -> test: templates: body and bodyFile are mutually exclusive",
+		},
+		{
+			name: "absolute bodyFile",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Templates = &Templates{Promotion: &RequestTemplate{BodyFile: "/etc/passwd"}}
+			},
+			wantErr: "must be repository-relative",
+		},
+		{
+			name: "dotdot bodyFile",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Templates = &Templates{Promotion: &RequestTemplate{BodyFile: "../outside.tmpl"}}
+			},
+			wantErr: "path components",
+		},
+		{
+			name: "backslash bodyFile",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Templates = &Templates{Promotion: &RequestTemplate{BodyFile: `dir\file.tmpl`}}
+			},
+			wantErr: "forward slashes",
+		},
+		{
+			name: "dash-prefixed bodyFile",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Templates = &Templates{Promotion: &RequestTemplate{BodyFile: "--output=x"}}
+			},
+			wantErr: "must not begin with '-'",
+		},
+		{
+			name: "backflow template without backflow policy",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Backflow = nil
+				c.Spec.Templates = &Templates{Backflow: &RequestTemplate{Body: "b"}}
+			},
+			wantErr: "templates.backflow requires spec.backflow",
+		},
+		{
+			name: "conflict template without backflow policy",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Backflow = nil
+				c.Spec.Templates = &Templates{BackflowConflict: &RequestTemplate{Body: "b"}}
+			},
+			wantErr: "templates.backflowConflict requires spec.backflow",
+		},
+		{
+			name: "merge message text and file exclusive",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Backflow.Strategy = BackflowStrategyMerge
+				c.Spec.Templates = &Templates{BackflowMergeMessage: &TextTemplate{Text: "m", File: "f"}}
+			},
+			wantErr: "text and file are mutually exclusive",
+		},
+		{
+			name: "merge message requires merge strategy",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Templates = &Templates{BackflowMergeMessage: &TextTemplate{Text: "m"}}
+			},
+			wantErr: `templates.backflowMergeMessage requires spec.backflow.strategy "merge"`,
+		},
+		{
+			name: "empty merge message slot",
+			mutate: func(c *PromotionGraph) {
+				c.Spec.Backflow.Strategy = BackflowStrategyMerge
+				c.Spec.Templates = &Templates{BackflowMergeMessage: &TextTemplate{}}
+			},
+			wantErr: "templates.backflowMergeMessage: declare text or file",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validGraph()
+			tt.mutate(cfg)
+			errs := cfg.Validate()
+			if tt.wantErr == "" {
+				if len(errs) > 0 {
+					t.Fatalf("Validate = %v, want no errors", errs)
+				}
+				return
+			}
+			for _, err := range errs {
+				if strings.Contains(err.Error(), tt.wantErr) {
+					return
+				}
+			}
+			t.Fatalf("Validate = %v, want an error containing %q", errs, tt.wantErr)
+		})
+	}
+}
