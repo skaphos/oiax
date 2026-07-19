@@ -775,9 +775,6 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 				return res, err
 			}
 
-		case engine.ActionNoOp:
-			// Nothing to do.
-
 		default:
 			return res, fmt.Errorf("apply: unknown action type %q", a.Type)
 		}

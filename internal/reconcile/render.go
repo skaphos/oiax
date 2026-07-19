@@ -158,7 +158,7 @@ func RenderMarkdown(w io.Writer, plan engine.Plan) error {
 // mdCell escapes a value for interpolation into a Markdown table cell. An
 // unescaped '|' opens a new column, so it silently corrupts the step-summary
 // table — and it is reachable: `git check-ref-format` accepts a branch named
-// "feat|bar", and validateRefName rejects only " ~^:?*[\" and control
+// "feat|bar", and the v1 config validator rejects only " ~^:?*[\" and control
 // characters, so such a name passes validation and reaches these cells (both
 // directly and inside an action's reason). Newlines would end the row early;
 // no ref name can carry one (both validators reject control characters) and
@@ -200,8 +200,6 @@ func actionVerb(t engine.ActionType) string {
 		return "close"
 	case engine.ActionReportDivergence:
 		return "report"
-	case engine.ActionNoOp:
-		return "noop"
 	default:
 		return string(t)
 	}
