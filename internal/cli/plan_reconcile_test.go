@@ -816,6 +816,118 @@ func TestPlanRefusesUnresolvableDefaultBranchUnderAzurePipelines(t *testing.T) {
 	}
 }
 
+// setupShallowResolvableRepo builds a repo whose default branch resolves
+// (origin/HEAD fabricated locally, .oiax.yaml committed at it) but whose
+// working copy is a shallow clone (the .git/shallow grafts file a
+// depth-limited fetch leaves behind). Resolving the default branch lets plan
+// clear effectiveConfigRef and reach the coordinator, where the shallow
+// policy is exercised. It chdirs into the repo and clears CI env; the caller
+// sets the CI variable under test.
+func setupShallowResolvableRepo(t *testing.T) {
+	t.Helper()
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	t.Setenv("TF_BUILD", "")
+	t.Setenv("OIAX_LOG_FORMAT", "")
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	gitCmd := func(args ...string) {
+		t.Helper()
+		gittest.Run(t, dir, args...)
+	}
+	writeFile := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gittest.InitRepo(t, dir)
+	writeFile("app.txt", "v0\n")
+	writeFile(".oiax.yaml", exampleConfig)
+	gitCmd("add", ".")
+	gitCmd("commit", "-q", "-m", "c0")
+	gitCmd("branch", "development")
+	gitCmd("branch", "test")
+
+	// Fabricate the remote-tracking default branch locally so DefaultBranchRef
+	// resolves without a network remote and config reads from the committed ref.
+	head := gittest.Run(t, dir, "rev-parse", "HEAD")
+	gitCmd("update-ref", "refs/remotes/origin/main", head)
+	gitCmd("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	// Mark the checkout shallow the way a depth-limited fetch does.
+	if err := os.WriteFile(filepath.Join(dir, ".git", "shallow"), []byte(head+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPlanRefusesShallowCloneUnderActions proves the CLI wires the shallow
+// policy from CI detection: under GITHUB_ACTIONS a shallow clone is a hard
+// error (exit 1) naming fetch-depth: 0, not a warning, so an unattended run
+// cannot open a spurious promotion PR from degraded equivalence detection.
+func TestPlanRefusesShallowCloneUnderActions(t *testing.T) {
+	setupShallowResolvableRepo(t)
+	t.Setenv("GITHUB_ACTIONS", "true")
+	useForge(t, &fakeForge{})
+
+	out, err := run(t, "plan")
+	if err == nil {
+		t.Fatalf("plan succeeded on a shallow clone under Actions, want refusal:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "shallow clone") || !strings.Contains(err.Error(), "fetch-depth: 0") {
+		t.Errorf("error = %v, want a shallow-clone refusal naming fetch-depth: 0", err)
+	}
+}
+
+// TestPlanRefusesShallowCloneUnderAzurePipelines proves the shallow refusal is
+// keyed to CI detection, not to GitHub Actions specifically: under TF_BUILD the
+// same shallow checkout must refuse rather than proceed with degraded detection.
+func TestPlanRefusesShallowCloneUnderAzurePipelines(t *testing.T) {
+	setupShallowResolvableRepo(t)
+	t.Setenv("TF_BUILD", "True")
+	useForge(t, &fakeForge{})
+
+	out, err := run(t, "plan")
+	if err == nil {
+		t.Fatalf("plan succeeded on a shallow clone under Azure Pipelines, want refusal:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "shallow clone") || !strings.Contains(err.Error(), "fetch-depth: 0") {
+		t.Errorf("error = %v, want a shallow-clone refusal naming fetch-depth: 0", err)
+	}
+}
+
+// TestPlanWarnsShallowCloneLocally is the local counterpart: with no CI host
+// detected the shallow clone only warns, and plan still succeeds (exit 0). This
+// pins the "warning-only for local, hard-fail under CI" policy split.
+func TestPlanWarnsShallowCloneLocally(t *testing.T) {
+	setupShallowResolvableRepo(t) // leaves all CI env cleared
+	useForge(t, &fakeForge{})
+
+	out, code := runCode(t, "plan")
+	if code != 0 {
+		t.Fatalf("plan on a shallow clone locally = %d, want 0 (warn-only)\n%s", code, out)
+	}
+	if !strings.Contains(out, "shallow clone") {
+		t.Errorf("output = %q, want a shallow-clone warning", out)
+	}
+}
+
+// TestExecuteThreadsCancellableContext proves Execute threads its context to
+// the running command (via ExecuteContext): a context already cancelled before
+// the run makes the first git subprocess — the version-floor check — fail, so
+// Execute returns a non-zero exit code instead of running to completion. This
+// is the mechanism SIGINT/SIGTERM handling in main relies on.
+func TestExecuteThreadsCancellableContext(t *testing.T) {
+	setupRepo(t)
+	useForge(t, &fakeForge{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if code := Execute(ctx, []string{"plan"}); code == 0 {
+		t.Fatal("Execute with a cancelled context exited 0, want non-zero (context threaded and honored)")
+	}
+}
+
 // TestPlanAssertsGitFloorBeforeConfigRead proves the version floor is asserted
 // before any other git subprocess. With --config-ref set, config resolution
 // runs `git show --end-of-options <ref>:<path>` during loadGraph; a fake git

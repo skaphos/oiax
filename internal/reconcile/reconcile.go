@@ -57,6 +57,16 @@ type Coordinator struct {
 	// Actions annotations when its handler was built for Actions. A nil Log
 	// discards output.
 	Log *slog.Logger
+	// RefuseShallow makes a shallow clone a hard error instead of a warning.
+	// A shallow clone (actions/checkout's default fetch-depth: 1) silently
+	// disables the patch-identity and baseline rungs of the equivalence
+	// ladder, so already-promoted content looks unpromoted and Oiax opens
+	// spurious promotion requests. Locally the operator sees the warning and
+	// can act; under CI the run is unattended and a wrong PR lands before
+	// anyone reads the log, so the CLI sets this under a detected CI host
+	// (mirroring the pinned-config-ref refusal in effectiveConfigRef). The
+	// recovery is the same either way: fetch full history (fetch-depth: 0).
+	RefuseShallow bool
 }
 
 // Result carries what Apply did, for exit-code and summary decisions.
@@ -90,6 +100,12 @@ func (c *Coordinator) Plan(ctx context.Context) (engine.Plan, error) {
 	if shallow, err := c.Git.IsShallowRepository(ctx); err != nil {
 		return engine.Plan{}, fmt.Errorf("detect shallow repository: %w", err)
 	} else if shallow {
+		if c.RefuseShallow {
+			return engine.Plan{}, errors.New("shallow clone detected: equivalence detection is degraded " +
+				"(merge-base, patch-identity and baseline rungs are unreliable) and would produce spurious " +
+				"promotion requests; refusing under CI. Fetch full history: set fetch-depth: 0 on " +
+				"actions/checkout (fetchDepth: 0 on Azure Pipelines)")
+		}
 		c.log().Warn("shallow clone detected: equivalence detection is degraded " +
 			"(merge-base, patch-identity and baseline rungs are unreliable), which can " +
 			"produce spurious promotion requests; set fetch-depth: 0 on actions/checkout " +

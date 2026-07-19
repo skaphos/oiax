@@ -134,6 +134,11 @@ func buildCoordinator(cmd *cobra.Command, g *engine.Graph, runner *git.Runner) (
 		Forge: f,
 		Graph: g,
 		Log:   logger,
+		// Under a detected CI host a shallow clone is a hard error, not a
+		// warning: the run is unattended and a spurious promotion PR would land
+		// before anyone reads the degraded-mode warning. Locally it stays a
+		// warning. This mirrors the pinned-config-ref CI refusal.
+		RefuseShallow: cienv.Detect() != cienv.None,
 	}, nil
 }
 

@@ -1957,6 +1957,37 @@ func TestPlanShallowCloneWarns(t *testing.T) {
 	}
 }
 
+// TestPlanShallowCloneRefusedWhenPolicySet is the RefuseShallow counterpart to
+// TestPlanShallowCloneWarns: under CI the CLI sets RefuseShallow, so the same
+// shallow clone that only warns locally becomes a hard error that stops the run
+// before it can open a spurious promotion request. The message still names
+// fetch-depth: 0 so the operator has the recovery.
+func TestPlanShallowCloneRefusedWhenPolicySet(t *testing.T) {
+	r, _ := gitHarness(t)
+	head := gitExec(t, r.Dir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(r.Dir, ".git", "shallow"), []byte(head+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var logBuf bytes.Buffer
+	c := &Coordinator{
+		Git:           r,
+		Forge:         &fakeForge{},
+		Graph:         testGraph(),
+		Log:           NewLogger("text", AnnotateGitHub, nil, &logBuf),
+		RefuseShallow: true,
+	}
+	_, err := c.Plan(context.Background())
+	if err == nil {
+		t.Fatal("Plan on a shallow clone with RefuseShallow set succeeded, want a hard error")
+	}
+	if !strings.Contains(err.Error(), "shallow clone") ||
+		!strings.Contains(err.Error(), "refusing under CI") ||
+		!strings.Contains(err.Error(), "fetch-depth: 0") {
+		t.Fatalf("error = %v, want a shallow-clone CI refusal naming fetch-depth: 0", err)
+	}
+}
+
 // TestApplyBackflowSkipsUnchangedRepush covers the M6 churn guard: when the
 // deterministic branch already carries the exact head this run replays, the
 // run must skip the force-push so an unchanged replay does not re-trigger CI
