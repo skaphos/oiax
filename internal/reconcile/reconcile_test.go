@@ -1199,28 +1199,37 @@ func TestApplyBackflowSupersedeLeavesRequestOpenWhenBranchDeleteFails(t *testing
 // diamondGraph is a diamond promotion graph in which the backflow source
 // (main) has TWO incoming promotion edges (test->main and qa->main). It drives
 // the multiple-incoming-edge backflow tests.
-func diamondGraph() *engine.Graph {
-	return &engine.Graph{
-		Name: "environments",
-		Branches: map[string]engine.Branch{
-			"development": {Role: v1.RoleSource, Drift: v1.DriftForbidden},
-			"test":        {Drift: v1.DriftForbidden},
-			"qa":          {Drift: v1.DriftForbidden},
-			"main":        {Role: v1.RoleTerminal, Drift: v1.DriftForbidden},
-		},
-		Promotions: []engine.Promotion{
-			{From: "development", To: "test"},
-			{From: "development", To: "qa"},
-			{From: "test", To: "main"},
-			{From: "qa", To: "main"},
-		},
-		Backflow: engine.BackflowPolicy{
-			Enabled:  true,
-			Sources:  []string{"main"},
-			Target:   "development",
-			Strategy: v1.BackflowStrategyCherryPick,
+// diamondConfig is the diamond graph as the v1 document, so tests can run
+// the canonical document validation; diamondGraph is its engine model.
+func diamondConfig() *v1.PromotionGraph {
+	return &v1.PromotionGraph{
+		APIVersion: v1.APIVersion,
+		Kind:       v1.KindPromotionGraph,
+		Metadata:   v1.Metadata{Name: "environments"},
+		Spec: v1.PromotionGraphSpec{
+			Branches: map[string]v1.Branch{
+				"development": {Role: v1.RoleSource},
+				"test":        {},
+				"qa":          {},
+				"main":        {Role: v1.RoleTerminal},
+			},
+			Promotions: []v1.Promotion{
+				{From: "development", To: "test"},
+				{From: "development", To: "qa"},
+				{From: "test", To: "main"},
+				{From: "qa", To: "main"},
+			},
+			Backflow: &v1.Backflow{
+				Sources:  []string{"main"},
+				Target:   "development",
+				Strategy: v1.BackflowStrategyCherryPick,
+			},
 		},
 	}
+}
+
+func diamondGraph() *engine.Graph {
+	return engine.FromConfig(diamondConfig())
 }
 
 func TestApplyBackflowAllCommitsDropConverges(t *testing.T) {
@@ -1287,10 +1296,10 @@ func TestBackflowMultipleIncomingEdgesReturnsCompleteSet(t *testing.T) {
 	// hides it). The complete return set is {H1, H2}; deriving it from the first
 	// incoming edge (test->main) alone yields only {H1}. Exactly one backflow
 	// action must be planned across the two edges.
-	g := diamondGraph()
-	if errs := g.Validate(); len(errs) > 0 {
+	if errs := diamondConfig().Validate(); len(errs) > 0 {
 		t.Fatalf("diamond graph must be valid: %v", errs)
 	}
+	g := diamondGraph()
 
 	r, commit := gitHarness(t)
 	gitExec(t, r.Dir, "branch", "qa") // gitHarness creates development and test, not qa

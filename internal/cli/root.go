@@ -157,14 +157,17 @@ func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Gra
 	if config.IsDeprecatedAPIVersion(cfg.APIVersion) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: apiVersion %q is deprecated; migrate to %q\n", v1.APIVersionV1Alpha1, v1.APIVersion)
 	}
-	g := engine.FromConfig(cfg)
-	if violations := g.Validate(); len(violations) > 0 {
+	// The canonical semantic rules live on the public document type
+	// (pkg/api/v1), so `oiax validate` and an external Go integrator
+	// calling cfg.Validate() run the identical checks. Conversion to the
+	// engine model happens only after the document is known valid.
+	if violations := cfg.Validate(); len(violations) > 0 {
 		for _, v := range violations {
 			fmt.Fprintf(cmd.ErrOrStderr(), "invalid: %v\n", v)
 		}
 		return nil, fmt.Errorf("%s: %d validation errors", opts.configPath, len(violations))
 	}
-	return g, nil
+	return engine.FromConfig(cfg), nil
 }
 
 // effectiveConfigRef resolves the ref plan and reconcile read configuration

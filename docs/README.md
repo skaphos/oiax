@@ -57,6 +57,7 @@ Architecture Decision Records live in [adr/](adr/):
 - [0007 — Keep the git layer a shell-out to the git binary](adr/0007-git-shell-out.md)
 - [0008 — Durable backflow-conflict artifact](adr/0008-durable-backflow-conflict-artifact.md)
 - [0009 — Azure DevOps forge provider](adr/0009-azure-devops-forge-provider.md)
+- [0010 — Exported validation and defaulting on the config API](adr/0010-exported-config-validation.md)
 
 ## Process
 
