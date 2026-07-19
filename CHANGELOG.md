@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.2.0](https://github.com/skaphos/oiax/compare/v1.1.0...v1.2.0) (2026-07-19)
+
+
+### Features
+
+* **api:** export Validate and Default on pkg/api/v1 ([#48](https://github.com/skaphos/oiax/issues/48)) ([e8340f9](https://github.com/skaphos/oiax/commit/e8340f957c2cc747ef67c5ec1431db2e0ce73e70))
+* refuse shallow clones under CI — previously a warning, now a hard failure with no opt-out; set fetch-depth: 0 ([#50](https://github.com/skaphos/oiax/issues/50)) + cancel reconcile on SIGINT/SIGTERM ([#51](https://github.com/skaphos/oiax/issues/51)) ([28d3071](https://github.com/skaphos/oiax/commit/28d30718edfbb63cf9e592ebc5779908b2fadc1f))
+* **templates:** templatable request titles/bodies and backflow merge message (SKA-54) ([#59](https://github.com/skaphos/oiax/issues/59)) ([2a6d9cb](https://github.com/skaphos/oiax/commit/2a6d9cbafb9779f2792a9132e553c1570c9a788c))
+
+
+### Bug Fixes
+
+* **reconcile:** make the divergence report obey ADR-0002 content detection ([#55](https://github.com/skaphos/oiax/issues/55)) ([e4ff7bf](https://github.com/skaphos/oiax/commit/e4ff7bfcd0dc4605c76b4dec915bdc640bbacf4b)), closes [#53](https://github.com/skaphos/oiax/issues/53)
+
 ## [1.1.0](https://github.com/skaphos/oiax/compare/v1.0.3...v1.1.0) (2026-07-18)
 
 
