@@ -176,12 +176,15 @@ func blockBounds(body string) (start, end int, inner string, ok bool) {
 			return 0, 0, "", false
 		}
 		open := from + rel
-		crel := strings.Index(body[open:], closeTok)
+		innerStart := open + len(openTok)
+		// Search for the closer from the end of the opener, never from the
+		// opener itself: in "<!-->" the first "-->" overlaps the "<!--", and
+		// bounding on it would invert the inner range.
+		crel := strings.Index(body[innerStart:], closeTok)
 		if crel < 0 {
 			return 0, 0, "", false
 		}
-		innerStart := open + len(openTok)
-		innerEnd := open + crel
+		innerEnd := innerStart + crel
 		closeEnd := innerEnd + len(closeTok)
 		candidate := body[innerStart:innerEnd]
 		if hasOiaxKey(candidate) {
