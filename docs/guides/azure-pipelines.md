@@ -184,9 +184,10 @@ ladder](../architecture.md#the-equivalence-ladder) unreliable and produces
 **spurious promotion pull requests** for content that is already promoted.
 
 Set `fetchDepth: 0` on the `checkout: self` step so the full history is
-present. Oiax detects a shallow clone and warns; the template deliberately
-does **not** un-shallow for you, because only a full-history checkout
-yields correct results. The partial-clone advice in the [GitHub Action
+present. Under CI Oiax detects a shallow clone and **refuses** rather than
+open a wrong PR from an unattended run; the template deliberately does
+**not** un-shallow for you, because only a full-history checkout yields
+correct results. The partial-clone advice in the [GitHub Action
 guide](github-action.md#large-repositories-partial-clone) applies here
 unchanged if full clones dominate the job's runtime.
 

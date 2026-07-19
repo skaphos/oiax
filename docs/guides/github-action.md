@@ -72,16 +72,24 @@ patch-identity, and baseline rungs of Oiax's [equivalence
 ladder](../architecture.md#the-equivalence-ladder) unreliable and produces
 **spurious promotion pull requests** for content that is already promoted.
 
-Set `fetch-depth: 0` so the full history is present. Oiax detects a
-shallow clone and warns:
+Set `fetch-depth: 0` so the full history is present. Under CI Oiax detects
+a shallow clone and **refuses** — an unattended run must not open a wrong
+PR before anyone reads a warning:
+
+```
+shallow clone detected: equivalence detection is degraded (merge-base, patch-identity and baseline rungs are unreliable) and would produce spurious promotion requests; refusing under CI. Fetch full history: set fetch-depth: 0 on actions/checkout (fetchDepth: 0 on Azure Pipelines)
+```
+
+Run locally (no CI host detected) the same shallow clone only warns and
+proceeds, since you can see the log:
 
 ```
 shallow clone detected: equivalence detection is degraded (merge-base, patch-identity and baseline rungs are unreliable), which can produce spurious promotion requests; set fetch-depth: 0 on actions/checkout for correct results
 ```
 
 The Action deliberately does **not** un-shallow for you — a shallow
-checkout stays shallow and you get the warning, because only a
-full-history checkout yields correct results.
+checkout stays shallow and the run refuses, because only a full-history
+checkout yields correct results.
 
 Under the hood the Action also fetches every branch head into
 `refs/remotes/origin/*` and runs `git remote set-head origin --auto`, so

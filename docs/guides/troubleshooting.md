@@ -27,8 +27,16 @@ Full walkthrough: **[Setting up a token that triggers CI](tokens.md)**.
 ## Spurious or duplicate promotion PRs for content that is already promoted
 
 **Symptom.** Oiax proposes promotions for changes that clearly already
-merged, or opens PRs that GitHub then rejects as having no commits. You
-may see:
+merged, or opens PRs that GitHub then rejects as having no commits.
+
+Under CI (GitHub Actions or Azure Pipelines) `plan`/`reconcile` refuses
+outright rather than emit a wrong PR from an unattended run:
+
+```
+shallow clone detected: equivalence detection is degraded (merge-base, patch-identity and baseline rungs are unreliable) and would produce spurious promotion requests; refusing under CI. Fetch full history: set fetch-depth: 0 on actions/checkout (fetchDepth: 0 on Azure Pipelines)
+```
+
+Locally it warns and proceeds — you have the log in front of you:
 
 ```
 shallow clone detected: equivalence detection is degraded (merge-base, patch-identity and baseline rungs are unreliable), which can produce spurious promotion requests; set fetch-depth: 0 on actions/checkout for correct results
@@ -39,10 +47,12 @@ shallow clone detected: equivalence detection is degraded (merge-base, patch-ide
 the [equivalence ladder](../architecture.md#the-equivalence-ladder) cannot
 run.
 
-**Fix.** Set `fetch-depth: 0` on `actions/checkout`. See
+**Fix.** Fetch full history — `fetch-depth: 0` on `actions/checkout`
+(`fetchDepth: 0` on Azure Pipelines). See
 [github-action.md](github-action.md#fetch-depth-0-is-not-optional). Doing
 so is also worthwhile if you use squash or rebase merges, which lean
-hardest on those rungs.
+hardest on those rungs. A [partial clone](github-action.md#large-repositories-partial-clone)
+(`--filter=blob:none`) keeps full history and is not treated as shallow.
 
 ## `git 2.45 or newer is required`
 

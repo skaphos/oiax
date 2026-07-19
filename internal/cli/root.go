@@ -5,6 +5,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -196,11 +197,14 @@ func effectiveConfigRef(cmd *cobra.Command, opts *options) (string, error) {
 
 // Execute runs the CLI and returns a process exit code. An exitCodeError
 // carries its own code (and an optional message); any other error is the
-// generic failure path (exit 1); nil is success (exit 0).
-func Execute(args []string) int {
+// generic failure path (exit 1); nil is success (exit 0). The context is
+// threaded to every command via cobra's ExecuteContext, so a caller that
+// cancels it (main installs a SIGINT/SIGTERM handler) cancels the in-flight
+// git subprocess and any Retry-After backoff.
+func Execute(ctx context.Context, args []string) int {
 	root := NewRootCommand()
 	root.SetArgs(args)
-	err := root.Execute()
+	err := root.ExecuteContext(ctx)
 	if err == nil {
 		return 0
 	}
