@@ -1,406 +1,406 @@
 {
   "cmd/oiax/main.go": {
-    "mtime": 1784434255.4873025,
-    "ast_hash": "7e7f781b714ab12f0fc983425ae36bc6",
+    "mtime": 1784438103.535502,
+    "ast_hash": "8e4d45e0164772d735a15d6f7798ee17",
     "semantic_hash": ""
   },
   "internal/config/config.go": {
-    "mtime": 1784434255.5124683,
+    "mtime": 1784438103.572146,
     "ast_hash": "f91663aa12c9f9e8b63386a525d11c28",
     "semantic_hash": ""
   },
   "internal/config/config_test.go": {
-    "mtime": 1784435350.030343,
+    "mtime": 1784438103.577256,
     "ast_hash": "360372341cca5988cada37f12df9deb3",
     "semantic_hash": ""
   },
   "internal/cli/version.go": {
-    "mtime": 1784434255.5124683,
+    "mtime": 1784438103.572146,
     "ast_hash": "0659099357f20e6c197edc62e96a8f56",
     "semantic_hash": ""
   },
   "internal/cli/plan.go": {
-    "mtime": 1784435074.1695704,
+    "mtime": 1784438103.572146,
     "ast_hash": "d0228da98f7053c21742b5226488b5d0",
     "semantic_hash": ""
   },
   "internal/cli/graph.go": {
-    "mtime": 1784435074.1725605,
+    "mtime": 1784438103.572146,
     "ast_hash": "d063adfead9b5bfca85848a5f078c508",
     "semantic_hash": ""
   },
   "internal/cli/validate.go": {
-    "mtime": 1784435074.1723888,
+    "mtime": 1784438103.572146,
     "ast_hash": "1bf65c905c6f2e2392b075ad5575a8d0",
     "semantic_hash": ""
   },
   "internal/cli/reconcile.go": {
-    "mtime": 1784435074.1698396,
+    "mtime": 1784438103.572146,
     "ast_hash": "c60392977ecaffeca9636a4d0c611d01",
     "semantic_hash": ""
   },
   "internal/cli/cli_test.go": {
-    "mtime": 1784435364.6455731,
+    "mtime": 1784438103.5711799,
     "ast_hash": "e87971fc07c211e44a6a02deb2d28bef",
     "semantic_hash": ""
   },
   "internal/cli/root.go": {
-    "mtime": 1784435059.5092392,
-    "ast_hash": "93b4a7d0ba68eaf9f4f63b0555952687",
+    "mtime": 1784438103.572146,
+    "ast_hash": "bdfd4ff82e70e8a0eacef786996a4cca",
     "semantic_hash": ""
   },
   "internal/cli/gendocs.go": {
-    "mtime": 1784434255.5124683,
+    "mtime": 1784438103.572146,
     "ast_hash": "2eb8e66c3da18aadaf8bf03dd1c36333",
     "semantic_hash": ""
   },
   "internal/version/version.go": {
-    "mtime": 1784434255.5245647,
+    "mtime": 1784438103.5968688,
     "ast_hash": "8782a6f6638751bbc6e496870c6bf711",
     "semantic_hash": ""
   },
   "internal/forge/forge.go": {
-    "mtime": 1784434255.5182505,
+    "mtime": 1784438103.583902,
     "ast_hash": "23a328759d50ef16b159765f82b9ff10",
     "semantic_hash": ""
   },
   "internal/forge/github/github.go": {
-    "mtime": 1784434255.5207596,
+    "mtime": 1784438103.5866318,
     "ast_hash": "b645ce0a518451636c9447b153811116",
     "semantic_hash": ""
   },
   "internal/engine/plan.go": {
-    "mtime": 1784434255.5157423,
+    "mtime": 1784438103.5799446,
     "ast_hash": "28d17c37ef42ca75ae9035e236178236",
     "semantic_hash": ""
   },
   "internal/engine/types.go": {
-    "mtime": 1784434255.5157423,
+    "mtime": 1784438103.5799446,
     "ast_hash": "20f718f98d1058a50dcb991e4ef13a81",
     "semantic_hash": ""
   },
   "internal/engine/graph.go": {
-    "mtime": 1784434255.5157423,
+    "mtime": 1784438103.5799446,
     "ast_hash": "6c07e44f424971f35d1a9fb6b76cfe15",
     "semantic_hash": ""
   },
   "internal/engine/plan_test.go": {
-    "mtime": 1784434255.5157423,
+    "mtime": 1784438103.5799446,
     "ast_hash": "3df03b567f468f108590f1e214d215ad",
     "semantic_hash": ""
   },
   "internal/git/git.go": {
-    "mtime": 1784434881.855219,
+    "mtime": 1784438103.5873244,
     "ast_hash": "f0094758072966a1d27eca87067599b7",
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5300503,
     "ast_hash": "5685c6c1ba3d6ad0599763e51d9bea23",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5300503,
     "ast_hash": "900368f0261c6ae943b289063996c5bf",
     "semantic_hash": ""
   },
   "RELEASE.md": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5300503,
     "ast_hash": "0a9db06003cd2d454e3f419e52606861",
     "semantic_hash": ""
   },
   "CONTRIBUTING.md": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5300503,
     "ast_hash": "93fa9a2297ee8dce057b6a9c5eb60a7b",
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5300503,
     "ast_hash": "c4916b4948c4c59759566c8edc070afa",
     "semantic_hash": ""
   },
   "LICENSES/MIT.txt": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5300503,
     "ast_hash": "7f3f7b89e1143e060efe34288339b6b7",
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1784434255.4887936,
+    "mtime": 1784438103.5372229,
     "ast_hash": "08d67d02909497c7222027fc8009371d",
     "semantic_hash": ""
   },
   "docs/README.md": {
-    "mtime": 1784435636.4397357,
+    "mtime": 1784438103.535502,
     "ast_hash": "c14667ba7bad1e90bae6d2eecdafb711",
     "semantic_hash": ""
   },
   "docs/code-map.md": {
-    "mtime": 1784435648.3782828,
+    "mtime": 1784438103.5372229,
     "ast_hash": "ee4a7dd4c87d636f46f558dda6836032",
     "semantic_hash": ""
   },
   "docs/adr/0001-adopt-the-name-oiax.md": {
-    "mtime": 1784434255.4886556,
+    "mtime": 1784438103.537119,
     "ast_hash": "0c33eab1e3ef072b3bd82ae3f8211dc9",
     "semantic_hash": ""
   },
   "docs/adr/0002-content-based-divergence-detection.md": {
-    "mtime": 1784434255.4887936,
+    "mtime": 1784438103.5372229,
     "ast_hash": "603e1c0d5a78343bf2bfecb734fe0192",
     "semantic_hash": ""
   },
   "docs/adr/0003-pinned-configuration-ref.md": {
-    "mtime": 1784434255.4887936,
+    "mtime": 1784438103.5372229,
     "ast_hash": "8fe034edf8986c6a6112f9aa7bc2aa13",
     "semantic_hash": ""
   },
   "docs/reference/cli.md": {
-    "mtime": 1784435687.23303,
+    "mtime": 1784438103.543149,
     "ast_hash": "7b6013c867461629fc6688dbf003447b",
     "semantic_hash": ""
   },
   "docs/reference/configuration.md": {
-    "mtime": 1784435621.4383328,
+    "mtime": 1784438103.5467048,
     "ast_hash": "bc3d630fbc8f423a05d80fc4b23eae21",
     "semantic_hash": ""
   },
   ".release-please-manifest.json": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5300503,
     "ast_hash": "0adcc346096243aef09d0df192abc0ab",
     "semantic_hash": ""
   },
   "go.mod": {
-    "mtime": 1784434255.4927964,
+    "mtime": 1784438103.5467048,
     "ast_hash": "9f112754349ed81a89640d33af3b4e49",
     "semantic_hash": ""
   },
   "internal/actioncontract/action_test.go": {
-    "mtime": 1784434255.5103607,
+    "mtime": 1784438103.5672448,
     "ast_hash": "d000fc93a48afb11ac7e5303e8e2fdf3",
     "semantic_hash": ""
   },
   "internal/cli/plan_reconcile_test.go": {
-    "mtime": 1784434255.5124683,
-    "ast_hash": "50e08c585c3928606953b706b44542ec",
+    "mtime": 1784438103.572146,
+    "ast_hash": "f4fb0d1319ee96e2b535e7f2eda74407",
     "semantic_hash": ""
   },
   "internal/cli/wiring.go": {
-    "mtime": 1784435077.8531682,
-    "ast_hash": "ca1cdf289f068ca56b421c2be63ab404",
+    "mtime": 1784438103.572146,
+    "ast_hash": "428dc52d971f41e8fc00108c416fe460",
     "semantic_hash": ""
   },
   "internal/cli/wiring_test.go": {
-    "mtime": 1784434255.5124683,
+    "mtime": 1784438103.572146,
     "ast_hash": "3e08f28380695749ad676ef779bc4c8e",
     "semantic_hash": ""
   },
   "internal/engine/edge.go": {
-    "mtime": 1784434255.514126,
+    "mtime": 1784438103.577256,
     "ast_hash": "7b0e2aa910773432c053fa084f62c34d",
     "semantic_hash": ""
   },
   "internal/engine/evaluate_test.go": {
-    "mtime": 1784434255.5157423,
+    "mtime": 1784438103.5799446,
     "ast_hash": "c48936e9af98ec29cefacc20e88fe6b2",
     "semantic_hash": ""
   },
   "internal/forge/github/github_test.go": {
-    "mtime": 1784434255.5207596,
+    "mtime": 1784438103.5866318,
     "ast_hash": "77daa316c6db3ea1d4e580f05bc7c2bc",
     "semantic_hash": ""
   },
   "internal/forge/github/marker.go": {
-    "mtime": 1784434255.5207596,
+    "mtime": 1784438103.5866318,
     "ast_hash": "ec079add52e76c4c2ad822114ad4784f",
     "semantic_hash": ""
   },
   "internal/git/git_test.go": {
-    "mtime": 1784435293.7119272,
+    "mtime": 1784438103.5873244,
     "ast_hash": "c6d262e47e30daa68599d8d8026845ff",
     "semantic_hash": ""
   },
   "internal/git/showfile_internal_test.go": {
-    "mtime": 1784434255.5226505,
+    "mtime": 1784438103.5873244,
     "ast_hash": "cbbde89bf6168aa970f60608bbb6c295",
     "semantic_hash": ""
   },
   "internal/git/version_internal_test.go": {
-    "mtime": 1784434255.5226505,
+    "mtime": 1784438103.5873244,
     "ast_hash": "d8e2561c3dfb63487ff45fe3836c47fb",
     "semantic_hash": ""
   },
   "internal/gittest/gittest.go": {
-    "mtime": 1784434255.5226505,
+    "mtime": 1784438103.5873244,
     "ast_hash": "40a62d445f8c810b9fcc52061e9ed10e",
     "semantic_hash": ""
   },
   "internal/reconcile/logging.go": {
-    "mtime": 1784434255.5226505,
+    "mtime": 1784438103.5873244,
     "ast_hash": "63e8348ef8396312d09dfb1e719c960d",
     "semantic_hash": ""
   },
   "internal/reconcile/logging_test.go": {
-    "mtime": 1784434255.5245647,
+    "mtime": 1784438103.5917346,
     "ast_hash": "b00624bf159efaa788dc16ee7fb0ed34",
     "semantic_hash": ""
   },
   "internal/reconcile/reconcile.go": {
-    "mtime": 1784435017.368506,
-    "ast_hash": "3d02d115a3d187a811546ac9823f4344",
+    "mtime": 1784438103.5917346,
+    "ast_hash": "434b485dc3de99c8bed7363f874d4452",
     "semantic_hash": ""
   },
   "internal/reconcile/reconcile_test.go": {
-    "mtime": 1784435331.7195065,
-    "ast_hash": "f82efa63d3b5ecff64b7d51b16750217",
+    "mtime": 1784438103.5917346,
+    "ast_hash": "dcddbff62dea5725c79bf31c74428dce",
     "semantic_hash": ""
   },
   "internal/reconcile/render.go": {
-    "mtime": 1784434255.5245647,
+    "mtime": 1784438103.5917346,
     "ast_hash": "56d269f0eee45ca4b69f7f5089f79cda",
     "semantic_hash": ""
   },
   "internal/reconcile/render_test.go": {
-    "mtime": 1784434255.5245647,
+    "mtime": 1784438103.5917346,
     "ast_hash": "35b13dea3110fb54b405bf392d4c9b2f",
     "semantic_hash": ""
   },
   "pkg/api/v1/types.go": {
-    "mtime": 1784434706.093003,
+    "mtime": 1784438103.5985825,
     "ast_hash": "aad42569d6beacfe09f3fda77b38c820",
     "semantic_hash": ""
   },
   "pkg/api/v1/types_test.go": {
-    "mtime": 1784434255.5285451,
+    "mtime": 1784438103.599504,
     "ast_hash": "c885ec76a56e1606dfb50d963adf2376",
     "semantic_hash": ""
   },
   "release-please-config.json": {
-    "mtime": 1784434255.5285451,
+    "mtime": 1784438103.599504,
     "ast_hash": "7f1807b2dec7b61e488ad1adc9ac7f7c",
     "semantic_hash": ""
   },
   "tools/go.mod": {
-    "mtime": 1784434255.5299766,
+    "mtime": 1784438103.6018522,
     "ast_hash": "321ef52efa2d02f58a2854df10610c75",
     "semantic_hash": ""
   },
   ".github/copilot-instructions.md": {
-    "mtime": 1784434255.4839132,
+    "mtime": 1784438103.527085,
     "ast_hash": "949fe1462c7690b94a5623136ca50908",
     "semantic_hash": ""
   },
   ".github/workflows/ci.yml": {
-    "mtime": 1784434255.4839132,
+    "mtime": 1784438103.527085,
     "ast_hash": "aca40eb917463f2e3ae13d4eee99daae",
     "semantic_hash": ""
   },
   ".github/workflows/release-please.yml": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5300503,
     "ast_hash": "5dba15ff4e6b4d9a774e03b93631bcee",
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5300503,
     "ast_hash": "a5c8f47fc3bec01e0b78639a28581123",
     "semantic_hash": ""
   },
   ".golangci.yml": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5300503,
     "ast_hash": "8599d120b93684e240afbee9f23f5d18",
     "semantic_hash": ""
   },
   ".goreleaser.yaml": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5300503,
     "ast_hash": "86041515861b819995bd593b06e88242",
     "semantic_hash": ""
   },
   "Taskfile.yml": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5311012,
     "ast_hash": "3152327fb1f6ff44ac2f8c8e0c605604",
     "semantic_hash": ""
   },
   "action.yml": {
-    "mtime": 1784434255.4845052,
+    "mtime": 1784438103.5311012,
     "ast_hash": "d29f5997b2a2bf5ba74f967768ab22cb",
     "semantic_hash": ""
   },
   "docs/adr/0004-backflow-execution.md": {
-    "mtime": 1784434255.4887936,
+    "mtime": 1784438103.5372229,
     "ast_hash": "7ede787c682e950fa3830e411a2402a2",
     "semantic_hash": ""
   },
   "docs/adr/0005-config-api-v1.md": {
-    "mtime": 1784434255.4887936,
+    "mtime": 1784438103.5372229,
     "ast_hash": "1386ca4a242e5b7682d707cb3e0e3745",
     "semantic_hash": ""
   },
   "docs/adr/0006-merge-commit-backflow-strategy.md": {
-    "mtime": 1784434255.4887936,
+    "mtime": 1784438103.5372229,
     "ast_hash": "9cd05f97b93e993d6a105c6db02ac5fe",
     "semantic_hash": ""
   },
   "docs/adr/0007-git-shell-out.md": {
-    "mtime": 1784434255.4887936,
+    "mtime": 1784438103.5372229,
     "ast_hash": "fe5c1dddc66bb196db891786820afbec",
     "semantic_hash": ""
   },
   "docs/guides/README.md": {
-    "mtime": 1784435643.550927,
+    "mtime": 1784438103.5408275,
     "ast_hash": "5172ba643ee81a8410a6f89efec0601e",
     "semantic_hash": ""
   },
   "docs/guides/agent-install.md": {
-    "mtime": 1784434255.4905882,
+    "mtime": 1784438103.542156,
     "ast_hash": "22f2fbc2c2547688894ec2d448f73d1a",
     "semantic_hash": ""
   },
   "docs/guides/backflow.md": {
-    "mtime": 1784435659.521409,
+    "mtime": 1784438103.542156,
     "ast_hash": "65678b65c1b392635e1b35bf53be57c5",
     "semantic_hash": ""
   },
   "docs/guides/getting-started.md": {
-    "mtime": 1784434255.4905882,
+    "mtime": 1784438103.542156,
     "ast_hash": "6c9425a238630fdb579761d9ec5b56b1",
     "semantic_hash": ""
   },
   "docs/guides/github-action.md": {
-    "mtime": 1784434255.4905882,
-    "ast_hash": "6d851b15c4485722d8d61ad647b06fbc",
+    "mtime": 1784438103.542156,
+    "ast_hash": "0b0c9a47a1a671911ee699789eaae01b",
     "semantic_hash": ""
   },
   "docs/guides/minimizing-divergence.md": {
-    "mtime": 1784434255.4905882,
+    "mtime": 1784438103.542156,
     "ast_hash": "05c284c8a7445c6c3e293944e58e79f4",
     "semantic_hash": ""
   },
   "docs/guides/operating.md": {
-    "mtime": 1784434255.4905882,
+    "mtime": 1784438103.542156,
     "ast_hash": "76c6fb365677ea9d72fd22af7076b5f1",
     "semantic_hash": ""
   },
   "docs/guides/promotion-graphs.md": {
-    "mtime": 1784434255.4905882,
+    "mtime": 1784438103.542156,
     "ast_hash": "983d4dd7db2f59d25cf44b73ad39c39b",
     "semantic_hash": ""
   },
   "docs/guides/recipes.md": {
-    "mtime": 1784434255.4905882,
+    "mtime": 1784438103.542156,
     "ast_hash": "2cf005375d2edc18b3883e6a77f60f62",
     "semantic_hash": ""
   },
   "docs/guides/troubleshooting.md": {
-    "mtime": 1784434255.4905882,
-    "ast_hash": "d41f9091435b601b3f5ce55fbbada462",
+    "mtime": 1784438103.542156,
+    "ast_hash": "cda769602ac4cd49f0a72730b88a4a93",
     "semantic_hash": ""
   },
   "docs/reference/plan-format.md": {
-    "mtime": 1784434255.4927964,
+    "mtime": 1784438103.5467048,
     "ast_hash": "2a73de6ab5dc30cb94453182ba4956bf",
     "semantic_hash": ""
   },
   "internal/config/testdata/environments.yaml": {
-    "mtime": 1784434255.514126,
+    "mtime": 1784438103.577256,
     "ast_hash": "f403251e569548489b12c01e336208fa",
     "semantic_hash": ""
   },
@@ -815,147 +815,147 @@
     "semantic_hash": "f403251e569548489b12c01e336208fa"
   },
   "internal/actioncontract/azure_pipelines_test.go": {
-    "mtime": 1784434255.5104802,
+    "mtime": 1784438103.569794,
     "ast_hash": "0f774c765f1388144850743672c08156",
     "semantic_hash": ""
   },
   "internal/cienv/cienv.go": {
-    "mtime": 1784434255.5104802,
+    "mtime": 1784438103.569794,
     "ast_hash": "5c6e7dc9f8399a194defd2b18a8cec4a",
     "semantic_hash": ""
   },
   "internal/cienv/cienv_test.go": {
-    "mtime": 1784434255.511381,
+    "mtime": 1784438103.5711799,
     "ast_hash": "e2f6db575debba065ecb96f180a502bf",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/artifacts.go": {
-    "mtime": 1784434255.5178363,
+    "mtime": 1784438103.5831287,
     "ast_hash": "27c8e5ab7199cedccd8c5298d7490f2c",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/artifacts_test.go": {
-    "mtime": 1784434255.5180519,
+    "mtime": 1784438103.583902,
     "ast_hash": "a89fe5e00f8f64392f4c10de4cac43e4",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/azuredevops.go": {
-    "mtime": 1784434255.5180519,
+    "mtime": 1784438103.583902,
     "ast_hash": "38539fd174f9320fdd4cf1bc9e15ef3d",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/azuredevops_test.go": {
-    "mtime": 1784434255.5180519,
+    "mtime": 1784438103.583902,
     "ast_hash": "a8b9fc7b76f68b4982d00367b801a626",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/client.go": {
-    "mtime": 1784434255.5180519,
+    "mtime": 1784438103.583902,
     "ast_hash": "332ffd53dd7122d87361bfa5e77ca036",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/conformance_test.go": {
-    "mtime": 1784434255.5180519,
+    "mtime": 1784438103.583902,
     "ast_hash": "51ccbbd78803ac92895bea677b6a7f36",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/provider.go": {
-    "mtime": 1784434255.5182505,
+    "mtime": 1784438103.583902,
     "ast_hash": "ab9f4f8d67b2c22fe7fdee23afc064d6",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/provider_test.go": {
-    "mtime": 1784434255.5182505,
+    "mtime": 1784438103.583902,
     "ast_hash": "54e16b0f9d3c81fc720d48e84a61983d",
     "semantic_hash": ""
   },
   "internal/forge/forgetest/conformance.go": {
-    "mtime": 1784434255.5182505,
+    "mtime": 1784438103.583902,
     "ast_hash": "331cb73d9abf2d13be6b13920b2ce0bf",
     "semantic_hash": ""
   },
   "internal/forge/github/conformance_test.go": {
-    "mtime": 1784434255.5182505,
+    "mtime": 1784438103.583902,
     "ast_hash": "0afcbccb97a8aae17d009a4ec649e9f0",
     "semantic_hash": ""
   },
   "internal/forge/marker/marker.go": {
-    "mtime": 1784434255.5207596,
+    "mtime": 1784438103.5866318,
     "ast_hash": "a3b62503422e19cd46e3912cf15892a5",
     "semantic_hash": ""
   },
   "internal/reconcile/scenario_test.go": {
-    "mtime": 1784434255.5245647,
+    "mtime": 1784438103.5917346,
     "ast_hash": "28872e43f87d2955fcae0ce005162bc7",
     "semantic_hash": ""
   },
   "docs/adr/0008-durable-backflow-conflict-artifact.md": {
-    "mtime": 1784434255.4887936,
+    "mtime": 1784438103.5372229,
     "ast_hash": "5b99074b4f046ea498db24d67dd17313",
     "semantic_hash": ""
   },
   "docs/adr/0009-azure-devops-forge-provider.md": {
-    "mtime": 1784434255.4887936,
+    "mtime": 1784438103.5372229,
     "ast_hash": "e25eb1d9df45fbeed0fe41559bba857f",
     "semantic_hash": ""
   },
   "docs/guides/azure-pipelines.md": {
-    "mtime": 1784434255.4905882,
-    "ast_hash": "0abdd2f3e303aa4f962642953f87fd13",
+    "mtime": 1784438103.542156,
+    "ast_hash": "88a8c6da4e545fc50bfb4841ee583bb2",
     "semantic_hash": ""
   },
   "templates/azure-pipelines/oiax.yml": {
-    "mtime": 1784434255.5299766,
+    "mtime": 1784438103.6018522,
     "ast_hash": "1c9e36804d1d628798538e58383da779",
     "semantic_hash": ""
   },
   "internal/engine/graph_test.go": {
-    "mtime": 1784434255.5157423,
+    "mtime": 1784438103.5799446,
     "ast_hash": "98f5b815d7e0a97f590df62e5fa2b82a",
     "semantic_hash": ""
   },
   "pkg/api/v1/validate.go": {
-    "mtime": 1784434728.9166791,
+    "mtime": 1784438103.599504,
     "ast_hash": "8d8549bde4ff4d5dc20613ded33f354a",
     "semantic_hash": ""
   },
   "pkg/api/v1/validate_test.go": {
-    "mtime": 1784435262.1237698,
+    "mtime": 1784438103.599504,
     "ast_hash": "d2b30ac27d2278c3d34641be13055d95",
     "semantic_hash": ""
   },
   "docs/adr/0010-exported-config-validation.md": {
-    "mtime": 1784434255.4887936,
+    "mtime": 1784438103.5372229,
     "ast_hash": "c33bb5e73560f74fd662bbf0b593f0fb",
     "semantic_hash": ""
   },
   "internal/tmpl/tmpl.go": {
-    "mtime": 1784434858.8168194,
+    "mtime": 1784438103.5917346,
     "ast_hash": "fbfb56bb524fee4c53289659ab418e13",
     "semantic_hash": ""
   },
   "internal/tmpl/tmpl_test.go": {
-    "mtime": 1784435587.6518376,
+    "mtime": 1784438103.5968688,
     "ast_hash": "15a41a5808fca19007ec13919401ad1c",
     "semantic_hash": ""
   },
   "docs/adr/0011-templatable-request-text.md": {
-    "mtime": 1784435471.8373747,
+    "mtime": 1784438103.5372229,
     "ast_hash": "7a871903120e427004ab231dd0f0026f",
     "semantic_hash": ""
   },
   "docs/examples/templates/README.md": {
-    "mtime": 1784435564.4905803,
+    "mtime": 1784438103.5403972,
     "ast_hash": "8a52b2fff271d174860f79a8fa15776d",
     "semantic_hash": ""
   },
   "docs/guides/governance-templates.md": {
-    "mtime": 1784435554.130052,
+    "mtime": 1784438103.542156,
     "ast_hash": "a08eb32dd71a3f3cee6497ba9e48b9a6",
     "semantic_hash": ""
   },
   "docs/reference/templates.md": {
-    "mtime": 1784435520.017381,
+    "mtime": 1784438103.5467048,
     "ast_hash": "5eb46b2516d3589ce37bd9c024478fcf",
     "semantic_hash": ""
   }
