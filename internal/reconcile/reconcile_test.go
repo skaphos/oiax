@@ -2980,8 +2980,11 @@ func TestBackflowConflictRendersCustomTemplate(t *testing.T) {
 	if want := "STUCK main -> development"; spec.Title != want {
 		t.Errorf("title = %q, want %q", spec.Title, want)
 	}
-	mainHead, _ := r.Head(context.Background(), "main")
-	if !strings.Contains(spec.Body, "failing="+mainHead[:7]) && !strings.Contains(spec.Body, "subject=hotfix on main") {
+	mainHead, err := r.Head(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(spec.Body, "failing="+mainHead) || !strings.Contains(spec.Body, "subject=hotfix on main") {
 		t.Errorf("body = %q, want the failing commit context", spec.Body)
 	}
 	if !strings.Contains(spec.Body, "applied=0 whole=false") {
