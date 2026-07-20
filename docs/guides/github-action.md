@@ -98,6 +98,21 @@ resolves without you setting `config-ref`. You do not need to do anything
 for this; it is why a multi-branch graph reconciles correctly on the
 first run.
 
+## Turn off "Automatically delete head branches"
+
+One repository setting is worth changing before your first promotion
+merges. Oiax opens every promotion request *from* a long-lived graph
+branch, so **Settings -> General -> "Automatically delete head branches"**
+deletes a graph branch the moment you merge a promotion — and every later
+reconcile fails on it.
+
+A branch-deletion ruleset does not reliably prevent this, because the
+deletion runs as the merging user and a bypass role skips the rule
+silently. Oiax warns when it sees the setting enabled. See [Turn OFF
+automatic source-branch
+deletion](operating.md#turn-off-automatic-source-branch-deletion) for the
+full explanation and the recovery procedure.
+
 ## Large repositories: partial clone
 
 For most repositories `fetch-depth: 0` costs seconds and needs no

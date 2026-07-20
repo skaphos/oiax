@@ -387,6 +387,21 @@ func (p *Provider) RepoMergeMethods(ctx context.Context) (forge.MergeMethods, er
 	return forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, nil
 }
 
+// RepoDeletesSourceOnMerge reports whether the repository deletes a merged
+// request's source branch automatically. Azure DevOps has no repository-wide
+// equivalent of GitHub's delete_branch_on_merge: source-branch deletion is a
+// per-request completion option chosen by whoever completes the pull request,
+// so there is no repository setting to read and nothing to warn about ahead of
+// time. It reports false, reads nothing, and never mutates.
+//
+// The underlying hazard still exists on Azure DevOps — completing a promotion
+// request with "Delete source branch" ticked removes a graph branch just the
+// same — but it is a per-completion choice, not a standing misconfiguration,
+// so it is documented for operators rather than detected here.
+func (p *Provider) RepoDeletesSourceOnMerge(ctx context.Context) (bool, error) {
+	return false, nil
+}
+
 // policyConfiguration and its settings model the "Require a merge strategy"
 // branch policy: which merge strategies a scoped branch permits.
 type policyConfiguration struct {

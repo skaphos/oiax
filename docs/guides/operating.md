@@ -128,6 +128,52 @@ superseded request or one whose encoded source commit disappeared after a
 history rewrite. Removing the backflow configuration itself does not
 trigger cleanup.
 
+### Turn OFF automatic source-branch deletion
+
+This one costs you the graph, so it is worth setting before your first
+promotion merges.
+
+A promotion request's head **is a long-lived graph branch** —
+`development -> test` opens *from* `development`. A forge setting that
+deletes a merged request's head branch is written for short-lived feature
+branches and **cannot tell the two apart**, so the first promotion you
+merge deletes a graph branch outright. Every reconcile after that fails
+resolving it, and because a failing edge stops the run, the *whole* graph
+stalls — including edges that had nothing to do with the deleted branch.
+
+On GitHub, turn off **Settings -> General -> "Automatically delete head
+branches"** (`delete_branch_on_merge`). On Azure DevOps there is no
+repository-wide equivalent; instead, leave **"Delete source branch"**
+unticked when completing a promotion request.
+
+> **A branch-deletion protection rule does not save you.** The deletion
+> runs as the *merging user*, so anyone holding a bypass role on that rule
+> bypasses it silently, as a side effect of pressing Merge. Nothing warns
+> and nothing is blocked. Remove the setting rather than relying on a rule
+> to catch it.
+
+Oiax reads this setting on every plan and warns when it is on:
+
+```text
+repository deletes the source branch when a request merges, but every promotion request is opened from a long-lived graph branch (development, test); merging one deletes that branch and every later reconcile fails on it. A branch-deletion rule does not prevent this — the deletion runs as the merging user, so a bypass role skips the rule silently. Turn off automatic head-branch deletion for this repository
+```
+
+It is a warning, not a refusal: the setting breaks nothing until someone
+merges. If the token cannot read repository settings the check is skipped
+silently — it is advisory and never fails a reconcile.
+
+If a graph branch has *already* been deleted this way, the failure names
+the cause and the remedy:
+
+```text
+oiax: edge development->test: branch "development" not found as a local head or origin-tracking ref: branch not found; it is declared in the promotion graph, so it most likely was deleted when a promotion request merged — restore the branch, or remove it from the graph if the topology changed
+```
+
+To recover, restore the branch at the head the promotion request merged
+(on GitHub, the merged PR's `head.sha` — `gh api repos/OWNER/REPO/pulls/N
+--jq .head.sha`), then re-run the reconcile. Nothing is lost: the commits
+survive in the merge you already made.
+
 ## Branch protection and required checks
 
 Oiax opens and refreshes the promotion pull requests; **your branch

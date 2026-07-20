@@ -154,6 +154,24 @@ type Forge interface {
 	// and never mutates.
 	TargetMergeMethods(ctx context.Context, branch string) (MergeMethods, error)
 
+	// RepoDeletesSourceOnMerge reports whether the repository automatically
+	// deletes a change request's source branch when that request merges.
+	//
+	// It matters because of a structural property of branch-per-environment
+	// promotion: every promotion request Oiax opens uses a LONG-LIVED graph
+	// branch as its source (development -> test opens from development). A
+	// repository-wide auto-delete is written for short-lived feature branches
+	// and cannot tell the difference, so merging one promotion request deletes
+	// a graph branch outright, and every later reconcile fails resolving it.
+	// Branch-deletion rules do not reliably prevent this: the deletion runs as
+	// the merging user, so anyone holding a bypass role bypasses the rule
+	// silently, as a side effect of pressing Merge.
+	//
+	// Oiax reads this only to warn (see Coordinator.warnSourceBranchDeletion);
+	// it never modifies settings. Providers whose forge has no repository-wide
+	// equivalent report false.
+	RepoDeletesSourceOnMerge(ctx context.Context) (bool, error)
+
 	// DeleteBranch removes a branch in the oiax/ namespace (a superseded or
 	// closed backflow request's head branch). Deletion is confined to that
 	// namespace — Oiax owns it, so removing an orphaned ref is in-contract;

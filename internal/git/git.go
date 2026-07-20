@@ -27,6 +27,14 @@ import (
 // never masquerade as a revision or vice versa.
 var oidPattern = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 
+// ErrBranchNotFound reports that a branch name resolved to neither a local
+// head nor an origin-tracking ref. It is a sentinel so callers that know why
+// the branch was expected to exist can say so: the reconcile layer wraps it
+// with promotion-graph context, because a branch declared in the graph but
+// absent from the remote is almost always a branch that was deleted when a
+// promotion request merged, not a typo.
+var ErrBranchNotFound = errors.New("branch not found")
+
 // maxShowFileSize bounds the bytes ShowFile will buffer from `git show`, so
 // a pathological blob committed at the pinned configuration ref cannot
 // exhaust memory before config.Parse's own size check ever runs. This
@@ -183,7 +191,7 @@ func (r *Runner) resolveBranchRef(ctx context.Context, name string) (string, err
 		}
 		return "", err
 	}
-	return "", fmt.Errorf("branch %q not found as a local head or origin-tracking ref", name)
+	return "", fmt.Errorf("branch %q not found as a local head or origin-tracking ref: %w", name, ErrBranchNotFound)
 }
 
 // minGitMajor and minGitMinor are the minimum system git version oiax

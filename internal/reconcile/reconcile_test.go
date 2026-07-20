@@ -50,6 +50,10 @@ type fakeForge struct {
 	targetMergeMethodsCalls int
 	targetMergeBranch       string
 
+	deletesSourceOnMerge      bool
+	deletesSourceOnMergeErr   error
+	deletesSourceOnMergeCalls int
+
 	// Conflict-artifact store (SKA-601): a real in-memory ordered set that
 	// mimics the forge's ascending-by-issue-number list contract, so the
 	// record/adopt/advance/consolidate/close state machine and the sweep can be
@@ -77,6 +81,14 @@ func (f *fakeForge) RepoMergeMethods(context.Context) (forge.MergeMethods, error
 		return *f.mergeMethods, nil
 	}
 	return forge.MergeMethods{Merge: true, Squash: true, Rebase: true}, nil
+}
+
+func (f *fakeForge) RepoDeletesSourceOnMerge(context.Context) (bool, error) {
+	f.deletesSourceOnMergeCalls++
+	if f.deletesSourceOnMergeErr != nil {
+		return false, f.deletesSourceOnMergeErr
+	}
+	return f.deletesSourceOnMerge, nil
 }
 
 func (f *fakeForge) TargetMergeMethods(_ context.Context, branch string) (forge.MergeMethods, error) {
@@ -1986,6 +1998,129 @@ func TestPlanShallowCloneRefusedWhenPolicySet(t *testing.T) {
 		!strings.Contains(err.Error(), "refusing under CI") ||
 		!strings.Contains(err.Error(), "fetch-depth: 0") {
 		t.Fatalf("error = %v, want a shallow-clone CI refusal naming fetch-depth: 0", err)
+	}
+}
+
+// TestPlanWarnsWhenRepositoryDeletesSourceBranch covers the branch-per-env
+// hazard that repository-wide auto-delete-on-merge creates: every promotion
+// request is opened FROM a long-lived graph branch, so merging one deletes that
+// branch and strands the graph. The warning must name the branches actually at
+// risk (the promotion sources), so an operator can see the blast radius without
+// re-deriving it from the config, and must name the remedy.
+func TestPlanWarnsWhenRepositoryDeletesSourceBranch(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	var logBuf bytes.Buffer
+	c := &Coordinator{
+		Git:   r,
+		Forge: &fakeForge{deletesSourceOnMerge: true},
+		Graph: testGraph(),
+		Log:   NewLogger("text", AnnotateGitHub, nil, &logBuf),
+	}
+	if _, err := c.Plan(context.Background()); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	log := logBuf.String()
+	for _, want := range []string{
+		"deletes the source branch",
+		"development", // promotion source, at risk
+		"test",        // promotion source on the second edge, also at risk
+		"bypass role",
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("warning does not mention %q: %s", want, log)
+		}
+	}
+	// "main" is a promotion TARGET only — it is never a request source, so
+	// naming it would overstate the blast radius.
+	if strings.Contains(log, "development, test, main") {
+		t.Errorf("warning names a target-only branch as at risk: %s", log)
+	}
+}
+
+// TestPlanSilentWhenRepositoryKeepsSourceBranch is the negative case: a
+// correctly-configured repository must produce no branch-deletion warning at
+// all. A warning that fires on a healthy repo trains operators to ignore it.
+func TestPlanSilentWhenRepositoryKeepsSourceBranch(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	var logBuf bytes.Buffer
+	f := &fakeForge{deletesSourceOnMerge: false}
+	c := &Coordinator{
+		Git:   r,
+		Forge: f,
+		Graph: testGraph(),
+		Log:   NewLogger("text", AnnotateGitHub, nil, &logBuf),
+	}
+	if _, err := c.Plan(context.Background()); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if f.deletesSourceOnMergeCalls != 1 {
+		t.Errorf("RepoDeletesSourceOnMerge called %d times, want exactly 1 per plan",
+			f.deletesSourceOnMergeCalls)
+	}
+	if strings.Contains(logBuf.String(), "deletes the source branch") {
+		t.Errorf("warned on a repository that keeps source branches: %s", logBuf.String())
+	}
+}
+
+// TestPlanSourceBranchDeletionCheckFailureIsNotFatal pins the advisory
+// contract: the check reads a repository setting, which a token without
+// repository-read scope cannot see. An advisory warning must degrade to a debug
+// line and let the reconcile proceed — never fail a plan that is otherwise
+// correct.
+func TestPlanSourceBranchDeletionCheckFailureIsNotFatal(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	var logBuf bytes.Buffer
+	c := &Coordinator{
+		Git:   r,
+		Forge: &fakeForge{deletesSourceOnMergeErr: errors.New("403 Resource not accessible by integration")},
+		Graph: testGraph(),
+		Log:   NewLogger("text", AnnotateGitHub, nil, &logBuf),
+	}
+	if _, err := c.Plan(context.Background()); err != nil {
+		t.Fatalf("plan failed on an unreadable repository setting, want it to proceed: %v", err)
+	}
+	if strings.Contains(logBuf.String(), "deletes the source branch") {
+		t.Errorf("warned despite being unable to read the setting: %s", logBuf.String())
+	}
+}
+
+// TestPlanMissingGraphBranchExplainsDeletion covers the diagnosis half of the
+// same hazard. Once auto-delete-on-merge HAS eaten a graph branch, the operator
+// meets a resolution failure, not the warning. A bare "branch not found" sends
+// them hunting for a config typo; the error must instead say the branch is
+// declared in the graph and was most likely deleted by a merge.
+func TestPlanMissingGraphBranchExplainsDeletion(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	g := testGraph()
+	// Stand in for a branch that auto-delete removed after a promotion merged.
+	g.Promotions = []engine.Promotion{{From: "deleted-by-merge", To: "test"}}
+
+	c := &Coordinator{
+		Git:   r,
+		Forge: &fakeForge{},
+		Graph: g,
+		Log:   NewLogger("text", AnnotateGitHub, nil, &bytes.Buffer{}),
+	}
+	_, err := c.Plan(context.Background())
+	if err == nil {
+		t.Fatal("Plan succeeded with a graph branch that does not exist, want an error")
+	}
+	if !errors.Is(err, git.ErrBranchNotFound) {
+		t.Errorf("error does not wrap git.ErrBranchNotFound, so callers cannot classify it: %v", err)
+	}
+	for _, want := range []string{
+		"edge deleted-by-merge->test", // which edge
+		"declared in the promotion graph",
+		"deleted when a promotion request merged", // the likely cause
+		"restore the branch",                      // the remedy
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q: %v", want, err)
+		}
 	}
 }
 
