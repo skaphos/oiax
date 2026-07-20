@@ -260,6 +260,29 @@ This is the one outcome `plan` cannot foresee: a backflow whose commits
 only conflict at cherry-pick time shows in `plan` as an ordinary
 applyable change (exit 2), but `reconcile` hits the conflict and exits 3.
 
+### Squash merges on a promotion-path branch
+
+If a branch in the promotion graph is **squash-merged**, a single commit
+collapses several upstream commits into one combined patch. Backflow
+cannot return that commit one change at a time — the parts already on the
+target conflict with the parts that are not — so a squash that mixes
+already-promoted content with a genuine downstream fix conflicts on
+replay and **cannot clear on its own**.
+
+Oiax recognizes this. When the failing commit rolls up several commits
+(it carries more than one `(cherry picked from commit …)` provenance
+line), the conflict artifact says so explicitly and steers you to the
+fix: cherry-pick or promote the still-missing change by hand, or mark the
+squashed commit `Oiax-Backflow: skip` if its content already reached the
+target another way.
+
+The durable fix is to **avoid squash merges on promotion-path branches** —
+prefer rebase or merge-commit merges there, which preserve the per-commit
+identity backflow relies on. A squashed *return* branch merged back into
+the source is fine: Oiax reads the provenance line at the tail of every
+paragraph of the squash, so all of the returned commits are recognized as
+already-returned and none is re-proposed.
+
 ## Requirements
 
 Backflow uses `git cherry-pick --empty=drop`, so `plan` and `reconcile`

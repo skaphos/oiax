@@ -621,18 +621,40 @@ func (c *Coordinator) backflowAlreadyReturned(ctx context.Context, from, to, tar
 			return nil, nil, err
 		}
 		for _, body := range targetBodies {
-			// `git cherry-pick -x` appends the "(cherry picked from commit <sha>)"
-			// line to the message's LAST paragraph (its trailer block). Match only
-			// that block — mirroring how backflowSkipTrailers leans on git's own
-			// trailer semantics — so a commit that merely mentions a source SHA, or
-			// even quotes a provenance line, in earlier prose does not falsely mark
-			// that source commit already-returned and silently drop a live hotfix.
-			for _, m := range cherryPickedFromRE.FindAllStringSubmatch(lastParagraph(body), -1) {
-				provenance[m[1]] = struct{}{}
+			for _, sha := range provenanceSHAs(body) {
+				provenance[sha] = struct{}{}
 			}
 		}
 	}
 	return skips, provenance, nil
+}
+
+// squashCommitCount reports how many distinct commits the commit named by sha
+// rolls up, inferred from the cherry-pick -x provenance lines in its own
+// message body. A value >= 2 means the commit combines several upstream commits
+// — the signature of a squash merge, which backflow cannot return one commit at
+// a time. It is deliberately best-effort: a read failure or an unparseable body
+// yields 0 (treated as "not a detectable squash"), because it only enriches the
+// human-facing conflict guidance and must never fail the exit-3 record path.
+// The sha reaches git as an operand after --end-of-options, matching the
+// no-shell posture of commitBodies.
+func (c *Coordinator) squashCommitCount(ctx context.Context, sha string) int {
+	cmd := exec.CommandContext(ctx, "git", "log", "-1", "--no-color",
+		"--format=%B", "--end-of-options", sha)
+	cmd.Dir = c.Git.Dir
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return 0
+	}
+	// Distinct source ids only: a rollup names each combined commit once, but
+	// deduplicate defensively so a repeated provenance line cannot inflate the
+	// count past the real number of commits.
+	seen := make(map[string]struct{})
+	for _, s := range provenanceSHAs(stdout.String()) {
+		seen[s] = struct{}{}
+	}
+	return len(seen)
 }
 
 // commitBodies returns the full commit message body of every commit in the
@@ -663,18 +685,43 @@ func (c *Coordinator) commitBodies(ctx context.Context, revRange string) (map[st
 	return out, nil
 }
 
-// lastParagraph returns the final blank-line-delimited block of a commit
-// message body — the trailer block, where `git cherry-pick -x` records its
-// "(cherry picked from commit <sha>)" provenance line. Restricting provenance
-// matching to this block (rather than the whole body) keeps a stray mention of
-// the phrase in an earlier prose paragraph from being read as genuine
-// provenance.
-func lastParagraph(body string) string {
-	body = strings.TrimRight(body, "\n")
-	if i := strings.LastIndex(body, "\n\n"); i >= 0 {
-		return body[i+2:]
+// provenanceSHAs returns every source object id named by a standalone
+// "(cherry picked from commit <sha>)" line that sits at the END of any
+// blank-line-delimited paragraph of a commit body.
+//
+// `git cherry-pick -x` always writes its provenance as the FINAL line of the
+// message, so on an ordinary returned commit the line is the tail of the body's
+// last paragraph. When several -x'd commits are combined into one — a backflow
+// return branch squash-merged into the target — each original commit's
+// provenance line survives as the tail of its own block, and only the very last
+// block's line sits in the body's final paragraph. Scanning the tail of EVERY
+// paragraph recovers all of them, so a squash-merged return is recognized as
+// already-returned by identity instead of being re-proposed (and then failing
+// as a spurious divergence or conflict) on the next reconcile.
+//
+// Matching only a paragraph's final line preserves the guard the previous
+// last-paragraph-only rule provided: a provenance line merely quoted inside a
+// prose paragraph — not at its tail — is not read as genuine provenance, so a
+// stray mention cannot falsely mark a live hotfix already-returned and silently
+// drop it. This mirrors git's own trailer semantics (a trailer is the last
+// blank-line-delimited block's key:value lines), which backflowSkipTrailers
+// leans on for the O6 skip trailer.
+func provenanceSHAs(body string) []string {
+	var shas []string
+	for _, para := range strings.Split(strings.TrimRight(body, "\n"), "\n\n") {
+		para = strings.TrimRight(para, "\n")
+		if para == "" {
+			continue
+		}
+		last := para
+		if i := strings.LastIndex(para, "\n"); i >= 0 {
+			last = para[i+1:]
+		}
+		if m := cherryPickedFromRE.FindStringSubmatch(last); m != nil {
+			shas = append(shas, m[1])
+		}
 	}
-	return body
+	return shas
 }
 
 // backflowSkipTrailers returns the set of commit SHAs in revRange whose
@@ -1462,7 +1509,12 @@ func (c *Coordinator) recordBackflowConflict(
 	// best-effort posture (ADR 0008): warn and leave the artifact for the
 	// next run rather than downgrade the exit-3 divergence to exit 1.
 	tc := c.backflowContext(a, st, "conflict")
-	tc.Conflict = &tmpl.Conflict{SHA: sha, Subject: subject, Applied: applied, Whole: whole}
+	tc.Conflict = &tmpl.Conflict{
+		SHA: sha, Subject: subject, Applied: applied, Whole: whole,
+		// Best-effort: enriches the operator guidance when the failing commit is
+		// a squash rollup, never gates the exit-3 record.
+		SquashCommits: c.squashCommitCount(ctx, sha),
+	}
 	title, body, terr := c.templates().BackflowConflict(tc)
 	if terr != nil {
 		c.log().Warn(fmt.Sprintf(

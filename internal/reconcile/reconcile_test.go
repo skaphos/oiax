@@ -1458,6 +1458,59 @@ func TestPlanBackflowProvenanceRequiresStandaloneLine(t *testing.T) {
 	}
 }
 
+func TestPlanBackflowProvenanceMatchesSquashedReturn(t *testing.T) {
+	// A backflow return branch squash-merged into the target collapses several
+	// cherry-pick -x'd commits into ONE, so each original commit's
+	// "(cherry picked from commit <sha>)" line survives at the tail of its own
+	// block and only the LAST block's line falls in the body's final paragraph.
+	// Provenance matching must scan the tail of every paragraph, or every
+	// returned commit but the last is re-proposed on the next reconcile — a
+	// spurious divergence (and, on replay, a permanent conflict).
+	r, commit := gitHarness(t)
+
+	checkout(t, r, "main")
+	hA := commit("a.txt", "a\n", "hotfix A on main")
+	hB := commit("b.txt", "b\n", "hotfix B on main")
+
+	checkout(t, r, "development")
+	// A GitHub-style squash of a return branch: both provenance lines sit at the
+	// tail of a NON-final block; the final paragraph is a Co-authored-by trailer
+	// that is not provenance. Touch an unrelated file so the squash's patch-id
+	// matches neither hotfix and only the identity (provenance) rung can suppress
+	// them.
+	commit("returned.txt", "ab\n",
+		"oiax: return main to development (#42)\n\n"+
+			"* hotfix A on main\n\nSigned-off-by: Dev <dev@example.invalid>\n(cherry picked from commit "+hA+")\n\n"+
+			"* hotfix B on main\n\nSigned-off-by: Dev <dev@example.invalid>\n(cherry picked from commit "+hB+")\n\n"+
+			"---------\n\nCo-authored-by: Dev <dev@example.invalid>")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			t.Fatalf("planned a backflow action; want none (both hotfixes already returned by squash provenance)")
+		}
+	}
+	// Both hotfixes are excluded, and the diagnostics name the provenance rung —
+	// including hA, whose line is NOT in the body's final paragraph.
+	assertExclusionReason(t, plan, hA, engine.BackflowExcludedProvenance)
+	assertExclusionReason(t, plan, hB, engine.BackflowExcludedProvenance)
+
+	st, err := c.backflowActionState(context.Background(), engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+	})
+	if err != nil {
+		t.Fatalf("backflowActionState: %v", err)
+	}
+	if len(st.ToReturn) != 0 {
+		t.Fatalf("ToReturn = %+v, want empty (both returned by squash provenance)", st.ToReturn)
+	}
+}
+
 // mergeGraph is testGraph switched to the merge backflow strategy (ADR-0006):
 // main's downstream-only commits are returned to development by a single
 // wholesale --no-ff merge instead of per-commit cherry-picks.
@@ -2296,6 +2349,51 @@ func TestApplyBackflowConflictCreatesArtifact(t *testing.T) {
 	// commit conflicts).
 	if len(f.conflictCreated) != 1 || !strings.Contains(f.conflictCreated[0].Body, "applied 0 commit(s) cleanly") {
 		t.Errorf("created body = %q, want it to report the clean count", f.conflictCreated)
+	}
+}
+
+func TestApplyBackflowSquashConflictAddsGuidance(t *testing.T) {
+	// When the failing commit is a squash rollup (its body names >= 2 cherry-pick
+	// -x provenance lines), the conflict artifact body carries the squash-aware
+	// guidance steering the operator to the skip escape hatch — instead of only
+	// the opaque per-commit clean count.
+	r, commit := gitHarness(t)
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "dev-change\n", "dev edit")
+	checkout(t, r, "main")
+	// A squash-shaped hotfix: two provenance lines, each at the tail of its own
+	// block. The referenced SHAs need not exist — squashCommitCount only counts
+	// the -x lines. Its app.txt edit conflicts with development's.
+	commit("app.txt", "hotfix-change\n",
+		"oiax: promote test to qa (#9)\n\n"+
+			"* first squashed change\n\n(cherry picked from commit 1111111111111111111111111111111111111111)\n\n"+
+			"* second squashed change\n\n(cherry picked from commit 2222222222222222222222222222222222222222)")
+	short, err := r.ShortSHA(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+		Unpromoted: 1, Branch: engine.BackflowBranchName("main", "development", short),
+	}
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence || res.Conflicts != 1 {
+		t.Errorf("result = %+v, want Divergence=true Conflicts=1", res)
+	}
+	if len(f.conflictCreated) != 1 {
+		t.Fatalf("want 1 created artifact, got %d", len(f.conflictCreated))
+	}
+	body := f.conflictCreated[0].Body
+	for _, want := range []string{"combines 2 cherry-picked commits", "squash merge", "`Oiax-Backflow: skip`"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("squash conflict artifact body missing %q:\n%s", want, body)
+		}
 	}
 }
 
