@@ -503,10 +503,20 @@ func (p *Provider) ListConflictArtifacts(ctx context.Context, graph string) ([]f
 
 // CreateConflictArtifact opens a durable conflict artifact: an issue
 // carrying the marker (type: conflict) appended to the body and both the
-// oiax and oiax/conflict labels attached inline. It deliberately does NOT
-// re-list and collapse duplicates — the reconcile layer consolidates on
-// every run (the single, always-runs consolidation point), so a
-// create-time collapse would be a second, windowed, best-effort mechanism.
+// oiax and oiax/conflict labels applied through the labels endpoint after
+// creation — NOT inline in the create payload. GitHub silently drops the
+// `labels` field of a create-issue request made by an actor without push
+// access ("Only users with push access can set labels for new issues"),
+// and the reconcile-time App token that runs oiax deliberately holds only
+// issues:write, not contents:write. The labels are load-bearing for
+// artifact identity (ADR 0008: an issue has no head/base provenance, so
+// ListConflictArtifacts filters on them), so a dropped label makes every
+// run mint a fresh unlabeled duplicate. addLabels POSTs to the issue's
+// /labels route, which requires only issues:write (triage) — exactly how
+// CreateRequest labels a managed PR. It deliberately does NOT re-list and
+// collapse duplicates — the reconcile layer consolidates on every run (the
+// single, always-runs consolidation point), so a create-time collapse
+// would be a second, windowed, best-effort mechanism.
 func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.ConflictArtifactSpec) (forge.ConflictArtifact, error) {
 	m := marker{
 		Version:     markerVersion,
@@ -524,15 +534,22 @@ func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.Confli
 	body := spec.Body + "\n\n" + serializeMarker(m)
 
 	payload := map[string]any{
-		"title":  spec.Title,
-		"body":   body,
-		"labels": []string{LabelOiax, LabelConflict},
+		"title": spec.Title,
+		"body":  body,
 	}
 	var created ghIssue
 	_, err := p.do(ctx, http.MethodPost,
 		p.url(fmt.Sprintf("/repos/%s/%s/issues", url.PathEscape(p.Owner), url.PathEscape(p.Repo))),
 		payload, &created)
 	if err != nil {
+		return forge.ConflictArtifact{}, fmt.Errorf("create conflict artifact: %w", err)
+	}
+	// Apply the identity labels via the triage-only route. A failure here
+	// leaves an unlabeled issue ListConflictArtifacts cannot find, so surface
+	// it rather than return a "created" artifact the next run would duplicate;
+	// the caller (recordBackflowConflict) treats the error as best-effort and
+	// retakes the whole record path on the next run.
+	if err := p.addLabels(ctx, created.Number, LabelOiax, LabelConflict); err != nil {
 		return forge.ConflictArtifact{}, fmt.Errorf("create conflict artifact: %w", err)
 	}
 	return forge.ConflictArtifact{
