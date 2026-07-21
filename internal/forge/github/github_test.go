@@ -212,6 +212,72 @@ func TestRepoDeletesSourceOnMergeAbsentFieldIsFalse(t *testing.T) {
 	}
 }
 
+// TestRepoSettingsFetchedOncePerProvider pins the memoization contract of
+// repoSettings: every settings reader on one Provider shares a single
+// repository GET, so a plan that warns on merge methods and branch
+// auto-deletion costs one request, not one per reader.
+func TestRepoSettingsFetchedOncePerProvider(t *testing.T) {
+	t.Parallel()
+	var gets atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gets.Add(1)
+		writeJSON(t, w, http.StatusOK, map[string]any{
+			"allow_merge_commit":     true,
+			"allow_squash_merge":     true,
+			"delete_branch_on_merge": true,
+		})
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	if _, err := p.RepoMergeMethods(context.Background()); err != nil {
+		t.Fatalf("RepoMergeMethods: %v", err)
+	}
+	deletes, err := p.RepoDeletesSourceOnMerge(context.Background())
+	if err != nil {
+		t.Fatalf("RepoDeletesSourceOnMerge: %v", err)
+	}
+	if !deletes {
+		t.Error("RepoDeletesSourceOnMerge = false after a true reading, want true from the cached settings")
+	}
+	if n := gets.Load(); n != 1 {
+		t.Errorf("repository settings GET issued %d times across two readers, want 1", n)
+	}
+}
+
+// TestRepoSettingsErrorNotCached pins that only a successful settings read is
+// memoized: a failed read must be retried by the next reader, not poison the
+// cache — otherwise one transient error would silently disarm every
+// settings-backed warning for the rest of the run.
+func TestRepoSettingsErrorNotCached(t *testing.T) {
+	t.Parallel()
+	var fail atomic.Bool
+	fail.Store(true)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail.Load() {
+			// 404 is deterministic (not retried by send), so the first reader
+			// observes exactly one failed attempt.
+			writeJSON(t, w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+			return
+		}
+		writeJSON(t, w, http.StatusOK, map[string]any{"delete_branch_on_merge": true})
+	}))
+	defer srv.Close()
+
+	p := newProvider(t, srv)
+	if _, err := p.RepoDeletesSourceOnMerge(context.Background()); err == nil {
+		t.Fatal("expected an error from the failing settings read")
+	}
+	fail.Store(false)
+	got, err := p.RepoDeletesSourceOnMerge(context.Background())
+	if err != nil {
+		t.Fatalf("RepoDeletesSourceOnMerge after recovery: %v", err)
+	}
+	if !got {
+		t.Error("RepoDeletesSourceOnMerge = false after recovery, want the fresh true reading")
+	}
+}
+
 // TestTargetMergeMethods pins the live target-branch read: the repo allow_*
 // settings composed with the branch's required-linear-history signal from a
 // ruleset or classic protection, with a 404 normalized to "no such rule". It

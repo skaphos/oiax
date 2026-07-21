@@ -134,6 +134,14 @@ type Provider struct {
 
 	warnOnce sync.Once
 
+	// repoSettingsCache holds the first successfully decoded repository
+	// settings object, so every settings reader in a run shares one GET.
+	// Failures are never cached: settings warnings are advisory, and a
+	// transient error (or a cancelled context) must not silence them for
+	// the rest of the process.
+	repoSettingsMu    sync.Mutex
+	repoSettingsCache *repoSettings
+
 	// Resilience tunables. Zero values use the production defaults above; they
 	// exist only so tests can shrink backoff and the response cap without a
 	// process-global. They are not part of the public contract.
@@ -848,15 +856,26 @@ func (p *Provider) RepoDeletesSourceOnMerge(ctx context.Context) (bool, error) {
 	return repo.DeleteBranchOnMerge, nil
 }
 
-// repoSettings GETs the repository object once and decodes the settings Oiax
-// reads. Both repository-settings callers share it so a plan that consults
-// merge methods and branch auto-deletion costs the same single request each.
+// repoSettings returns the settings subset of the repository object, GETting
+// it at most once per Provider: the first successful read is memoized, so a
+// plan that consults merge methods and branch auto-deletion — or checks a
+// target's merge methods per edge — costs one request total. Caching for the
+// Provider's lifetime is sound because a Provider lives for a single
+// reconcile run and every field is advisory input to a warning. Only a
+// successful decode is cached; an error (including context cancellation) is
+// returned without poisoning later reads.
 func (p *Provider) repoSettings(ctx context.Context) (repoSettings, error) {
+	p.repoSettingsMu.Lock()
+	defer p.repoSettingsMu.Unlock()
+	if p.repoSettingsCache != nil {
+		return *p.repoSettingsCache, nil
+	}
 	var repo repoSettings
 	u := p.url(fmt.Sprintf("/repos/%s/%s", url.PathEscape(p.Owner), url.PathEscape(p.Repo)))
 	if _, err := p.do(ctx, http.MethodGet, u, nil, &repo); err != nil {
 		return repoSettings{}, err
 	}
+	p.repoSettingsCache = &repo
 	return repo, nil
 }
 
