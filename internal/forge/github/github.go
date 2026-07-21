@@ -548,8 +548,16 @@ func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.Confli
 	// leaves an unlabeled issue ListConflictArtifacts cannot find, so surface
 	// it rather than return a "created" artifact the next run would duplicate;
 	// the caller (recordBackflowConflict) treats the error as best-effort and
-	// retakes the whole record path on the next run.
+	// retakes the whole record path on the next run. Before surfacing, close
+	// the just-created issue best-effort: a *persisting* labeling failure
+	// (revoked triage permission, say) would otherwise mint one OPEN unlabeled
+	// issue per run — the accumulation this method exists to prevent. Issues
+	// cannot be deleted through the REST API, so closed-not_planned is the
+	// strongest cleanup available; a failure of the cleanup itself is
+	// swallowed so the labeling error stays the one surfaced.
 	if err := p.addLabels(ctx, created.Number, LabelOiax, LabelConflict); err != nil {
+		_, _ = p.do(ctx, http.MethodPatch, p.issueURL(created.Number),
+			map[string]string{"state": "closed", "state_reason": "not_planned"}, nil)
 		return forge.ConflictArtifact{}, fmt.Errorf("create conflict artifact: %w", err)
 	}
 	return forge.ConflictArtifact{

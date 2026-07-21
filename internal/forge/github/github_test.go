@@ -2163,30 +2163,62 @@ func TestCreateConflictArtifact(t *testing.T) {
 // than a "created" artifact — an unlabeled issue is invisible to
 // ListConflictArtifacts, so returning success would make every subsequent run
 // mint a fresh duplicate. The caller (recordBackflowConflict) treats the error
-// as best-effort and retakes the whole record path next run.
+// as best-effort and retakes the whole record path next run. Because that
+// retake creates a NEW issue each run, the orphaned unlabeled issue must be
+// closed best-effort (closed-not_planned; the REST API cannot delete issues)
+// so a persisting labeling failure accumulates closed tombstones, not open
+// issues — and a failure of the cleanup itself must not mask the labeling
+// error.
 func TestCreateConflictArtifactLabelFailureSurfaces(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assertAuth(t, r)
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues":
-			writeJSON(t, w, http.StatusCreated, issueSpec{number: 7, source: "main", dest: "development",
-				graph: "environments", sourceHead: "abc123"}.toIssue())
-		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues/7/labels":
-			writeJSON(t, w, http.StatusForbidden, map[string]any{"message": "Resource not accessible by integration"})
-		default:
-			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
-		}
-	}))
-	defer srv.Close()
+	for _, tc := range []struct {
+		name      string
+		closeFail bool
+	}{
+		{name: "orphan closed best-effort"},
+		{name: "close failure does not mask the labeling error", closeFail: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var gotClose map[string]string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assertAuth(t, r)
+				switch {
+				case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues":
+					writeJSON(t, w, http.StatusCreated, issueSpec{number: 7, source: "main", dest: "development",
+						graph: "environments", sourceHead: "abc123"}.toIssue())
+				case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues/7/labels":
+					writeJSON(t, w, http.StatusForbidden, map[string]any{"message": "Resource not accessible by integration"})
+				case r.Method == http.MethodPatch && r.URL.Path == "/repos/acme/widgets/issues/7":
+					if tc.closeFail {
+						writeJSON(t, w, http.StatusForbidden, map[string]any{"message": "Resource not accessible by integration"})
+						return
+					}
+					decode(t, r, &gotClose)
+					writeJSON(t, w, http.StatusOK, map[string]any{"number": 7, "state": "closed"})
+				default:
+					t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+				}
+			}))
+			defer srv.Close()
 
-	p := newProvider(t, srv)
-	_, err := p.CreateConflictArtifact(context.Background(), forge.ConflictArtifactSpec{
-		Graph: "environments", Source: "main", Target: "development", SourceHead: "abc123",
-		Title: "oiax: backflow conflict main -> development", Body: "Backflow conflict.",
-	})
-	if err == nil {
-		t.Fatal("CreateConflictArtifact returned nil error when label application failed; want an error")
+			p := newProvider(t, srv)
+			_, err := p.CreateConflictArtifact(context.Background(), forge.ConflictArtifactSpec{
+				Graph: "environments", Source: "main", Target: "development", SourceHead: "abc123",
+				Title: "oiax: backflow conflict main -> development", Body: "Backflow conflict.",
+			})
+			if err == nil {
+				t.Fatal("CreateConflictArtifact returned nil error when label application failed; want an error")
+			}
+			if !strings.Contains(err.Error(), "Resource not accessible") {
+				t.Errorf("surfaced error = %v, want the labeling failure", err)
+			}
+			if !tc.closeFail {
+				if gotClose["state"] != "closed" || gotClose["state_reason"] != "not_planned" {
+					t.Errorf("orphan close payload = %v, want state=closed state_reason=not_planned", gotClose)
+				}
+			}
+		})
 	}
 }
 
