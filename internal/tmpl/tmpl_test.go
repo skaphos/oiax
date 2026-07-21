@@ -136,6 +136,47 @@ func TestDefaultConflictBodyMatchesLegacyText(t *testing.T) {
 	}
 }
 
+// A failing commit that rolls up several commits (SquashCommits >= 2) adds a
+// squash-aware paragraph that names the count, interpolates the target branch,
+// and steers the operator to the skip escape hatch. SquashCommits < 2 renders
+// nothing extra (guarded byte-for-byte by TestDefaultConflictBodyMatchesLegacyText).
+func TestConflictBodySquashGuidance(t *testing.T) {
+	c := backflowCtx("cherry-pick")
+	c.Type = "conflict"
+	c.Conflict = &Conflict{
+		SHA:           "cccccccccccccccccccccccccccccccccccccccc",
+		Subject:       "oiax: promote test to qa (#9)",
+		Applied:       0,
+		Whole:         false,
+		SquashCommits: 3,
+	}
+	_, body, err := Default().BackflowConflict(c)
+	if err != nil {
+		t.Fatalf("BackflowConflict: %v", err)
+	}
+	for _, want := range []string{
+		"combines 3 cherry-picked commits",
+		"squash merge",
+		"`Oiax-Backflow: skip`",
+		"already reached `development`",
+		"prefer rebase or merge-commit merges",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("squash conflict body missing %q:\n%s", want, body)
+		}
+	}
+
+	// Below the threshold, the squash paragraph is absent.
+	c.Conflict.SquashCommits = 1
+	_, body1, err := Default().BackflowConflict(c)
+	if err != nil {
+		t.Fatalf("BackflowConflict (count=1): %v", err)
+	}
+	if strings.Contains(body1, "squash merge") {
+		t.Errorf("count=1 body unexpectedly carried squash guidance:\n%s", body1)
+	}
+}
+
 func TestResolveCustomInlineAndPerEdgeOverride(t *testing.T) {
 	s := resolve(t,
 		&v1.Templates{Promotion: &v1.RequestTemplate{

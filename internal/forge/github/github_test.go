@@ -2216,12 +2216,16 @@ func TestListConflictArtifactsRefusesCrossOriginPagination(t *testing.T) {
 	}
 }
 
-// TestCreateConflictArtifact pins that create POSTs the title, body, marker and
-// both labels inline, round-trips the marker, and does NOT re-list to dedup
-// (consolidation is the reconcile layer's single, always-runs responsibility).
+// TestCreateConflictArtifact pins that create POSTs the title, body and marker
+// WITHOUT inline labels, then applies both identity labels through the issue's
+// /labels route (the triage-only endpoint, so an issues:write App token without
+// push access still labels the artifact), round-trips the marker, and does NOT
+// re-list to dedup (consolidation is the reconcile layer's single, always-runs
+// responsibility).
 func TestCreateConflictArtifact(t *testing.T) {
 	t.Parallel()
 	var gotBody map[string]any
+	var gotLabels map[string][]string
 	listed := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assertAuth(t, r)
@@ -2229,7 +2233,10 @@ func TestCreateConflictArtifact(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues":
 			decode(t, r, &gotBody)
 			writeJSON(t, w, http.StatusCreated, issueSpec{number: 7, source: "main", dest: "development",
-				graph: "environments", sourceHead: "abc123", labels: []string{LabelOiax, LabelConflict}}.toIssue())
+				graph: "environments", sourceHead: "abc123"}.toIssue())
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues/7/labels":
+			decode(t, r, &gotLabels)
+			writeJSON(t, w, http.StatusOK, []map[string]any{})
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/widgets/issues":
 			listed++
 			writeJSON(t, w, http.StatusOK, []map[string]any{})
@@ -2260,14 +2267,82 @@ func TestCreateConflictArtifact(t *testing.T) {
 	if !ok || m.Type != conflictMarkerType || m.Source != "main" || m.Destination != "development" || m.SourceHead != "abc123" {
 		t.Errorf("create body marker wrong: %+v ok=%v", m, ok)
 	}
-	// Labels are posted inline (issues accept labels on create; no addLabels call).
-	labels, _ := gotBody["labels"].([]any)
-	if len(labels) != 2 || labels[0] != LabelOiax || labels[1] != LabelConflict {
-		t.Errorf("labels = %+v, want [%s %s] inline", gotBody["labels"], LabelOiax, LabelConflict)
+	// Labels are NOT in the create payload: GitHub drops inline labels for an
+	// actor without push access, so they must go through the /labels route.
+	if _, present := gotBody["labels"]; present {
+		t.Errorf("create payload carried inline labels %v; want none (applied via /labels)", gotBody["labels"])
+	}
+	// Both identity labels are applied through the triage-only /labels endpoint.
+	if la := gotLabels["labels"]; len(la) != 2 || la[0] != LabelOiax || la[1] != LabelConflict {
+		t.Errorf("labels applied via /labels = %v, want [%s %s]", la, LabelOiax, LabelConflict)
 	}
 	// No create-time dedup: the provider never re-lists to collapse duplicates.
 	if listed != 0 {
 		t.Errorf("CreateConflictArtifact re-listed %d times, want 0 (no create-time dedup)", listed)
+	}
+}
+
+// TestCreateConflictArtifactLabelFailureSurfaces pins that a failure applying
+// the identity labels after the issue is created surfaces as an error rather
+// than a "created" artifact — an unlabeled issue is invisible to
+// ListConflictArtifacts, so returning success would make every subsequent run
+// mint a fresh duplicate. The caller (recordBackflowConflict) treats the error
+// as best-effort and retakes the whole record path next run. Because that
+// retake creates a NEW issue each run, the orphaned unlabeled issue must be
+// closed best-effort (closed-not_planned; the REST API cannot delete issues)
+// so a persisting labeling failure accumulates closed tombstones, not open
+// issues — and a failure of the cleanup itself must not mask the labeling
+// error.
+func TestCreateConflictArtifactLabelFailureSurfaces(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		closeFail bool
+	}{
+		{name: "orphan closed best-effort"},
+		{name: "close failure does not mask the labeling error", closeFail: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var gotClose map[string]string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assertAuth(t, r)
+				switch {
+				case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues":
+					writeJSON(t, w, http.StatusCreated, issueSpec{number: 7, source: "main", dest: "development",
+						graph: "environments", sourceHead: "abc123"}.toIssue())
+				case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/widgets/issues/7/labels":
+					writeJSON(t, w, http.StatusForbidden, map[string]any{"message": "Resource not accessible by integration"})
+				case r.Method == http.MethodPatch && r.URL.Path == "/repos/acme/widgets/issues/7":
+					if tc.closeFail {
+						writeJSON(t, w, http.StatusForbidden, map[string]any{"message": "Resource not accessible by integration"})
+						return
+					}
+					decode(t, r, &gotClose)
+					writeJSON(t, w, http.StatusOK, map[string]any{"number": 7, "state": "closed"})
+				default:
+					t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+				}
+			}))
+			defer srv.Close()
+
+			p := newProvider(t, srv)
+			_, err := p.CreateConflictArtifact(context.Background(), forge.ConflictArtifactSpec{
+				Graph: "environments", Source: "main", Target: "development", SourceHead: "abc123",
+				Title: "oiax: backflow conflict main -> development", Body: "Backflow conflict.",
+			})
+			if err == nil {
+				t.Fatal("CreateConflictArtifact returned nil error when label application failed; want an error")
+			}
+			if !strings.Contains(err.Error(), "Resource not accessible") {
+				t.Errorf("surfaced error = %v, want the labeling failure", err)
+			}
+			if !tc.closeFail {
+				if gotClose["state"] != "closed" || gotClose["state_reason"] != "not_planned" {
+					t.Errorf("orphan close payload = %v, want state=closed state_reason=not_planned", gotClose)
+				}
+			}
+		})
 	}
 }
 

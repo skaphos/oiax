@@ -79,6 +79,13 @@ type Conflict struct {
 	// Whole is true for the merge strategy (the whole downstream set was
 	// attempted in one --no-ff merge), false for cherry-pick.
 	Whole bool
+	// SquashCommits is the number of distinct commits the failing commit rolls
+	// up, inferred from its cherry-pick -x provenance lines. It is >= 2 when the
+	// failing commit looks like a squash merge (a single commit combining
+	// several upstream commits), and 0 when no such rollup is detected. A
+	// squashed commit cannot be returned one commit at a time, so the conflict
+	// template surfaces this to steer the operator toward the skip escape hatch.
+	SquashCommits int
 }
 
 // Context is the variable context every template renders over. Fields not
@@ -148,7 +155,13 @@ const (
 		"{{if .Conflict.Whole}}The merge strategy attempted the whole downstream source set in a " +
 		"single `--no-ff` merge; the merge conflicts, so nothing is returned." +
 		"{{else}}The cherry-pick strategy applied {{.Conflict.Applied}} commit(s) cleanly before this one " +
-		"conflicted; the replay is aborted and nothing is returned.{{end}}\n\n" +
+		"conflicted; the replay is aborted and nothing is returned.{{end}}" +
+		"{{if ge .Conflict.SquashCommits 2}}\n\nThe failing commit combines {{.Conflict.SquashCommits}} " +
+		"cherry-picked commits, so it looks like a **squash merge**. A squashed commit cannot be returned one " +
+		"commit at a time — the parts already on `{{.To}}` conflict with the parts that are not — so this " +
+		"conflict will not clear on its own. Cherry-pick or promote the still-missing change by hand, or mark " +
+		"the commit `Oiax-Backflow: skip` if its content already reached `{{.To}}` another way. Squash merges " +
+		"on a promotion-path branch defeat backflow; prefer rebase or merge-commit merges there.{{end}}\n\n" +
 		"### What to do\n\n" +
 		"Resolve by promoting or cherry-picking the fix by hand, or mark the commit " +
 		"`Oiax-Backflow: skip` if it should never return. See the " +

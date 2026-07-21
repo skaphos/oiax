@@ -152,8 +152,14 @@ func (g *ghFake) patchPull(t *testing.T, w http.ResponseWriter, r *http.Request,
 func (g *ghFake) addLabels(t *testing.T, w http.ResponseWriter, r *http.Request, p string) {
 	var body struct{ Labels []string }
 	decode(t, r, &body)
+	// The /labels route applies to both pulls and issues; a conflict artifact
+	// is an issue that gets its identity labels through this endpoint (create
+	// no longer sends them inline).
 	if pl, ok := g.pulls[ghNum(p)]; ok {
 		pl.labels = append(pl.labels, body.Labels...)
+	}
+	if iss, ok := g.issues[ghNum(p)]; ok {
+		iss.labels = append(iss.labels, body.Labels...)
 	}
 	writeJSON(t, w, http.StatusOK, []any{})
 }
