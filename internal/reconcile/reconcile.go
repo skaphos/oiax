@@ -96,6 +96,7 @@ type Result struct {
 // to each edge, so discovery cost is independent of edge count.
 func (c *Coordinator) Plan(ctx context.Context) (engine.Plan, error) {
 	c.warnMergeMethodMismatch(ctx)
+	c.warnSourceBranchDeletion(ctx)
 
 	// A shallow clone (actions/checkout's default fetch-depth: 1) has no merge
 	// base for fork points that predate the fetch depth, so the patch-identity
@@ -209,7 +210,21 @@ func (c *Coordinator) logPlanCounts(plan engine.Plan, edges []engine.EdgeState, 
 // observe assembles the pure EdgeObservation the engine consumes for one
 // edge. Every git/forge error is wrapped with the edge context.
 func (c *Coordinator) observe(ctx context.Context, from, to string, open, merged []engine.ChangeRequest) (engine.EdgeObservation, error) {
-	wrap := func(err error) error { return fmt.Errorf("edge %s->%s: %w", from, to, err) }
+	// A branch declared in the promotion graph but present on neither the local
+	// heads nor the origin-tracking refs is rarely a typo — the config was
+	// validated, and the graph reconciled on earlier runs. Overwhelmingly it
+	// means the branch was deleted, and the usual way a LONG-LIVED graph branch
+	// gets deleted is a forge that auto-deletes a merged request's source
+	// branch (see warnSourceBranchDeletion). Say so, rather than leaving an
+	// operator to work backwards from a bare "not found".
+	wrap := func(err error) error {
+		if errors.Is(err, git.ErrBranchNotFound) {
+			return fmt.Errorf("edge %s->%s: %w; it is declared in the promotion graph, so it most "+
+				"likely was deleted when a promotion request merged — restore the branch, or remove "+
+				"it from the graph if the topology changed", from, to, err)
+		}
+		return fmt.Errorf("edge %s->%s: %w", from, to, err)
+	}
 
 	fromHead, err := c.Git.Head(ctx, from)
 	if err != nil {
@@ -1259,6 +1274,52 @@ func (c *Coordinator) warnMergeMethodMismatch(ctx context.Context) {
 				w.method, w.edge, w.method))
 		}
 	}
+}
+
+// warnSourceBranchDeletion warns when the repository automatically deletes a
+// merged request's source branch.
+//
+// Oiax opens every promotion request FROM a long-lived graph branch, so a
+// repository-wide auto-delete — written for short-lived feature branches, and
+// unable to tell the two apart — deletes a graph branch the moment the first
+// promotion request merges. The next reconcile then cannot resolve that branch
+// and the whole graph stalls. A branch-deletion protection rule is not a
+// reliable guard: the deletion runs as the merging user, so any bypass role
+// bypasses it silently as a side effect of pressing Merge.
+//
+// The warning is unconditional rather than CI-fatal (cf. RefuseShallow): the
+// setting degrades nothing until someone merges, so refusing to reconcile a
+// currently-healthy graph would be worse than the hazard. A settings read that
+// fails — a token without repository-read scope, a forge without the concept —
+// is logged at debug and skipped; an advisory check must never break reconcile.
+func (c *Coordinator) warnSourceBranchDeletion(ctx context.Context) {
+	if len(c.Graph.Promotions) == 0 {
+		return
+	}
+	deletes, err := c.Forge.RepoDeletesSourceOnMerge(ctx)
+	if err != nil {
+		c.log().Debug("skipping source-branch-deletion repository-settings check: " + err.Error())
+		return
+	}
+	if !deletes {
+		return
+	}
+	sources := make([]string, 0, len(c.Graph.Promotions))
+	seen := make(map[string]struct{}, len(c.Graph.Promotions))
+	for _, p := range c.Graph.Promotions {
+		if _, dup := seen[p.From]; dup {
+			continue
+		}
+		seen[p.From] = struct{}{}
+		sources = append(sources, p.From)
+	}
+	c.log().Warn(fmt.Sprintf(
+		"repository deletes the source branch when a request merges, but every promotion request "+
+			"is opened from a long-lived graph branch (%s); merging one deletes that branch and "+
+			"every later reconcile fails on it. A branch-deletion rule does not prevent this — the "+
+			"deletion runs as the merging user, so a bypass role skips the rule silently. Turn off "+
+			"automatic head-branch deletion for this repository",
+		strings.Join(sources, ", ")))
 }
 
 func (c *Coordinator) log() *slog.Logger {

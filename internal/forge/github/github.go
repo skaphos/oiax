@@ -134,6 +134,14 @@ type Provider struct {
 
 	warnOnce sync.Once
 
+	// repoSettingsCache holds the first successfully decoded repository
+	// settings object, so every settings reader in a run shares one GET.
+	// Failures are never cached: settings warnings are advisory, and a
+	// transient error (or a cancelled context) must not silence them for
+	// the rest of the process.
+	repoSettingsMu    sync.Mutex
+	repoSettingsCache *repoSettings
+
 	// Resilience tunables. Zero values use the production defaults above; they
 	// exist only so tests can shrink backoff and the response cap without a
 	// process-global. They are not part of the public contract.
@@ -824,13 +832,8 @@ func (p *Provider) addLabels(ctx context.Context, number int, labels ...string) 
 // coordinator can warn when a configured mergeMethod contradicts them. It is
 // read-only and never changes repository settings.
 func (p *Provider) RepoMergeMethods(ctx context.Context) (forge.MergeMethods, error) {
-	var repo struct {
-		AllowMergeCommit bool `json:"allow_merge_commit"`
-		AllowSquashMerge bool `json:"allow_squash_merge"`
-		AllowRebaseMerge bool `json:"allow_rebase_merge"`
-	}
-	u := p.url(fmt.Sprintf("/repos/%s/%s", url.PathEscape(p.Owner), url.PathEscape(p.Repo)))
-	if _, err := p.do(ctx, http.MethodGet, u, nil, &repo); err != nil {
+	repo, err := p.repoSettings(ctx)
+	if err != nil {
 		return forge.MergeMethods{}, fmt.Errorf("read repository merge settings: %w", err)
 	}
 	return forge.MergeMethods{
@@ -838,6 +841,51 @@ func (p *Provider) RepoMergeMethods(ctx context.Context) (forge.MergeMethods, er
 		Squash: repo.AllowSquashMerge,
 		Rebase: repo.AllowRebaseMerge,
 	}, nil
+}
+
+// RepoDeletesSourceOnMerge reads the repository's delete_branch_on_merge
+// setting ("Automatically delete head branches"), which deletes a merged pull
+// request's head branch. Oiax opens every promotion request FROM a long-lived
+// graph branch, so this setting removes graph branches on merge; the
+// coordinator warns on it. Read-only; never changes repository settings.
+func (p *Provider) RepoDeletesSourceOnMerge(ctx context.Context) (bool, error) {
+	repo, err := p.repoSettings(ctx)
+	if err != nil {
+		return false, fmt.Errorf("read repository branch settings: %w", err)
+	}
+	return repo.DeleteBranchOnMerge, nil
+}
+
+// repoSettings returns the settings subset of the repository object, GETting
+// it at most once per Provider: the first successful read is memoized, so a
+// plan that consults merge methods and branch auto-deletion — or checks a
+// target's merge methods per edge — costs one request total. Caching for the
+// Provider's lifetime is sound because a Provider lives for a single
+// reconcile run and every field is advisory input to a warning. Only a
+// successful decode is cached; an error (including context cancellation) is
+// returned without poisoning later reads.
+func (p *Provider) repoSettings(ctx context.Context) (repoSettings, error) {
+	p.repoSettingsMu.Lock()
+	defer p.repoSettingsMu.Unlock()
+	if p.repoSettingsCache != nil {
+		return *p.repoSettingsCache, nil
+	}
+	var repo repoSettings
+	u := p.url(fmt.Sprintf("/repos/%s/%s", url.PathEscape(p.Owner), url.PathEscape(p.Repo)))
+	if _, err := p.do(ctx, http.MethodGet, u, nil, &repo); err != nil {
+		return repoSettings{}, err
+	}
+	p.repoSettingsCache = &repo
+	return repo, nil
+}
+
+// repoSettings is the subset of GitHub's repository object Oiax reads. Every
+// field is advisory input to a warning; none of them gate reconcile.
+type repoSettings struct {
+	AllowMergeCommit    bool `json:"allow_merge_commit"`
+	AllowSquashMerge    bool `json:"allow_squash_merge"`
+	AllowRebaseMerge    bool `json:"allow_rebase_merge"`
+	DeleteBranchOnMerge bool `json:"delete_branch_on_merge"`
 }
 
 // TargetMergeMethods reports the merge methods permitted for a specific target
