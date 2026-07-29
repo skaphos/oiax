@@ -35,10 +35,11 @@ checksum:
   name_template: checksums.txt
 
 changelog:
-  disable: true # CHANGELOG.md is release-please managed
+  disable: true # CHANGELOG.md is release-please managed; release.yml passes
+  # the tag's changelog section to GoReleaser via --release-notes.
 
 release:
   draft: false
   make_latest: true
   footer: |
-    See [CHANGELOG.md](https://github.com/skaphos/oiax/blob/{{ .Tag }}/CHANGELOG.md) for the full release notes.
+    See [CHANGELOG.md](https://github.com/skaphos/oiax/blob/{{ .Tag }}/CHANGELOG.md) for the release history.

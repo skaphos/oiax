@@ -15,6 +15,30 @@ governance standard; the short version is below.
 - Use [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `chore:`, ...) — release automation
   classifies changes from commit messages.
+- Two extra types surface operator-facing prose in the changelog and the
+  GitHub release body:
+  - `migrate:` — **Migration Notes**: anything a consumer must *do* when
+    upgrading (an Action input renamed, a config key with a new default,
+    a changed exit code). Write the summary line as the instruction, e.g.
+    `migrate: set backflow.strategy explicitly; the default changes to merge`.
+  - `note:` — **Operator Notes**: user-facing guidance that is neither a
+    feature nor a fix (a new warning operators will start seeing, a
+    behavior clarification prompted by user feedback).
+
+  Only the commit **summary line** lands in the changelog, so keep it a
+  self-contained sentence; longer migration prose belongs in a
+  `BREAKING CHANGE:` footer (which gets its own changelog section). These
+  types never bump the version by themselves — pair them with the `feat:`
+  / `fix:` that motivated them. Because PRs are squash-merged, a PR whose
+  title is the `feat:`/`fix:` adds a `migrate:`/`note:` entry via a
+  commit-override block in the PR description:
+
+  ```text
+  BEGIN_COMMIT_OVERRIDE
+  feat: the actual change
+  migrate: what the operator must do about it
+  END_COMMIT_OVERRIDE
+  ```
 - Sign commits cryptographically and include a DCO sign-off
   (`git commit -S --signoff`). CI rejects commits without a
   `Signed-off-by:` trailer.
