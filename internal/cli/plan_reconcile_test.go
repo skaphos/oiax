@@ -67,6 +67,10 @@ func (f *fakeForge) RepoDeletesSourceOnMerge(context.Context) (bool, error) {
 	return false, nil
 }
 
+func (f *fakeForge) SupportsConflictArtifacts(context.Context) (bool, error) {
+	return true, nil
+}
+
 func (f *fakeForge) DeleteBranch(_ context.Context, name string) error {
 	f.deleted = append(f.deleted, name)
 	return nil

@@ -212,6 +212,39 @@ func TestRepoDeletesSourceOnMergeAbsentFieldIsFalse(t *testing.T) {
 	}
 }
 
+func TestSupportsConflictArtifacts(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		setting bool
+	}{
+		{name: "issues enabled", setting: true},
+		{name: "issues disabled", setting: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/repos/acme/widgets" {
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+				}
+				writeJSON(t, w, http.StatusOK, map[string]any{
+					"allow_merge_commit": true,
+					"has_issues":         tc.setting,
+				})
+			}))
+			defer srv.Close()
+
+			got, err := newProvider(t, srv).SupportsConflictArtifacts(context.Background())
+			if err != nil {
+				t.Fatalf("SupportsConflictArtifacts: %v", err)
+			}
+			if got != tc.setting {
+				t.Errorf("SupportsConflictArtifacts = %v, want %v", got, tc.setting)
+			}
+		})
+	}
+}
+
 // TestRepoSettingsFetchedOncePerProvider pins the memoization contract of
 // repoSettings: every settings reader on one Provider shares a single
 // repository GET, so a plan that warns on merge methods and branch
@@ -2279,6 +2312,39 @@ func TestCreateConflictArtifact(t *testing.T) {
 	// No create-time dedup: the provider never re-lists to collapse duplicates.
 	if listed != 0 {
 		t.Errorf("CreateConflictArtifact re-listed %d times, want 0 (no create-time dedup)", listed)
+	}
+}
+
+// TestCreateConflictArtifactIssuesDisabledSaysSo pins the 410 translation: a
+// repository with Issues disabled answers the issue POST with 410 Gone, and
+// the error must say the feature is disabled and how to enable it. Without
+// the translation the operator sees a bare "github api 410" that reads as
+// transient, and every reconcile re-attempts and re-warns forever.
+func TestCreateConflictArtifactIssuesDisabledSaysSo(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/repos/acme/widgets/issues" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		writeJSON(t, w, http.StatusGone, map[string]any{
+			"message": "Issues has been disabled in this repository.",
+		})
+	}))
+	defer srv.Close()
+
+	_, err := newProvider(t, srv).CreateConflictArtifact(context.Background(), forge.ConflictArtifactSpec{
+		Graph: "environments", Source: "main", Target: "development", SourceHead: "abc123",
+		Title: "oiax: backflow conflict main -> development", Body: "Backflow conflict.",
+	})
+	if err == nil {
+		t.Fatal("CreateConflictArtifact succeeded against a 410, want error")
+	}
+	if !strings.Contains(err.Error(), "enable them in Settings") {
+		t.Errorf("410 error lacks the enable-Issues guidance: %v", err)
+	}
+	var ae *apiError
+	if !errors.As(err, &ae) || ae.StatusCode != http.StatusGone {
+		t.Errorf("410 error does not preserve the apiError for callers: %v", err)
 	}
 }
 

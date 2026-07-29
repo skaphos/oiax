@@ -139,6 +139,23 @@ type Forge interface {
 	UpdateConflictArtifact(ctx context.Context, id ConflictArtifactID, spec ConflictArtifactSpec) error
 	CloseConflictArtifact(ctx context.Context, id ConflictArtifactID, reason Reason) error
 
+	// SupportsConflictArtifacts reports whether the repository can host the
+	// durable conflict artifacts the quartet above manages.
+	//
+	// It exists because the backing store can be switched off per repository:
+	// GitHub conflict artifacts are issues, and a repository with Issues
+	// disabled answers every issue WRITE with 410 Gone while the /issues
+	// LIST route still answers 200 (it returns pull requests). Without this
+	// read the disablement is invisible until the first backflow conflict,
+	// and then every reconcile re-attempts the create and re-warns forever —
+	// the failure looks transient when it is actually a repository setting.
+	//
+	// Oiax reads this only to warn early (Coordinator.Plan) and to skip
+	// doomed conflict-artifact writes with an actionable message; it never
+	// modifies settings. Providers whose backing store has no per-repository
+	// disablement (Azure DevOps work items are project-scoped) report true.
+	SupportsConflictArtifacts(ctx context.Context) (bool, error)
+
 	// RepoMergeMethods reports which merge methods the repository currently
 	// permits, so the coordinator can warn when a configured mergeMethod
 	// contradicts it. It reads settings only and never modifies them.

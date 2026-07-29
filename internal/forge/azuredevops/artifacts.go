@@ -402,6 +402,17 @@ func (p *Provider) RepoDeletesSourceOnMerge(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
+// SupportsConflictArtifacts reports whether the repository can host durable
+// conflict artifacts. Azure DevOps conflict artifacts are Azure Boards work
+// items, which are project-scoped — there is no per-repository toggle
+// equivalent to GitHub's Issues feature, so there is no setting to read. A
+// project with the Boards service itself switched off surfaces at
+// create time like any other API failure. Reports true, reads nothing, and
+// never mutates.
+func (p *Provider) SupportsConflictArtifacts(ctx context.Context) (bool, error) {
+	return true, nil
+}
+
 // policyConfiguration and its settings model the "Require a merge strategy"
 // branch policy: which merge strategies a scoped branch permits.
 type policyConfiguration struct {

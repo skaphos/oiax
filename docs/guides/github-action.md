@@ -113,6 +113,16 @@ automatic source-branch
 deletion](operating.md#turn-off-automatic-source-branch-deletion) for the
 full explanation and the recovery procedure.
 
+## Keep Issues enabled when you use backflow
+
+Durable backflow-conflict artifacts are GitHub issues. If the
+repository has the Issues feature switched off (**Settings -> General ->
+Features -> Issues**), a backflow conflict still halts with exit 3 but
+Oiax cannot leave the durable record pointing at the failing commit —
+the details survive only in the run log, and Oiax warns on every plan.
+See [Keep Issues
+enabled](operating.md#keep-issues-enabled-github-backflow-only).
+
 ## Large repositories: partial clone
 
 For most repositories `fetch-depth: 0` costs seconds and needs no
