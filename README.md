@@ -28,8 +28,14 @@ applied to environment promotion.
 Oiax deliberately does **not** deploy applications, render manifests, or
 decide whether a change is safe to promote. Approval, validation, and
 policy gates stay where the repository already puts them: branch
-protection, required checks, CODEOWNERS, human review. (The name keeps
-the point — the Greek οἴαξ is the tiller: a hand stays on it.)
+protection, required checks, CODEOWNERS, human review. For organizations
+that need the merge itself to be an **auditable sign-off**, managed PR
+titles and bodies are [templatable](docs/guides/governance-templates.md):
+Oiax fills in the mechanical facts, your template carries the
+change-management scaffold (ticket links, control references, an
+approver-justification section), and the promotion PR becomes the change
+record. (The name keeps the point — the Greek οἴαξ is the tiller: a hand
+stays on it.)
 
 ## Quickstart
 
@@ -145,6 +151,8 @@ artifacts). See
 - [Installing Oiax with an AI agent](docs/guides/agent-install.md) — a
   step-by-step playbook for a coding agent to infer your repository's
   promotion graph, confirm it, and set Oiax up
+- [Governance change-record templates](docs/guides/governance-templates.md)
+  — make each promotion PR an auditable change record with sign-off
 - [Architecture](docs/architecture.md) — the design: promotion graph,
   equivalence ladder, backflow, execution model, security posture
 - [Configuration reference](docs/reference/configuration.md)
