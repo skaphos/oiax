@@ -233,6 +233,42 @@ be returned at all, mark it with `Oiax-Backflow: skip`. The next
 reconcile picks up from the new state — there is no partial or broken
 branch left behind.
 
+To replay the failing commit by hand under the **cherry-pick strategy**,
+work on a branch of your own — never on the Oiax-owned
+`oiax/backflow/…` return branch, which Oiax force-pushes and would
+overwrite your resolution:
+
+```sh
+git fetch origin <source> <target>
+git switch -c backflow-fix/<short-sha> origin/<target>
+git cherry-pick -x <failing-sha>
+# resolve the conflicts, then:
+git cherry-pick --continue
+git push -u origin backflow-fix/<short-sha>
+```
+
+Open a request from that branch into the target and keep the
+`(cherry picked from commit …)` provenance line intact — that line (or
+the resulting identical patch-id) is what the [identity
+ladder](#already-returned--the-identity-check) recognizes as returned.
+Commits still unreturned after this one are picked up by the next
+reconcile, which replays them from the new state.
+
+Under the **merge strategy**, merge the source head instead:
+
+```sh
+git fetch origin <source> <target>
+git switch -c backflow-fix/<short-sha> origin/<target>
+git merge --no-ff <source-head-sha>
+# resolve the conflicts, then:
+git commit --no-edit
+git push -u origin backflow-fix/<short-sha>
+```
+
+Land that request as a **merge commit** (not a squash or rebase): the
+merge-strategy edge settles by ancestry, so the source head must become
+reachable from the target.
+
 Because that diagnostic scrolls away on a busy repository, `reconcile`
 also opens a **durable conflict artifact** — a forge issue labeled `oiax`
 and `oiax/conflict` — alongside the exit-3 divergence (it never changes
