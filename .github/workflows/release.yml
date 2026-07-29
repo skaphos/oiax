@@ -30,10 +30,33 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: Extract this release's notes from CHANGELOG.md
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        # The GitHub release body should BE the release-please-written notes
+        # for this version (including the Migration Notes / Operator Notes
+        # sections), not just a link to CHANGELOG.md. release-please writes
+        # exactly one "## [x.y.z](...)" heading per release; take everything
+        # from that heading (exclusive — the release title already names the
+        # version) to the next release heading. Missing section degrades to
+        # the link-only body rather than failing the release: publishing
+        # artifacts must never be blocked by notes formatting.
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          awk -v ver="${version}" '
+            !found && index($0, "## [" ver "]") == 1 { found=1; flag=1; next }
+            flag && /^## \[/ { flag=0 }
+            flag { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          if ! grep -q '[^[:space:]]' /tmp/release-notes.md; then
+            echo "::warning::no CHANGELOG.md section found for ${version}; publishing with link-only release notes"
+            : > /tmp/release-notes.md
+          fi
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes /tmp/release-notes.md
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
       - name: Advance floating major Action tag

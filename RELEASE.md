@@ -19,8 +19,14 @@ tags, and publishes.
 3. **Publish** (`.github/workflows/release.yml`): the tag triggers
    GoReleaser, which builds the platform binaries (`.goreleaser.yaml`;
    version metadata injected into `internal/version` via ldflags),
-   generates `checksums.txt`, and creates the GitHub release, linking
-   to `CHANGELOG.md` for the full notes. Only after publication succeeds,
+   generates `checksums.txt`, and creates the GitHub release. The
+   release body is the tag's own section extracted from `CHANGELOG.md`
+   (passed to GoReleaser via `--release-notes`), so everything
+   release-please classified — including **Migration Notes**
+   (`migrate:` commits) and **Operator Notes** (`note:` commits, see
+   CONTRIBUTING.md) — appears directly on the release page; a missing
+   section degrades to the link-only footer rather than blocking
+   publication. Only after publication succeeds,
    the workflow force-advances the floating `vMAJOR` Action tag to the
    release commit. A monotonicity guard prevents a rerun of an older
    release from moving the major tag backward. This follows GitHub's

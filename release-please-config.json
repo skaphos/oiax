@@ -12,6 +12,14 @@
       "section": "Bug Fixes"
     },
     {
+      "type": "migrate",
+      "section": "Migration Notes"
+    },
+    {
+      "type": "note",
+      "section": "Operator Notes"
+    },
+    {
       "type": "perf",
       "section": "Performance Improvements"
     },
