@@ -1,7 +1,7 @@
 # Graph Report - defensive-conflict-artifacts  (2026-07-28)
 
 ## Corpus Check
-- 125 files · ~186,724 words
+- 125 files · ~187,309 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `e6c98385`
+- Built from commit: `2ec11e18`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -61,6 +61,7 @@
 - Idempotent Reconciliation
 - Pinned Configuration Ref
 - Shallow-Clone Equivalence Degradation
+- MergeMethods
 - Provider
 - 0010 — Exported validation and defaulting on the config API
 - action_test.go
@@ -76,7 +77,6 @@
 - ChangeRequest
 - v1/types.go
 - tmpl.go
-- ConflictArtifactID
 - ParseRemoteURL
 - Deploying Oiax from Azure Pipelines
 - github.go
@@ -124,8 +124,8 @@ Cohesion: 0.08
 Nodes (118): Plan, BackflowBranchName(), Logger, NewLogger(), T, TestAnnotationEscapesWorkflowCommandChars(), TestAzureAnnotationEscapesLoggingCommandChars(), TestNewLoggerAnnotatesWarningsOnlyWhenSinkSet() (+110 more)
 
 ### Community 1 - "Provider"
-Cohesion: 0.14
-Nodes (10): Provider, repoSettings, Client, marker, Mutex, Once, issueNumber(), managedMarker() (+2 more)
+Cohesion: 0.12
+Nodes (12): Provider, repoSettings, escapeRefPath(), Client, Mutex, Once, isForbidden(), isNotFound() (+4 more)
 
 ### Community 2 - "github_test.go"
 Cohesion: 0.07
@@ -152,12 +152,12 @@ Cohesion: 0.11
 Nodes (10): fakeForge, BranchPush, ConflictArtifact, ConflictArtifactSpec, Reason, RequestFilter, RequestID, RequestState (+2 more)
 
 ### Community 8 - "BuildPlan"
-Cohesion: 0.17
-Nodes (35): ADR 0003: Read configuration from a pinned ref, Rationale: config is itself promoted and differs per branch; reading the triggering ref is nondeterministic and lets untrusted PR config run with write credentials, Reconciliation Loop, oiax (root command), Pinned Configuration Ref (--config-ref), FromConfig(), PromotionGraph, PromotionGraph (+27 more)
-
-### Community 9 - "common.sh"
 Cohesion: 0.09
 Nodes (15): check-prerequisites.sh script, check_dir(), check_file(), get_feature_paths(), get_repo_root(), has_jq(), _persist_feature_json(), resolve_specify_init_dir() (+7 more)
+
+### Community 9 - "common.sh"
+Cohesion: 0.07
+Nodes (26): Dependencies & Execution Order, Format: `[ID] [P?] [Story] Description`, Implementation for User Story 1, Implementation for User Story 2, Implementation for User Story 3, Implementation Strategy, Incremental Delivery, MVP First (User Story 1 Only) (+18 more)
 
 ### Community 10 - "plan_reconcile_test.go"
 Cohesion: 0.07
@@ -180,16 +180,16 @@ Cohesion: 0.17
 Nodes (12): Skaphos Glossary Discipline (branch promotion vs Promotion vs backflow), Conventional Commits, Signed commits + DCO sign-off, Branch Promotion (capability), argoproj-labs/gitops-promoter (prior art), Kargo (prior art), Promotion Graph (DAG model), release-please (prior art / inspiration) (+4 more)
 
 ### Community 15 - "Tasks: [FEATURE NAME]"
-Cohesion: 0.07
-Nodes (26): Dependencies & Execution Order, Format: `[ID] [P?] [Story] Description`, Implementation for User Story 1, Implementation for User Story 2, Implementation for User Story 3, Implementation Strategy, Incremental Delivery, MVP First (User Story 1 Only) (+18 more)
-
-### Community 16 - "Core Principles"
 Cohesion: 0.11
 Nodes (17): Core Principles, Development Workflow and Quality Gates, Engineering Constraints, Governance, I. Explicit State Over Implicit Behavior, II. Git Is the Durable Desired-State Boundary, III. Deterministic, Reconstructible Operation, IV. Control-Plane Conventions, Never Obscured (+9 more)
 
-### Community 17 - "git.go"
+### Community 16 - "Core Principles"
 Cohesion: 0.16
 Nodes (10): capWriter, CherryPickConflict, Commit, MergeConflict, checkMinVersion(), Buffer, parseGitVersion(), T (+2 more)
+
+### Community 17 - "git.go"
+Cohesion: 0.14
+Nodes (13): Assumptions, Edge Cases, Feature Specification: [FEATURE NAME], Functional Requirements, Key Entities *(include if feature involves data)*, Measurable Outcomes, Out of Scope *(mandatory)*, Requirements *(mandatory)* (+5 more)
 
 ### Community 18 - "Content Equivalence Ladder"
 Cohesion: 0.07
@@ -204,10 +204,14 @@ Cohesion: 0.31
 Nodes (15): PromotionGraph, T, TestDefault(), TestDefaultIsIdempotent(), TestDefaultMergeStrategyExpectedMergeMethod(), TestValidateAcceptsAtSignBranchName(), TestValidateAcceptsCanonicalGraph(), TestValidateAcceptsCherryPickMergeMethods() (+7 more)
 
 ### Community 21 - "Feature Specification: [FEATURE NAME]"
-Cohesion: 0.14
-Nodes (13): Assumptions, Edge Cases, Feature Specification: [FEATURE NAME], Functional Requirements, Key Entities *(include if feature involves data)*, Measurable Outcomes, Out of Scope *(mandatory)*, Requirements *(mandatory)* (+5 more)
+Cohesion: 0.17
+Nodes (35): ADR 0003: Read configuration from a pinned ref, Rationale: config is itself promoted and differs per branch; reading the triggering ref is nondeterministic and lets untrusted PR config run with write credentials, Reconciliation Loop, oiax (root command), Pinned Configuration Ref (--config-ref), FromConfig(), PromotionGraph, PromotionGraph (+27 more)
 
 ### Community 22 - "Core Principles"
+Cohesion: 0.12
+Nodes (19): policyConfiguration, policyList, policyScope, policySettings, wiqlResult, wiState, wiStates, workItem (+11 more)
+
+### Community 23 - "MergeMethods"
 Cohesion: 0.18
 Nodes (10): Core Principles, Governance, [PRINCIPLE_1_NAME], [PRINCIPLE_2_NAME], [PRINCIPLE_3_NAME], [PRINCIPLE_4_NAME], [PRINCIPLE_5_NAME], [PROJECT_NAME] Constitution (+2 more)
 
@@ -287,10 +291,6 @@ Nodes (33): BackflowPolicy, Branch, Expectations, Promotion, Branch, Graph, Expe
 Cohesion: 0.12
 Nodes (37): FuncMap, checkBodySafety(), compileTemplate(), Default(), execute(), funcMap(), PromotionGraph, NewCommit() (+29 more)
 
-### Community 68 - "ConflictArtifactID"
-Cohesion: 0.12
-Nodes (19): policyConfiguration, policyList, policyScope, policySettings, wiqlResult, wiState, wiStates, workItem (+11 more)
-
 ### Community 69 - "ParseRemoteURL"
 Cohesion: 0.26
 Nodes (14): Repo, orgFromCollectionURI(), ParseRemoteURL(), pathSegments(), repoFromEnv(), ResolveRepo(), splitRemote(), T (+6 more)
@@ -300,8 +300,8 @@ Cohesion: 0.08
 Nodes (23): 0009 — Azure DevOps forge provider, Authentication and the token, Consequences, Context, Decision, Links, Marker storage on a managed request, Options considered (+15 more)
 
 ### Community 71 - "github.go"
-Cohesion: 0.11
-Nodes (25): apiError, apiError, errNoResponse, ghIssue, ghLabel, ghPull, ghRef, ghRepo (+17 more)
+Cohesion: 0.12
+Nodes (23): apiError, apiError, errNoResponse, ghIssue, ghLabel, ghPull, ghRef, ghRepo (+15 more)
 
 ### Community 78 - "azure_pipelines_test.go"
 Cohesion: 0.50
@@ -319,11 +319,11 @@ Nodes (22): 0011 — Templatable request text, Consequences, Context, Decision, 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Context` connect `Context` to `ChangeRequest`, `Provider`, `tmpl.go`, `ConflictArtifactID`, `loadGraph`, `ParseRemoteURL`, `fakeForge`, `github.go`, `Coordinator`, `plan_reconcile_test.go`, `Provider`, `annotationHandler`, `MergeMethods`?**
+- **Why does `Context` connect `Context` to `ChangeRequest`, `Provider`, `tmpl.go`, `loadGraph`, `ParseRemoteURL`, `Coordinator`, `fakeForge`, `github.go`, `plan_reconcile_test.go`, `MergeMethods`, `Provider`, `annotationHandler`, `Core Principles`?**
   _High betweenness centrality (0.239) - this node is a cross-community bridge._
 - **Why does `InitRepo()` connect `plan_reconcile_test.go` to `reconcile_test.go`, `github_test.go`, `ParseRemoteURL`, `newRepo`, `writeJSON`?**
   _High betweenness centrality (0.070) - this node is a cross-community bridge._
-- **Why does `Runner` connect `Context` to `reconcile_test.go`, `Coordinator`, `loadGraph`, `newRepo`, `git.go`?**
+- **Why does `Runner` connect `Context` to `reconcile_test.go`, `Coordinator`, `loadGraph`, `newRepo`, `Core Principles`?**
   _High betweenness centrality (0.059) - this node is a cross-community bridge._
 - **Are the 5 inferred relationships involving `testGraph()` (e.g. with `TestScenarioBackflowMixedDropAndApplyConverges()` and `TestScenarioBackflowPushIsByteIdenticalAcrossIndependentRepos()`) actually correct?**
   _`testGraph()` has 5 INFERRED edges - model-reasoned connections that need verification._

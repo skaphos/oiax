@@ -280,8 +280,8 @@
     "semantic_hash": ""
   },
   "tools/go.mod": {
-    "mtime": 1785282903.44461,
-    "ast_hash": "321ef52efa2d02f58a2854df10610c75",
+    "mtime": 1785284758.9675539,
+    "ast_hash": "3a640c5e70c02e07d5abac9ecb78d151",
     "semantic_hash": ""
   },
   ".github/copilot-instructions.md": {
@@ -355,8 +355,8 @@
     "semantic_hash": ""
   },
   "docs/guides/backflow.md": {
-    "mtime": 1785283286.290957,
-    "ast_hash": "b015613616f2ca2530a5e75becbb5028",
+    "mtime": 1785284758.9543538,
+    "ast_hash": "245612a963e547572651e57d2a6a9c3e",
     "semantic_hash": ""
   },
   "docs/guides/getting-started.md": {
@@ -930,13 +930,13 @@
     "semantic_hash": ""
   },
   "internal/tmpl/tmpl.go": {
-    "mtime": 1785282903.437663,
-    "ast_hash": "3cd1bf56459110effd495867940505a7",
+    "mtime": 1785284758.9675539,
+    "ast_hash": "a33b7123f99ce49d67f9b1aa390a5d8c",
     "semantic_hash": ""
   },
   "internal/tmpl/tmpl_test.go": {
-    "mtime": 1785282903.4407845,
-    "ast_hash": "4f2dc9b7dcc8f40672565647b109e04c",
+    "mtime": 1785284758.9675539,
+    "ast_hash": "1e3b3ceaeb9530a91d31ba730d929bcf",
     "semantic_hash": ""
   },
   "docs/adr/0011-templatable-request-text.md": {

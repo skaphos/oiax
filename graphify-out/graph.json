@@ -89,8 +89,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_check_prerequisites",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "check-prerequisites.sh"
     },
     {
@@ -104,8 +104,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_check_prerequisites_sh__entry",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "check-prerequisites.sh script"
     },
     {
@@ -119,8 +119,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "common.sh"
     },
     {
@@ -134,8 +134,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_sh__entry",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "common.sh script"
     },
     {
@@ -149,8 +149,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_find_specify_root",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "find_specify_root()"
     },
     {
@@ -164,8 +164,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_resolve_specify_init_dir",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "resolve_specify_init_dir()"
     },
     {
@@ -179,8 +179,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_get_repo_root",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "get_repo_root()"
     },
     {
@@ -194,8 +194,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_get_current_branch",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "get_current_branch()"
     },
     {
@@ -209,8 +209,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_read_feature_json_feature_directory",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "read_feature_json_feature_directory()"
     },
     {
@@ -224,8 +224,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_persist_feature_json",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "_persist_feature_json()"
     },
     {
@@ -239,8 +239,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_get_feature_paths",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "get_feature_paths()"
     },
     {
@@ -254,8 +254,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_has_jq",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "has_jq()"
     },
     {
@@ -269,8 +269,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_get_invoke_separator",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "get_invoke_separator()"
     },
     {
@@ -284,8 +284,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_format_speckit_command",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "format_speckit_command()"
     },
     {
@@ -299,8 +299,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_json_escape",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "json_escape()"
     },
     {
@@ -314,8 +314,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_check_file",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "check_file()"
     },
     {
@@ -329,8 +329,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_check_dir",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "check_dir()"
     },
     {
@@ -344,8 +344,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_resolve_template",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "resolve_template()"
     },
     {
@@ -359,8 +359,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_common_resolve_template_content",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "resolve_template_content()"
     },
     {
@@ -374,8 +374,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_create_new_feature",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "create-new-feature.sh"
     },
     {
@@ -389,8 +389,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_create_new_feature_sh__entry",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "create-new-feature.sh script"
     },
     {
@@ -404,8 +404,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_create_new_feature_is_feature_number_in_range",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "is_feature_number_in_range()"
     },
     {
@@ -419,8 +419,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_create_new_feature_get_highest_from_specs",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "get_highest_from_specs()"
     },
     {
@@ -434,8 +434,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_create_new_feature_spec_prefix_exists",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "spec_prefix_exists()"
     },
     {
@@ -449,8 +449,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_create_new_feature_clean_branch_name",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "clean_branch_name()"
     },
     {
@@ -464,8 +464,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_create_new_feature_fit_branch_name",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "fit_branch_name()"
     },
     {
@@ -479,8 +479,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_create_new_feature_shell_quote",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "shell_quote()"
     },
     {
@@ -494,8 +494,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_create_new_feature_generate_branch_name",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "generate_branch_name()"
     },
     {
@@ -509,8 +509,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_setup_plan",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "setup-plan.sh"
     },
     {
@@ -524,8 +524,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_setup_plan_sh__entry",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "setup-plan.sh script"
     },
     {
@@ -539,8 +539,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_setup_tasks",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "setup-tasks.sh"
     },
     {
@@ -554,8 +554,8 @@
       },
       "_origin": "ast",
       "id": "specify_scripts_bash_setup_tasks_sh__entry",
-      "community": 9,
-      "community_name": "common.sh",
+      "community": 8,
+      "community_name": "BuildPlan",
       "norm_label": "setup-tasks.sh script"
     },
     {
@@ -1304,7 +1304,7 @@
       "source_location": "L58",
       "_origin": "ast",
       "id": "cli_fakeforge_repomergemethods",
-      "community": 23,
+      "community": 46,
       "community_name": "MergeMethods",
       "norm_label": ".repomergemethods()"
     },
@@ -1315,7 +1315,7 @@
       "source_location": "L62",
       "_origin": "ast",
       "id": "cli_fakeforge_targetmergemethods",
-      "community": 23,
+      "community": 46,
       "community_name": "MergeMethods",
       "norm_label": ".targetmergemethods()"
     },
@@ -2690,8 +2690,8 @@
       "source_location": "L66",
       "_origin": "ast",
       "id": "internal_engine_graph_fromconfig",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "fromconfig()"
     },
     {
@@ -2701,8 +2701,8 @@
       "source_location": "",
       "_origin": "ast",
       "id": "internal_engine_graph_go_promotiongraph",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "promotiongraph"
     },
     {
@@ -2712,8 +2712,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "internal_engine_graph_test",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "graph_test.go"
     },
     {
@@ -2723,8 +2723,8 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "internal_engine_graph_test_validgraph",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "validgraph()"
     },
     {
@@ -2734,8 +2734,8 @@
       "source_location": "",
       "_origin": "ast",
       "id": "internal_engine_graph_test_go_promotiongraph",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "promotiongraph"
     },
     {
@@ -2745,8 +2745,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "internal_engine_graph_test_testfromconfigappliesdriftdefault",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testfromconfigappliesdriftdefault()"
     },
     {
@@ -2756,8 +2756,8 @@
       "source_location": "",
       "_origin": "ast",
       "id": "internal_engine_graph_test_go_t",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "t"
     },
     {
@@ -2767,8 +2767,8 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "internal_engine_graph_test_testfromconfigresolvesbackflowdefaults",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testfromconfigresolvesbackflowdefaults()"
     },
     {
@@ -2778,8 +2778,8 @@
       "source_location": "L82",
       "_origin": "ast",
       "id": "internal_engine_graph_test_testfromconfigpreservescherrypickmergemethods",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testfromconfigpreservescherrypickmergemethods()"
     },
     {
@@ -2789,8 +2789,8 @@
       "source_location": "L102",
       "_origin": "ast",
       "id": "internal_engine_graph_test_testfromconfigagreeswithdefault",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testfromconfigagreeswithdefault()"
     },
     {
@@ -2811,8 +2811,8 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "internal_engine_plan_buildplan",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "buildplan()"
     },
     {
@@ -2932,8 +2932,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "internal_engine_plan_test",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "plan_test.go"
     },
     {
@@ -2943,8 +2943,8 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "internal_engine_plan_test_edge",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "edge()"
     },
     {
@@ -2954,8 +2954,8 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testbuildplan",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testbuildplan()"
     },
     {
@@ -2965,8 +2965,8 @@
       "source_location": "",
       "_origin": "ast",
       "id": "internal_engine_plan_test_go_t",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "t"
     },
     {
@@ -2976,8 +2976,8 @@
       "source_location": "L123",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testbuildplanbackflowrequestpayload",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testbuildplanbackflowrequestpayload()"
     },
     {
@@ -2987,8 +2987,8 @@
       "source_location": "L156",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testbackflowbranchname",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testbackflowbranchname()"
     },
     {
@@ -2998,8 +2998,8 @@
       "source_location": "L163",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testbuildplanrespectsexpecteddrift",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testbuildplanrespectsexpecteddrift()"
     },
     {
@@ -3009,8 +3009,8 @@
       "source_location": "L178",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testbuildplanisdeterministic",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testbuildplanisdeterministic()"
     },
     {
@@ -3020,8 +3020,8 @@
       "source_location": "L193",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testbuildplandedupsbackflowacrossincomingedges",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testbuildplandedupsbackflowacrossincomingedges()"
     },
     {
@@ -3031,8 +3031,8 @@
       "source_location": "L236",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testbuildplanedgesummaries",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testbuildplanedgesummaries()"
     },
     {
@@ -3042,8 +3042,8 @@
       "source_location": "L283",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testbuildplanedgesjsonshape",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testbuildplanedgesjsonshape()"
     },
     {
@@ -3053,8 +3053,8 @@
       "source_location": "L321",
       "_origin": "ast",
       "id": "internal_engine_plan_test_mergegraph",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "mergegraph()"
     },
     {
@@ -3064,8 +3064,8 @@
       "source_location": "",
       "_origin": "ast",
       "id": "internal_engine_plan_test_go_graph",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "graph"
     },
     {
@@ -3075,8 +3075,8 @@
       "source_location": "L330",
       "_origin": "ast",
       "id": "internal_engine_plan_test_mergebackflowedge",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "mergebackflowedge()"
     },
     {
@@ -3086,8 +3086,8 @@
       "source_location": "L342",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testplanmergebackflowcleanemitscreatewithstrategy",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testplanmergebackflowcleanemitscreatewithstrategy()"
     },
     {
@@ -3097,8 +3097,8 @@
       "source_location": "L384",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testplanmergebackflowfencefailreportsdivergence",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testplanmergebackflowfencefailreportsdivergence()"
     },
     {
@@ -3108,8 +3108,8 @@
       "source_location": "L410",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testplanmergebackflowskipinrangereportsdivergence",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testplanmergebackflowskipinrangereportsdivergence()"
     },
     {
@@ -3119,8 +3119,8 @@
       "source_location": "L436",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testplanmergebackflowskipprecedesfence",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testplanmergebackflowskipprecedesfence()"
     },
     {
@@ -3130,8 +3130,8 @@
       "source_location": "L455",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testplanmergebackflowconvergedemitsnothing",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testplanmergebackflowconvergedemitsnothing()"
     },
     {
@@ -3141,8 +3141,8 @@
       "source_location": "L469",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testplancherrypickjsonunchanged",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testplancherrypickjsonunchanged()"
     },
     {
@@ -3152,8 +3152,8 @@
       "source_location": "L487",
       "_origin": "ast",
       "id": "internal_engine_plan_test_testbuildplanactionsjsonshape",
-      "community": 8,
-      "community_name": "BuildPlan",
+      "community": 21,
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "norm_label": "testbuildplanactionsjsonshape()"
     },
     {
@@ -3306,8 +3306,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "internal_forge_azuredevops_artifacts",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "artifacts.go"
     },
     {
@@ -3317,8 +3317,8 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "azuredevops_workitem",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "workitem"
     },
     {
@@ -3328,8 +3328,8 @@
       "source_location": "",
       "_origin": "ast",
       "id": "rawmessage",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "rawmessage"
     },
     {
@@ -3339,8 +3339,8 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "azuredevops_workitembatch",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "workitembatch"
     },
     {
@@ -3350,8 +3350,8 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "azuredevops_wiqlresult",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "wiqlresult"
     },
     {
@@ -3361,8 +3361,8 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "azuredevops_wistate",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "wistate"
     },
     {
@@ -3372,8 +3372,8 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "azuredevops_wistates",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "wistates"
     },
     {
@@ -3383,8 +3383,8 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "internal_forge_azuredevops_artifacts_fieldstring",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "fieldstring()"
     },
     {
@@ -3394,8 +3394,8 @@
       "source_location": "L62",
       "_origin": "ast",
       "id": "internal_forge_azuredevops_artifacts_hastag",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "hastag()"
     },
     {
@@ -3405,8 +3405,8 @@
       "source_location": "L77",
       "_origin": "ast",
       "id": "internal_forge_azuredevops_artifacts_go_azuredevops_provider",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "provider"
     },
     {
@@ -3416,8 +3416,8 @@
       "source_location": "L77",
       "_origin": "ast",
       "id": "azuredevops_provider_conflictmarker",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".conflictmarker()"
     },
     {
@@ -3427,8 +3427,8 @@
       "source_location": "L98",
       "_origin": "ast",
       "id": "azuredevops_provider_listconflictartifacts",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".listconflictartifacts()"
     },
     {
@@ -3438,8 +3438,8 @@
       "source_location": "L158",
       "_origin": "ast",
       "id": "azuredevops_provider_createconflictartifact",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".createconflictartifact()"
     },
     {
@@ -3449,8 +3449,8 @@
       "source_location": "L196",
       "_origin": "ast",
       "id": "azuredevops_provider_updateconflictartifact",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".updateconflictartifact()"
     },
     {
@@ -3460,8 +3460,8 @@
       "source_location": "L239",
       "_origin": "ast",
       "id": "azuredevops_provider_closeconflictartifact",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".closeconflictartifact()"
     },
     {
@@ -3471,8 +3471,8 @@
       "source_location": "L277",
       "_origin": "ast",
       "id": "azuredevops_provider_getworkitems",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".getworkitems()"
     },
     {
@@ -3482,8 +3482,8 @@
       "source_location": "L301",
       "_origin": "ast",
       "id": "azuredevops_provider_getworkitem",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".getworkitem()"
     },
     {
@@ -3493,8 +3493,8 @@
       "source_location": "L314",
       "_origin": "ast",
       "id": "azuredevops_provider_workitemstates",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".workitemstates()"
     },
     {
@@ -3504,8 +3504,8 @@
       "source_location": "L331",
       "_origin": "ast",
       "id": "azuredevops_provider_isopenstate",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".isopenstate()"
     },
     {
@@ -3515,8 +3515,8 @@
       "source_location": "L353",
       "_origin": "ast",
       "id": "azuredevops_provider_completedstate",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".completedstate()"
     },
     {
@@ -3526,8 +3526,8 @@
       "source_location": "L373",
       "_origin": "ast",
       "id": "internal_forge_azuredevops_artifacts_artifactid",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "artifactid()"
     },
     {
@@ -3537,7 +3537,7 @@
       "source_location": "L386",
       "_origin": "ast",
       "id": "azuredevops_provider_repomergemethods",
-      "community": 23,
+      "community": 46,
       "community_name": "MergeMethods",
       "norm_label": ".repomergemethods()"
     },
@@ -3548,8 +3548,8 @@
       "source_location": "L401",
       "_origin": "ast",
       "id": "azuredevops_provider_repodeletessourceonmerge",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".repodeletessourceonmerge()"
     },
     {
@@ -3559,8 +3559,8 @@
       "source_location": "L412",
       "_origin": "ast",
       "id": "azuredevops_provider_supportsconflictartifacts",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".supportsconflictartifacts()"
     },
     {
@@ -3570,8 +3570,8 @@
       "source_location": "L418",
       "_origin": "ast",
       "id": "azuredevops_policyconfiguration",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "policyconfiguration"
     },
     {
@@ -3581,8 +3581,8 @@
       "source_location": "L423",
       "_origin": "ast",
       "id": "azuredevops_policysettings",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "policysettings"
     },
     {
@@ -3592,8 +3592,8 @@
       "source_location": "L432",
       "_origin": "ast",
       "id": "azuredevops_policyscope",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "policyscope"
     },
     {
@@ -3603,8 +3603,8 @@
       "source_location": "L438",
       "_origin": "ast",
       "id": "azuredevops_policylist",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "policylist"
     },
     {
@@ -3614,8 +3614,8 @@
       "source_location": "L447",
       "_origin": "ast",
       "id": "azuredevops_provider_targetmergemethods",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".targetmergemethods()"
     },
     {
@@ -3625,8 +3625,8 @@
       "source_location": "L475",
       "_origin": "ast",
       "id": "azuredevops_provider_repositoryid",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": ".repositoryid()"
     },
     {
@@ -3636,8 +3636,8 @@
       "source_location": "L493",
       "_origin": "ast",
       "id": "internal_forge_azuredevops_artifacts_scopematches",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "scopematches()"
     },
     {
@@ -3647,8 +3647,8 @@
       "source_location": "L513",
       "_origin": "ast",
       "id": "internal_forge_azuredevops_artifacts_mergemethodsfrompolicy",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "mergemethodsfrompolicy()"
     },
     {
@@ -3658,8 +3658,8 @@
       "source_location": "L533",
       "_origin": "ast",
       "id": "internal_forge_azuredevops_artifacts_boolvalue",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "boolvalue()"
     },
     {
@@ -5011,8 +5011,8 @@
       "source_location": "L621",
       "_origin": "ast",
       "id": "internal_forge_azuredevops_provider_htmlbody",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "htmlbody()"
     },
     {
@@ -5484,8 +5484,8 @@
       "source_location": "L80",
       "_origin": "ast",
       "id": "forge_conflictartifactid",
-      "community": 68,
-      "community_name": "ConflictArtifactID",
+      "community": 22,
+      "community_name": "Core Principles",
       "norm_label": "conflictartifactid"
     },
     {
@@ -5539,7 +5539,7 @@
       "source_location": "L204",
       "_origin": "ast",
       "id": "forge_mergemethods",
-      "community": 23,
+      "community": 46,
       "community_name": "MergeMethods",
       "norm_label": "mergemethods"
     },
@@ -5550,7 +5550,7 @@
       "source_location": "L220",
       "_origin": "ast",
       "id": "forge_mergemethods_mergecommitallowed",
-      "community": 23,
+      "community": 46,
       "community_name": "MergeMethods",
       "norm_label": ".mergecommitallowed()"
     },
@@ -5561,7 +5561,7 @@
       "source_location": "L227",
       "_origin": "ast",
       "id": "forge_mergemethods_allows",
-      "community": 23,
+      "community": 46,
       "community_name": "MergeMethods",
       "norm_label": ".allows()"
     },
@@ -6320,8 +6320,8 @@
       "source_location": "L759",
       "_origin": "ast",
       "id": "internal_forge_github_github_escaperefpath",
-      "community": 71,
-      "community_name": "github.go",
+      "community": 1,
+      "community_name": "Provider",
       "norm_label": "escaperefpath()"
     },
     {
@@ -6419,7 +6419,7 @@
       "source_location": "L871",
       "_origin": "ast",
       "id": "github_provider_repomergemethods",
-      "community": 23,
+      "community": 46,
       "community_name": "MergeMethods",
       "norm_label": ".repomergemethods()"
     },
@@ -6474,7 +6474,7 @@
       "source_location": "L949",
       "_origin": "ast",
       "id": "github_provider_targetmergemethods",
-      "community": 23,
+      "community": 46,
       "community_name": "MergeMethods",
       "norm_label": ".targetmergemethods()"
     },
@@ -6485,8 +6485,8 @@
       "source_location": "L970",
       "_origin": "ast",
       "id": "github_provider_requireslinearhistory",
-      "community": 71,
-      "community_name": "github.go",
+      "community": 1,
+      "community_name": "Provider",
       "norm_label": ".requireslinearhistory()"
     },
     {
@@ -6496,8 +6496,8 @@
       "source_location": "L1043",
       "_origin": "ast",
       "id": "internal_forge_github_github_isnotfound",
-      "community": 71,
-      "community_name": "github.go",
+      "community": 1,
+      "community_name": "Provider",
       "norm_label": "isnotfound()"
     },
     {
@@ -6507,8 +6507,8 @@
       "source_location": "L1055",
       "_origin": "ast",
       "id": "internal_forge_github_github_isforbidden",
-      "community": 71,
-      "community_name": "github.go",
+      "community": 1,
+      "community_name": "Provider",
       "norm_label": "isforbidden()"
     },
     {
@@ -6782,8 +6782,8 @@
       "source_location": "L1408",
       "_origin": "ast",
       "id": "internal_forge_github_github_managedmarker",
-      "community": 1,
-      "community_name": "Provider",
+      "community": 71,
+      "community_name": "github.go",
       "norm_label": "managedmarker()"
     },
     {
@@ -6793,8 +6793,8 @@
       "source_location": "",
       "_origin": "ast",
       "id": "internal_forge_github_github_go_marker",
-      "community": 1,
-      "community_name": "Provider",
+      "community": 71,
+      "community_name": "github.go",
       "norm_label": "marker"
     },
     {
@@ -6870,8 +6870,8 @@
       "source_location": "L1520",
       "_origin": "ast",
       "id": "internal_forge_github_github_nextlink",
-      "community": 71,
-      "community_name": "github.go",
+      "community": 1,
+      "community_name": "Provider",
       "norm_label": "nextlink()"
     },
     {
@@ -8146,8 +8146,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "internal_git_git",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "git.go"
     },
     {
@@ -8168,8 +8168,8 @@
       "source_location": "L61",
       "_origin": "ast",
       "id": "git_commit",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "commit"
     },
     {
@@ -8201,8 +8201,8 @@
       "source_location": "L97",
       "_origin": "ast",
       "id": "git_capwriter",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "capwriter"
     },
     {
@@ -8212,8 +8212,8 @@
       "source_location": "",
       "_origin": "ast",
       "id": "internal_git_git_go_buffer",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "buffer"
     },
     {
@@ -8223,8 +8223,8 @@
       "source_location": "L102",
       "_origin": "ast",
       "id": "git_capwriter_write",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": ".write()"
     },
     {
@@ -8300,8 +8300,8 @@
       "source_location": "L239",
       "_origin": "ast",
       "id": "internal_git_git_checkminversion",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "checkminversion()"
     },
     {
@@ -8311,8 +8311,8 @@
       "source_location": "L255",
       "_origin": "ast",
       "id": "internal_git_git_parsegitversion",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "parsegitversion()"
     },
     {
@@ -8520,8 +8520,8 @@
       "source_location": "L745",
       "_origin": "ast",
       "id": "git_cherrypickconflict",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "cherrypickconflict"
     },
     {
@@ -8531,8 +8531,8 @@
       "source_location": "L755",
       "_origin": "ast",
       "id": "git_cherrypickconflict_error",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": ".error()"
     },
     {
@@ -8553,8 +8553,8 @@
       "source_location": "L833",
       "_origin": "ast",
       "id": "git_mergeconflict",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "mergeconflict"
     },
     {
@@ -8564,8 +8564,8 @@
       "source_location": "L840",
       "_origin": "ast",
       "id": "git_mergeconflict_error",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": ".error()"
     },
     {
@@ -9125,8 +9125,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "internal_git_version_internal_test",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "version_internal_test.go"
     },
     {
@@ -9136,8 +9136,8 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "internal_git_version_internal_test_testparsegitversion",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "testparsegitversion()"
     },
     {
@@ -9147,8 +9147,8 @@
       "source_location": "",
       "_origin": "ast",
       "id": "internal_git_version_internal_test_go_t",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "t"
     },
     {
@@ -9158,8 +9158,8 @@
       "source_location": "L45",
       "_origin": "ast",
       "id": "internal_git_version_internal_test_testcheckminversion",
-      "community": 17,
-      "community_name": "git.go",
+      "community": 16,
+      "community_name": "Core Principles",
       "norm_label": "testcheckminversion()"
     },
     {
@@ -9906,7 +9906,7 @@
       "source_location": "L81",
       "_origin": "ast",
       "id": "reconcile_fakeforge_repomergemethods",
-      "community": 23,
+      "community": 46,
       "community_name": "MergeMethods",
       "norm_label": ".repomergemethods()"
     },
@@ -9939,7 +9939,7 @@
       "source_location": "L108",
       "_origin": "ast",
       "id": "reconcile_fakeforge_targetmergemethods",
-      "community": 23,
+      "community": 46,
       "community_name": "MergeMethods",
       "norm_label": ".targetmergemethods()"
     },
@@ -11663,7 +11663,7 @@
       "label": "funcMap()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L180",
+      "source_location": "L201",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_funcmap",
       "community": 67,
@@ -11685,7 +11685,7 @@
       "label": "pair",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L203",
+      "source_location": "L224",
       "_origin": "ast",
       "id": "tmpl_pair",
       "community": 67,
@@ -11707,7 +11707,7 @@
       "label": "Set",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L212",
+      "source_location": "L233",
       "_origin": "ast",
       "id": "tmpl_set",
       "community": 67,
@@ -11718,7 +11718,7 @@
       "label": "Default()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L247",
+      "source_location": "L268",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_default",
       "community": 67,
@@ -11729,7 +11729,7 @@
       "label": "FileReader",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L254",
+      "source_location": "L275",
       "_origin": "ast",
       "id": "tmpl_filereader",
       "community": 67,
@@ -11740,7 +11740,7 @@
       "label": "Resolve()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L260",
+      "source_location": "L281",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_resolve",
       "community": 67,
@@ -11762,7 +11762,7 @@
       "label": "overlayPair()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L313",
+      "source_location": "L334",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_overlaypair",
       "community": 67,
@@ -11773,7 +11773,7 @@
       "label": "templateText()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L343",
+      "source_location": "L364",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_templatetext",
       "community": 67,
@@ -11784,7 +11784,7 @@
       "label": "compileTemplate()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L360",
+      "source_location": "L381",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_compiletemplate",
       "community": 67,
@@ -11795,7 +11795,7 @@
       "label": ".sampleRender()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L373",
+      "source_location": "L394",
       "_origin": "ast",
       "id": "tmpl_set_samplerender",
       "community": 67,
@@ -11806,7 +11806,7 @@
       "label": ".Promotion()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L437",
+      "source_location": "L458",
       "_origin": "ast",
       "id": "tmpl_set_promotion",
       "community": 67,
@@ -11817,7 +11817,7 @@
       "label": ".PromotionCustomized()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L449",
+      "source_location": "L470",
       "_origin": "ast",
       "id": "tmpl_set_promotioncustomized",
       "community": 67,
@@ -11828,7 +11828,7 @@
       "label": ".Backflow()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L457",
+      "source_location": "L478",
       "_origin": "ast",
       "id": "tmpl_set_backflow",
       "community": 67,
@@ -11839,7 +11839,7 @@
       "label": ".BackflowConflict()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L463",
+      "source_location": "L484",
       "_origin": "ast",
       "id": "tmpl_set_backflowconflict",
       "community": 67,
@@ -11850,7 +11850,7 @@
       "label": ".MergeMessage()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L470",
+      "source_location": "L491",
       "_origin": "ast",
       "id": "tmpl_set_mergemessage",
       "community": 67,
@@ -11861,7 +11861,7 @@
       "label": "renderPair()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L481",
+      "source_location": "L502",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_renderpair",
       "community": 67,
@@ -11872,7 +11872,7 @@
       "label": "execute()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L491",
+      "source_location": "L512",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_execute",
       "community": 67,
@@ -11883,7 +11883,7 @@
       "label": "renderTitle()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L505",
+      "source_location": "L526",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_rendertitle",
       "community": 67,
@@ -11894,7 +11894,7 @@
       "label": "renderBody()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L531",
+      "source_location": "L552",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_renderbody",
       "community": 67,
@@ -11905,7 +11905,7 @@
       "label": "renderMergeMessage()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L548",
+      "source_location": "L569",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_rendermergemessage",
       "community": 67,
@@ -11916,7 +11916,7 @@
       "label": "checkBodySafety()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L575",
+      "source_location": "L596",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_checkbodysafety",
       "community": 67,
@@ -11990,21 +11990,21 @@
       "norm_label": "testdefaultsmatchlegacytext()"
     },
     {
-      "label": "TestDefaultConflictBodyMatchesLegacyText()",
+      "label": "TestDefaultConflictBody()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L88",
+      "source_location": "L92",
       "_origin": "ast",
-      "id": "internal_tmpl_tmpl_test_testdefaultconflictbodymatcheslegacytext",
+      "id": "internal_tmpl_tmpl_test_testdefaultconflictbody",
       "community": 67,
       "community_name": "tmpl.go",
-      "norm_label": "testdefaultconflictbodymatcheslegacytext()"
+      "norm_label": "testdefaultconflictbody()"
     },
     {
       "label": "TestConflictBodySquashGuidance()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L143",
+      "source_location": "L170",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_test_testconflictbodysquashguidance",
       "community": 67,
@@ -12015,7 +12015,7 @@
       "label": "TestResolveCustomInlineAndPerEdgeOverride()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L180",
+      "source_location": "L207",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_test_testresolvecustominlineandperedgeoverride",
       "community": 67,
@@ -12026,7 +12026,7 @@
       "label": "TestResolveBodyFile()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L226",
+      "source_location": "L253",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_test_testresolvebodyfile",
       "community": 67,
@@ -12037,7 +12037,7 @@
       "label": "TestResolveRejectsBrokenTemplates()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L270",
+      "source_location": "L297",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_test_testresolverejectsbrokentemplates",
       "community": 67,
@@ -12048,7 +12048,7 @@
       "label": "TestBodyAllowsBalancedComments()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L330",
+      "source_location": "L357",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_test_testbodyallowsbalancedcomments",
       "community": 67,
@@ -12059,7 +12059,7 @@
       "label": "TestTitleSanitizedAndCapped()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L342",
+      "source_location": "L369",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_test_testtitlesanitizedandcapped",
       "community": 67,
@@ -12070,7 +12070,7 @@
       "label": "TestCuratedFunctions()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L368",
+      "source_location": "L395",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_test_testcuratedfunctions",
       "community": 67,
@@ -12081,7 +12081,7 @@
       "label": "TestNewCommitCaps()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L381",
+      "source_location": "L408",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_test_testnewcommitcaps",
       "community": 67,
@@ -12092,7 +12092,7 @@
       "label": "TestMergeMessage()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L398",
+      "source_location": "L425",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_test_testmergemessage",
       "community": 67,
@@ -12103,7 +12103,7 @@
       "label": "TestShippedExampleTemplatesResolve()",
       "file_type": "code",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L420",
+      "source_location": "L447",
       "_origin": "ast",
       "id": "internal_tmpl_tmpl_test_testshippedexampletemplatesresolve",
       "community": 67,
@@ -12691,8 +12691,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "specify_memory_constitution",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "constitution.md"
     },
     {
@@ -12702,8 +12702,8 @@
       "source_location": "L67",
       "_origin": "ast",
       "id": "specify_memory_constitution_oiax_constitution",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "oiax constitution"
     },
     {
@@ -12713,8 +12713,8 @@
       "source_location": "L79",
       "_origin": "ast",
       "id": "specify_memory_constitution_core_principles",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "core principles"
     },
     {
@@ -12724,8 +12724,8 @@
       "source_location": "L81",
       "_origin": "ast",
       "id": "specify_memory_constitution_i_explicit_state_over_implicit_behavior",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "i. explicit state over implicit behavior"
     },
     {
@@ -12735,8 +12735,8 @@
       "source_location": "L95",
       "_origin": "ast",
       "id": "specify_memory_constitution_ii_git_is_the_durable_desired_state_boundary",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "ii. git is the durable desired-state boundary"
     },
     {
@@ -12746,8 +12746,8 @@
       "source_location": "L109",
       "_origin": "ast",
       "id": "specify_memory_constitution_iii_deterministic_reconstructible_operation",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "iii. deterministic, reconstructible operation"
     },
     {
@@ -12757,8 +12757,8 @@
       "source_location": "L124",
       "_origin": "ast",
       "id": "specify_memory_constitution_iv_control_plane_conventions_never_obscured",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "iv. control-plane conventions, never obscured"
     },
     {
@@ -12768,8 +12768,8 @@
       "source_location": "L143",
       "_origin": "ast",
       "id": "specify_memory_constitution_v_compose_don_t_trap",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "v. compose, don't trap"
     },
     {
@@ -12779,8 +12779,8 @@
       "source_location": "L156",
       "_origin": "ast",
       "id": "specify_memory_constitution_vi_explainable_reconciliation_evidence_grade_audit",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "vi. explainable reconciliation, evidence-grade audit"
     },
     {
@@ -12790,8 +12790,8 @@
       "source_location": "L170",
       "_origin": "ast",
       "id": "specify_memory_constitution_vii_read_only_degradation_over_blindness",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "vii. read-only degradation over blindness"
     },
     {
@@ -12801,8 +12801,8 @@
       "source_location": "L182",
       "_origin": "ast",
       "id": "specify_memory_constitution_viii_topology_is_deployment_state",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "viii. topology is deployment state"
     },
     {
@@ -12812,8 +12812,8 @@
       "source_location": "L194",
       "_origin": "ast",
       "id": "specify_memory_constitution_ix_technical_precision_honest_scope",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "ix. technical precision, honest scope"
     },
     {
@@ -12823,8 +12823,8 @@
       "source_location": "L208",
       "_origin": "ast",
       "id": "specify_memory_constitution_x_the_engine_is_pure_oiax_specific",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "x. the engine is pure (oiax-specific)"
     },
     {
@@ -12834,8 +12834,8 @@
       "source_location": "L220",
       "_origin": "ast",
       "id": "specify_memory_constitution_xi_bounded_blast_radius_oiax_specific",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "xi. bounded blast radius (oiax-specific)"
     },
     {
@@ -12845,8 +12845,8 @@
       "source_location": "L235",
       "_origin": "ast",
       "id": "specify_memory_constitution_xii_compatibility_contracts_are_explicit_oiax_specific",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "xii. compatibility contracts are explicit (oiax-specific)"
     },
     {
@@ -12856,8 +12856,8 @@
       "source_location": "L247",
       "_origin": "ast",
       "id": "specify_memory_constitution_engineering_constraints",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "engineering constraints"
     },
     {
@@ -12867,8 +12867,8 @@
       "source_location": "L284",
       "_origin": "ast",
       "id": "specify_memory_constitution_development_workflow_and_quality_gates",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "development workflow and quality gates"
     },
     {
@@ -12878,8 +12878,8 @@
       "source_location": "L309",
       "_origin": "ast",
       "id": "specify_memory_constitution_governance",
-      "community": 16,
-      "community_name": "Core Principles",
+      "community": 15,
+      "community_name": "Tasks: [FEATURE NAME]",
       "norm_label": "governance"
     },
     {
@@ -12944,8 +12944,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "specify_templates_constitution_template",
-      "community": 22,
-      "community_name": "Core Principles",
+      "community": 23,
+      "community_name": "MergeMethods",
       "norm_label": "constitution-template.md"
     },
     {
@@ -12955,8 +12955,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "specify_templates_constitution_template_project_name_constitution",
-      "community": 22,
-      "community_name": "Core Principles",
+      "community": 23,
+      "community_name": "MergeMethods",
       "norm_label": "[project_name] constitution"
     },
     {
@@ -12966,8 +12966,8 @@
       "source_location": "L4",
       "_origin": "ast",
       "id": "specify_templates_constitution_template_core_principles",
-      "community": 22,
-      "community_name": "Core Principles",
+      "community": 23,
+      "community_name": "MergeMethods",
       "norm_label": "core principles"
     },
     {
@@ -12977,8 +12977,8 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "specify_templates_constitution_template_principle_1_name",
-      "community": 22,
-      "community_name": "Core Principles",
+      "community": 23,
+      "community_name": "MergeMethods",
       "norm_label": "[principle_1_name]"
     },
     {
@@ -12988,8 +12988,8 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "specify_templates_constitution_template_principle_2_name",
-      "community": 22,
-      "community_name": "Core Principles",
+      "community": 23,
+      "community_name": "MergeMethods",
       "norm_label": "[principle_2_name]"
     },
     {
@@ -12999,8 +12999,8 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "specify_templates_constitution_template_principle_3_name",
-      "community": 22,
-      "community_name": "Core Principles",
+      "community": 23,
+      "community_name": "MergeMethods",
       "norm_label": "[principle_3_name]"
     },
     {
@@ -13010,8 +13010,8 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "specify_templates_constitution_template_principle_4_name",
-      "community": 22,
-      "community_name": "Core Principles",
+      "community": 23,
+      "community_name": "MergeMethods",
       "norm_label": "[principle_4_name]"
     },
     {
@@ -13021,8 +13021,8 @@
       "source_location": "L26",
       "_origin": "ast",
       "id": "specify_templates_constitution_template_principle_5_name",
-      "community": 22,
-      "community_name": "Core Principles",
+      "community": 23,
+      "community_name": "MergeMethods",
       "norm_label": "[principle_5_name]"
     },
     {
@@ -13032,8 +13032,8 @@
       "source_location": "L31",
       "_origin": "ast",
       "id": "specify_templates_constitution_template_section_2_name",
-      "community": 22,
-      "community_name": "Core Principles",
+      "community": 23,
+      "community_name": "MergeMethods",
       "norm_label": "[section_2_name]"
     },
     {
@@ -13043,8 +13043,8 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "specify_templates_constitution_template_section_3_name",
-      "community": 22,
-      "community_name": "Core Principles",
+      "community": 23,
+      "community_name": "MergeMethods",
       "norm_label": "[section_3_name]"
     },
     {
@@ -13054,8 +13054,8 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "specify_templates_constitution_template_governance",
-      "community": 22,
-      "community_name": "Core Principles",
+      "community": 23,
+      "community_name": "MergeMethods",
       "norm_label": "governance"
     },
     {
@@ -13164,8 +13164,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "specify_templates_spec_template",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "spec-template.md"
     },
     {
@@ -13175,8 +13175,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "specify_templates_spec_template_feature_specification_feature_name",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "feature specification: [feature name]"
     },
     {
@@ -13186,8 +13186,8 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "specify_templates_spec_template_user_scenarios_testing_mandatory",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "user scenarios & testing *(mandatory)*"
     },
     {
@@ -13197,8 +13197,8 @@
       "source_location": "L26",
       "_origin": "ast",
       "id": "specify_templates_spec_template_user_story_1_brief_title_priority_p1",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "user story 1 - [brief title] (priority: p1)"
     },
     {
@@ -13208,8 +13208,8 @@
       "source_location": "L41",
       "_origin": "ast",
       "id": "specify_templates_spec_template_user_story_2_brief_title_priority_p2",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "user story 2 - [brief title] (priority: p2)"
     },
     {
@@ -13219,8 +13219,8 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "specify_templates_spec_template_user_story_3_brief_title_priority_p3",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "user story 3 - [brief title] (priority: p3)"
     },
     {
@@ -13230,8 +13230,8 @@
       "source_location": "L71",
       "_origin": "ast",
       "id": "specify_templates_spec_template_edge_cases",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "edge cases"
     },
     {
@@ -13241,8 +13241,8 @@
       "source_location": "L81",
       "_origin": "ast",
       "id": "specify_templates_spec_template_requirements_mandatory",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "requirements *(mandatory)*"
     },
     {
@@ -13252,8 +13252,8 @@
       "source_location": "L88",
       "_origin": "ast",
       "id": "specify_templates_spec_template_functional_requirements",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "functional requirements"
     },
     {
@@ -13263,8 +13263,8 @@
       "source_location": "L101",
       "_origin": "ast",
       "id": "specify_templates_spec_template_key_entities_include_if_feature_involves_data",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "key entities *(include if feature involves data)*"
     },
     {
@@ -13274,8 +13274,8 @@
       "source_location": "L106",
       "_origin": "ast",
       "id": "specify_templates_spec_template_out_of_scope_mandatory",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "out of scope *(mandatory)*"
     },
     {
@@ -13285,8 +13285,8 @@
       "source_location": "L120",
       "_origin": "ast",
       "id": "specify_templates_spec_template_success_criteria_mandatory",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "success criteria *(mandatory)*"
     },
     {
@@ -13296,8 +13296,8 @@
       "source_location": "L127",
       "_origin": "ast",
       "id": "specify_templates_spec_template_measurable_outcomes",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "measurable outcomes"
     },
     {
@@ -13307,8 +13307,8 @@
       "source_location": "L134",
       "_origin": "ast",
       "id": "specify_templates_spec_template_assumptions",
-      "community": 21,
-      "community_name": "Feature Specification: [FEATURE NAME]",
+      "community": 17,
+      "community_name": "git.go",
       "norm_label": "assumptions"
     },
     {
@@ -13318,8 +13318,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "specify_templates_tasks_template",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "tasks-template.md"
     },
     {
@@ -13329,8 +13329,8 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_tasks_feature_name",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "tasks: [feature name]"
     },
     {
@@ -13340,8 +13340,8 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_format_id_p_story_description",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "format: `[id] [p?] [story] description`"
     },
     {
@@ -13351,8 +13351,8 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_path_conventions",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "path conventions"
     },
     {
@@ -13362,8 +13362,8 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_phase_1_setup_shared_infrastructure",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "phase 1: setup (shared infrastructure)"
     },
     {
@@ -13373,8 +13373,8 @@
       "source_location": "L58",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_phase_2_foundational_blocking_prerequisites",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "phase 2: foundational (blocking prerequisites)"
     },
     {
@@ -13384,8 +13384,8 @@
       "source_location": "L77",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_phase_3_user_story_1_title_priority_p1_mvp",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "phase 3: user story 1 - [title] (priority: p1) \ud83c\udfaf mvp"
     },
     {
@@ -13395,8 +13395,8 @@
       "source_location": "L83",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_tests_for_user_story_1_mandatory",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "tests for user story 1 (mandatory) \u26a0\ufe0f"
     },
     {
@@ -13406,8 +13406,8 @@
       "source_location": "L90",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_implementation_for_user_story_1",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "implementation for user story 1"
     },
     {
@@ -13417,8 +13417,8 @@
       "source_location": "L103",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_phase_4_user_story_2_title_priority_p2",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "phase 4: user story 2 - [title] (priority: p2)"
     },
     {
@@ -13428,8 +13428,8 @@
       "source_location": "L109",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_tests_for_user_story_2_mandatory",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "tests for user story 2 (mandatory) \u26a0\ufe0f"
     },
     {
@@ -13439,8 +13439,8 @@
       "source_location": "L114",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_implementation_for_user_story_2",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "implementation for user story 2"
     },
     {
@@ -13450,8 +13450,8 @@
       "source_location": "L125",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_phase_5_user_story_3_title_priority_p3",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "phase 5: user story 3 - [title] (priority: p3)"
     },
     {
@@ -13461,8 +13461,8 @@
       "source_location": "L131",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_tests_for_user_story_3_mandatory",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "tests for user story 3 (mandatory) \u26a0\ufe0f"
     },
     {
@@ -13472,8 +13472,8 @@
       "source_location": "L136",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_implementation_for_user_story_3",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "implementation for user story 3"
     },
     {
@@ -13483,8 +13483,8 @@
       "source_location": "L150",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_phase_n_polish_cross_cutting_concerns",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "phase n: polish & cross-cutting concerns"
     },
     {
@@ -13494,8 +13494,8 @@
       "source_location": "L164",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_dependencies_execution_order",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "dependencies & execution order"
     },
     {
@@ -13505,8 +13505,8 @@
       "source_location": "L166",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_phase_dependencies",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "phase dependencies"
     },
     {
@@ -13516,8 +13516,8 @@
       "source_location": "L175",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_user_story_dependencies",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "user story dependencies"
     },
     {
@@ -13527,8 +13527,8 @@
       "source_location": "L181",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_within_each_user_story",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "within each user story"
     },
     {
@@ -13538,8 +13538,8 @@
       "source_location": "L189",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_parallel_opportunities",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "parallel opportunities"
     },
     {
@@ -13549,8 +13549,8 @@
       "source_location": "L200",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_parallel_example_user_story_1",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "parallel example: user story 1"
     },
     {
@@ -13560,8 +13560,8 @@
       "source_location": "L214",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_implementation_strategy",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "implementation strategy"
     },
     {
@@ -13571,8 +13571,8 @@
       "source_location": "L216",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_mvp_first_user_story_1_only",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "mvp first (user story 1 only)"
     },
     {
@@ -13582,8 +13582,8 @@
       "source_location": "L224",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_incremental_delivery",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "incremental delivery"
     },
     {
@@ -13593,8 +13593,8 @@
       "source_location": "L232",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_parallel_team_strategy",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "parallel team strategy"
     },
     {
@@ -13604,8 +13604,8 @@
       "source_location": "L245",
       "_origin": "ast",
       "id": "specify_templates_tasks_template_notes",
-      "community": 15,
-      "community_name": "Tasks: [FEATURE NAME]",
+      "community": 9,
+      "community_name": "common.sh",
       "norm_label": "notes"
     },
     {
@@ -14510,9 +14510,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 8,
+      "community": 21,
       "norm_label": "reconciliation loop",
-      "community_name": "BuildPlan",
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "id": "docs_architecture_reconciliation_loop"
     },
     {
@@ -14678,9 +14678,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 8,
+      "community": 21,
       "norm_label": "adr 0003: read configuration from a pinned ref",
-      "community_name": "BuildPlan",
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "id": "docs_adr_0003_pinned_configuration_ref_adr"
     },
     {
@@ -14692,9 +14692,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 8,
+      "community": 21,
       "norm_label": "rationale: config is itself promoted and differs per branch; reading the triggering ref is nondeterministic and lets untrusted pr config run with write credentials",
-      "community_name": "BuildPlan",
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "id": "docs_adr_0003_pinned_configuration_ref_rationale"
     },
     {
@@ -14706,9 +14706,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 8,
+      "community": 21,
       "norm_label": "pinned configuration ref (--config-ref)",
-      "community_name": "BuildPlan",
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "id": "docs_reference_configuration_pinned_ref"
     },
     {
@@ -14734,9 +14734,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 8,
+      "community": 21,
       "norm_label": "oiax (root command)",
-      "community_name": "BuildPlan",
+      "community_name": "Feature Specification: [FEATURE NAME]",
       "id": "docs_reference_cli_oiax_root"
     },
     {
@@ -56244,7 +56244,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L575",
+      "source_location": "L596",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56255,7 +56255,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L360",
+      "source_location": "L381",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56266,7 +56266,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L247",
+      "source_location": "L268",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56277,7 +56277,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L491",
+      "source_location": "L512",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56288,7 +56288,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L180",
+      "source_location": "L201",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56310,7 +56310,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L313",
+      "source_location": "L334",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56321,7 +56321,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L531",
+      "source_location": "L552",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56332,7 +56332,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L548",
+      "source_location": "L569",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56343,7 +56343,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L481",
+      "source_location": "L502",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56354,7 +56354,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L505",
+      "source_location": "L526",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56365,7 +56365,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L260",
+      "source_location": "L281",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56376,7 +56376,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L343",
+      "source_location": "L364",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56420,7 +56420,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L254",
+      "source_location": "L275",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56431,7 +56431,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L203",
+      "source_location": "L224",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56442,7 +56442,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L212",
+      "source_location": "L233",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl",
@@ -56489,7 +56489,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L491",
+      "source_location": "L512",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56501,7 +56501,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L531",
+      "source_location": "L552",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56513,7 +56513,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L548",
+      "source_location": "L569",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56525,7 +56525,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L481",
+      "source_location": "L502",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56537,7 +56537,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L505",
+      "source_location": "L526",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56573,7 +56573,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L457",
+      "source_location": "L478",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56585,7 +56585,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L463",
+      "source_location": "L484",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56597,7 +56597,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L470",
+      "source_location": "L491",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56609,7 +56609,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L437",
+      "source_location": "L458",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56635,7 +56635,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.8,
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L382",
+      "source_location": "L409",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testnewcommitcaps",
@@ -56646,7 +56646,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L380",
+      "source_location": "L401",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set_samplerender",
@@ -56658,7 +56658,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L361",
+      "source_location": "L382",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_compiletemplate",
@@ -56669,7 +56669,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L180",
+      "source_location": "L201",
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
@@ -56681,7 +56681,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L313",
+      "source_location": "L334",
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
@@ -56693,7 +56693,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L481",
+      "source_location": "L502",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56705,7 +56705,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L204",
+      "source_location": "L225",
       "weight": 1.0,
       "context": "field",
       "_origin": "ast",
@@ -56717,7 +56717,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L218",
+      "source_location": "L239",
       "weight": 1.0,
       "context": "field",
       "_origin": "ast",
@@ -56729,7 +56729,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L360",
+      "source_location": "L381",
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
@@ -56741,7 +56741,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L491",
+      "source_location": "L512",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56753,7 +56753,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L531",
+      "source_location": "L552",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56765,7 +56765,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L548",
+      "source_location": "L569",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56777,7 +56777,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L505",
+      "source_location": "L526",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56789,7 +56789,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L220",
+      "source_location": "L241",
       "weight": 1.0,
       "context": "field",
       "_origin": "ast",
@@ -56801,7 +56801,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L247",
+      "source_location": "L268",
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
@@ -56813,7 +56813,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L260",
+      "source_location": "L281",
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
@@ -56837,7 +56837,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L457",
+      "source_location": "L478",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set",
@@ -56848,7 +56848,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L463",
+      "source_location": "L484",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set",
@@ -56859,7 +56859,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L470",
+      "source_location": "L491",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set",
@@ -56870,7 +56870,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L437",
+      "source_location": "L458",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set",
@@ -56881,7 +56881,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L449",
+      "source_location": "L470",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set",
@@ -56892,7 +56892,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L373",
+      "source_location": "L394",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set",
@@ -56904,7 +56904,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L261",
+      "source_location": "L282",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_resolve",
@@ -56917,7 +56917,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.8,
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L153",
+      "source_location": "L180",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testconflictbodysquashguidance",
@@ -56929,10 +56929,10 @@
       "confidence": "INFERRED",
       "confidence_score": 0.8,
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L124",
+      "source_location": "L151",
       "weight": 1.0,
       "_origin": "ast",
-      "source": "internal_tmpl_tmpl_test_testdefaultconflictbodymatcheslegacytext",
+      "source": "internal_tmpl_tmpl_test_testdefaultconflictbody",
       "target": "internal_tmpl_tmpl_default"
     },
     {
@@ -56953,7 +56953,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.8,
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L400",
+      "source_location": "L427",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testmergemessage",
@@ -56965,7 +56965,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.8,
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L221",
+      "source_location": "L248",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testresolvecustominlineandperedgeoverride",
@@ -56975,7 +56975,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L313",
+      "source_location": "L334",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56987,7 +56987,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L260",
+      "source_location": "L281",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -56999,7 +56999,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L343",
+      "source_location": "L364",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57012,7 +57012,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L285",
+      "source_location": "L306",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_resolve",
@@ -57023,7 +57023,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L260",
+      "source_location": "L281",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57036,7 +57036,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L271",
+      "source_location": "L292",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_resolve",
@@ -57048,7 +57048,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L281",
+      "source_location": "L302",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_resolve",
@@ -57060,7 +57060,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L305",
+      "source_location": "L326",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_resolve",
@@ -57085,7 +57085,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.8,
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L236",
+      "source_location": "L263",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testresolvebodyfile",
@@ -57097,7 +57097,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.8,
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L320",
+      "source_location": "L347",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testresolverejectsbrokentemplates",
@@ -57109,7 +57109,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.8,
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L436",
+      "source_location": "L463",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testshippedexampletemplatesresolve",
@@ -57120,7 +57120,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L320",
+      "source_location": "L341",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_overlaypair",
@@ -57132,7 +57132,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L327",
+      "source_location": "L348",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_overlaypair",
@@ -57143,7 +57143,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L313",
+      "source_location": "L334",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57156,7 +57156,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L400",
+      "source_location": "L421",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set_samplerender",
@@ -57168,7 +57168,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L428",
+      "source_location": "L449",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set_samplerender",
@@ -57180,7 +57180,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L397",
+      "source_location": "L418",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set_samplerender",
@@ -57192,7 +57192,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L442",
+      "source_location": "L463",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set_promotion",
@@ -57204,7 +57204,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L458",
+      "source_location": "L479",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set_backflow",
@@ -57216,7 +57216,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L464",
+      "source_location": "L485",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set_backflowconflict",
@@ -57228,7 +57228,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L474",
+      "source_location": "L495",
       "weight": 1.0,
       "_origin": "ast",
       "source": "tmpl_set_mergemessage",
@@ -57240,7 +57240,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L485",
+      "source_location": "L506",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_renderpair",
@@ -57252,7 +57252,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L482",
+      "source_location": "L503",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_renderpair",
@@ -57264,7 +57264,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L532",
+      "source_location": "L553",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_renderbody",
@@ -57276,7 +57276,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L549",
+      "source_location": "L570",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_rendermergemessage",
@@ -57288,7 +57288,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L506",
+      "source_location": "L527",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_rendertitle",
@@ -57300,7 +57300,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl.go",
-      "source_location": "L536",
+      "source_location": "L557",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_renderbody",
@@ -57344,7 +57344,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L330",
+      "source_location": "L357",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test",
@@ -57355,7 +57355,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L143",
+      "source_location": "L170",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test",
@@ -57366,7 +57366,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L368",
+      "source_location": "L395",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test",
@@ -57377,11 +57377,11 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L88",
+      "source_location": "L92",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test",
-      "target": "internal_tmpl_tmpl_test_testdefaultconflictbodymatcheslegacytext",
+      "target": "internal_tmpl_tmpl_test_testdefaultconflictbody",
       "confidence_score": 1.0
     },
     {
@@ -57399,7 +57399,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L398",
+      "source_location": "L425",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test",
@@ -57410,7 +57410,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L381",
+      "source_location": "L408",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test",
@@ -57421,7 +57421,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L226",
+      "source_location": "L253",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test",
@@ -57432,7 +57432,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L180",
+      "source_location": "L207",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test",
@@ -57443,7 +57443,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L270",
+      "source_location": "L297",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test",
@@ -57454,7 +57454,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L420",
+      "source_location": "L447",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test",
@@ -57465,7 +57465,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L342",
+      "source_location": "L369",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test",
@@ -57501,7 +57501,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L331",
+      "source_location": "L358",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testbodyallowsbalancedcomments",
@@ -57513,7 +57513,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L369",
+      "source_location": "L396",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testcuratedfunctions",
@@ -57525,7 +57525,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L404",
+      "source_location": "L431",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testmergemessage",
@@ -57537,7 +57537,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L181",
+      "source_location": "L208",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testresolvecustominlineandperedgeoverride",
@@ -57549,7 +57549,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L343",
+      "source_location": "L370",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testtitlesanitizedandcapped",
@@ -57560,7 +57560,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L330",
+      "source_location": "L357",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57572,7 +57572,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L143",
+      "source_location": "L170",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57584,7 +57584,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L368",
+      "source_location": "L395",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57596,11 +57596,11 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L88",
+      "source_location": "L92",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
-      "source": "internal_tmpl_tmpl_test_testdefaultconflictbodymatcheslegacytext",
+      "source": "internal_tmpl_tmpl_test_testdefaultconflictbody",
       "target": "internal_tmpl_tmpl_test_go_t",
       "confidence_score": 1.0
     },
@@ -57620,7 +57620,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L398",
+      "source_location": "L425",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57632,7 +57632,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L381",
+      "source_location": "L408",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57644,7 +57644,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L226",
+      "source_location": "L253",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57656,7 +57656,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L180",
+      "source_location": "L207",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57668,7 +57668,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L270",
+      "source_location": "L297",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57680,7 +57680,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L420",
+      "source_location": "L447",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57692,7 +57692,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L342",
+      "source_location": "L369",
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
@@ -57717,7 +57717,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L334",
+      "source_location": "L361",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testbodyallowsbalancedcomments",
@@ -57729,7 +57729,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L372",
+      "source_location": "L399",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testcuratedfunctions",
@@ -57753,7 +57753,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L240",
+      "source_location": "L267",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testresolvebodyfile",
@@ -57765,7 +57765,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L192",
+      "source_location": "L219",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testresolvecustominlineandperedgeoverride",
@@ -57777,7 +57777,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L346",
+      "source_location": "L373",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testtitlesanitizedandcapped",
@@ -57789,7 +57789,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L144",
+      "source_location": "L171",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testconflictbodysquashguidance",
@@ -57801,10 +57801,10 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L116",
+      "source_location": "L143",
       "weight": 1.0,
       "_origin": "ast",
-      "source": "internal_tmpl_tmpl_test_testdefaultconflictbodymatcheslegacytext",
+      "source": "internal_tmpl_tmpl_test_testdefaultconflictbody",
       "target": "internal_tmpl_tmpl_test_backflowctx",
       "confidence_score": 1.0
     },
@@ -57825,7 +57825,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "internal/tmpl/tmpl_test.go",
-      "source_location": "L400",
+      "source_location": "L427",
       "weight": 1.0,
       "_origin": "ast",
       "source": "internal_tmpl_tmpl_test_testmergemessage",
@@ -62009,5 +62009,5 @@
       "source_file": "docs/architecture.md"
     }
   ],
-  "built_at_commit": "e6c98385593b69fe4ed81d7a2d9334d57899c1b7"
+  "built_at_commit": "2ec11e187c6befb14bac443dba04a8a218ec2b0c"
 }
