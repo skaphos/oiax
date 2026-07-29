@@ -136,9 +136,11 @@ func NewCommit(sha, subject string) Commit {
 	return Commit{SHA: sha, ShortSHA: short, Subject: subject}
 }
 
-// The built-in templates. Their rendered output is byte-identical to the
-// pre-template hardcoded strings (guarded by tests), so adopting this
-// package changed no request text.
+// The built-in templates, golden-pinned by tests. The conflict body's
+// backflow-guide link must be ABSOLUTE: the artifact is created on the
+// target repository's forge, where a repo-relative link would resolve
+// against that repository (and, on GitHub, against the issue URL itself,
+// yielding a mangled /issues/docs/... path) instead of the oiax docs.
 const (
 	defaultPromotionTitle = "oiax: promote {{.From}} to {{.To}}"
 	defaultPromotionBody  = "Oiax opened this request to promote {{.Count}} commit(s) from `{{.From}}` into `{{.To}}`.\n\n" +
@@ -163,10 +165,29 @@ const (
 		"the commit `Oiax-Backflow: skip` if its content already reached `{{.To}}` another way. Squash merges " +
 		"on a promotion-path branch defeat backflow; prefer rebase or merge-commit merges there.{{end}}\n\n" +
 		"### What to do\n\n" +
-		"Resolve by promoting or cherry-picking the fix by hand, or mark the commit " +
-		"`Oiax-Backflow: skip` if it should never return. See the " +
-		"[backflow guide](docs/guides/backflow.md#when-a-replay-conflicts) for the " +
-		"full playbook.\n\n" +
+		"Replay the failing change onto `{{.To}}` by hand, on a branch of your own " +
+		"(not the Oiax-owned `oiax/backflow/…` return branch, which Oiax force-pushes):\n\n" +
+		"```sh\n" +
+		"git fetch origin {{.From}} {{.To}}\n" +
+		"git switch -c backflow-fix/{{shortSHA .Conflict.SHA}} origin/{{.To}}\n" +
+		"{{if .Conflict.Whole}}git merge --no-ff {{.Conflict.SHA}}\n" +
+		"# resolve the conflicts, then:\n" +
+		"git commit --no-edit\n" +
+		"{{else}}git cherry-pick -x {{.Conflict.SHA}}\n" +
+		"# resolve the conflicts, then:\n" +
+		"git cherry-pick --continue\n" +
+		"{{end}}git push -u origin backflow-fix/{{shortSHA .Conflict.SHA}}\n" +
+		"```\n\n" +
+		"{{if .Conflict.Whole}}Open a request from that branch into `{{.To}}` and land it " +
+		"as a **merge commit** (not a squash or rebase): the edge settles by ancestry, so " +
+		"the head of `{{.From}}` must become reachable from `{{.To}}`." +
+		"{{else}}Open a request from that branch into `{{.To}}`, keeping the " +
+		"`(cherry picked from commit …)` provenance line intact — it is how Oiax " +
+		"recognizes the commit as returned. Commits still unreturned after this one are " +
+		"picked up by the next reconcile.{{end}}\n\n" +
+		"Alternatively, mark the commit `Oiax-Backflow: skip` if it should never return. " +
+		"See the [backflow guide](https://github.com/skaphos/oiax/blob/main/docs/guides/backflow.md#when-a-replay-conflicts) " +
+		"for the full playbook.\n\n" +
 		"Oiax manages this issue. It closes automatically once the conflict clears " +
 		"(the replay succeeds, the edge converges, or the commit becomes " +
 		"returned/skipped). Do not edit the metadata block below."

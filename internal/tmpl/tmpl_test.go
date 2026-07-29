@@ -83,10 +83,14 @@ func TestDefaultsMatchLegacyText(t *testing.T) {
 	}
 }
 
-// The default conflict body must reproduce the legacy backflowConflictBody
-// output for both strategies (the exact fmt.Sprintf text it replaced).
-func TestDefaultConflictBodyMatchesLegacyText(t *testing.T) {
-	legacy := func(from, to, sha, subject, short string, applied int, whole bool) string {
+// The default conflict body is golden-pinned for both strategies: the
+// diagnosis paragraphs, the strategy-matched hand-replay commands, and the
+// absolute backflow-guide link. The link must stay absolute — the artifact is
+// created on the TARGET repository's forge, where a repo-relative link would
+// resolve against that repository (and, on GitHub, against the issue URL
+// itself, yielding a mangled /issues/docs/... path).
+func TestDefaultConflictBody(t *testing.T) {
+	want := func(from, to, sha, subject, short string, applied int, whole bool) string {
 		var mechanism string
 		if whole {
 			mechanism = "The merge strategy attempted the whole downstream source set in a " +
@@ -96,20 +100,43 @@ func TestDefaultConflictBodyMatchesLegacyText(t *testing.T) {
 				"The cherry-pick strategy applied %d commit(s) cleanly before this one "+
 					"conflicted; the replay is aborted and nothing is returned.", applied)
 		}
+		shortSHA := sha[:7]
+		var replay, landing string
+		if whole {
+			replay = fmt.Sprintf("git merge --no-ff %s\n# resolve the conflicts, then:\ngit commit --no-edit\n", sha)
+			landing = fmt.Sprintf("Open a request from that branch into `%s` and land it "+
+				"as a **merge commit** (not a squash or rebase): the edge settles by ancestry, so "+
+				"the head of `%s` must become reachable from `%s`.", to, from, to)
+		} else {
+			replay = fmt.Sprintf("git cherry-pick -x %s\n# resolve the conflicts, then:\ngit cherry-pick --continue\n", sha)
+			landing = fmt.Sprintf("Open a request from that branch into `%s`, keeping the "+
+				"`(cherry picked from commit …)` provenance line intact — it is how Oiax "+
+				"recognizes the commit as returned. Commits still unreturned after this one are "+
+				"picked up by the next reconcile.", to)
+		}
 		return fmt.Sprintf(
 			"Oiax could not return the downstream-only commits from `%s` to `%s`: the "+
 				"backflow replay conflicts on the `%s` -> `%s` edge (source `%s`).\n\n"+
 				"**Failing commit:** `%s` — %s\n\n"+
 				"%s\n\n"+
 				"### What to do\n\n"+
-				"Resolve by promoting or cherry-picking the fix by hand, or mark the commit "+
-				"`Oiax-Backflow: skip` if it should never return. See the "+
-				"[backflow guide](docs/guides/backflow.md#when-a-replay-conflicts) for the "+
-				"full playbook.\n\n"+
+				"Replay the failing change onto `%s` by hand, on a branch of your own "+
+				"(not the Oiax-owned `oiax/backflow/…` return branch, which Oiax force-pushes):\n\n"+
+				"```sh\n"+
+				"git fetch origin %s %s\n"+
+				"git switch -c backflow-fix/%s origin/%s\n"+
+				"%s"+
+				"git push -u origin backflow-fix/%s\n"+
+				"```\n\n"+
+				"%s\n\n"+
+				"Alternatively, mark the commit `Oiax-Backflow: skip` if it should never return. "+
+				"See the [backflow guide](https://github.com/skaphos/oiax/blob/main/docs/guides/backflow.md#when-a-replay-conflicts) "+
+				"for the full playbook.\n\n"+
 				"Oiax manages this issue. It closes automatically once the conflict clears "+
 				"(the replay succeeds, the edge converges, or the commit becomes "+
 				"returned/skipped). Do not edit the metadata block below.",
-			from, to, from, to, short, sha, subject, mechanism)
+			from, to, from, to, short, sha, subject, mechanism,
+			to, from, to, shortSHA, to, replay, shortSHA, landing)
 	}
 
 	for _, whole := range []bool{false, true} {
@@ -128,10 +155,10 @@ func TestDefaultConflictBodyMatchesLegacyText(t *testing.T) {
 		if want := "oiax: backflow conflict main -> development"; title != want {
 			t.Errorf("conflict title = %q, want %q", title, want)
 		}
-		want := legacy("main", "development",
+		wantBody := want("main", "development",
 			"cccccccccccccccccccccccccccccccccccccccc", "fix: conflicting hotfix", "aaaaaaa", 2, whole)
-		if body != want {
-			t.Errorf("whole=%v conflict body =\n%q\nwant\n%q", whole, body, want)
+		if body != wantBody {
+			t.Errorf("whole=%v conflict body =\n%q\nwant\n%q", whole, body, wantBody)
 		}
 	}
 }
@@ -139,7 +166,7 @@ func TestDefaultConflictBodyMatchesLegacyText(t *testing.T) {
 // A failing commit that rolls up several commits (SquashCommits >= 2) adds a
 // squash-aware paragraph that names the count, interpolates the target branch,
 // and steers the operator to the skip escape hatch. SquashCommits < 2 renders
-// nothing extra (guarded byte-for-byte by TestDefaultConflictBodyMatchesLegacyText).
+// nothing extra (guarded byte-for-byte by TestDefaultConflictBody).
 func TestConflictBodySquashGuidance(t *testing.T) {
 	c := backflowCtx("cherry-pick")
 	c.Type = "conflict"
