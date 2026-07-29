@@ -333,6 +333,8 @@ and [ADR 0009](../adr/0009-azure-devops-forge-provider.md).
 ## Next steps
 
 - [Set up a token that triggers CI](tokens.md) — the GitHub App setup.
+- [Governance change-record templates](governance-templates.md) — if
+  promotions need an auditable change record with sign-off.
 - [Operating Oiax day to day](operating.md) — reading plans, reviewing
   managed PRs, handling divergence.
 - [Troubleshooting](troubleshooting.md) — if a run does something

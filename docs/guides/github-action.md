@@ -257,9 +257,24 @@ When it runs under Actions, Oiax:
 Machine output (`-o json`) always goes to stdout uncorrupted; annotations
 and logs go to stderr.
 
+## Auditable sign-off on promotions
+
+If your change process requires each promotion to be an auditable
+record — SOX/ITGC-style controls, ticket references, an explicit
+approver justification — you do not need anything beyond the PRs Oiax
+already opens. Managed request titles and bodies are templatable:
+Oiax fills in the mechanical facts (edge, environments, commit list,
+source head) and your template supplies the scaffold the reviewer
+completes before approving, so **merging the PR is the sign-off** and
+the PR body is the change record. Set it up before your first
+production promotion so the record exists from day one; see
+[Governance change-record templates](governance-templates.md).
+
 ## Next steps
 
 - [Set up a token that triggers CI](tokens.md) — do this next.
+- [Governance change-record templates](governance-templates.md) — if
+  promotions need an auditable change record with sign-off.
 - [Operating Oiax day to day](operating.md) — reading plans, reviewing
   managed PRs, handling divergence.
 - [Troubleshooting](troubleshooting.md) — if a run does something

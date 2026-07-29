@@ -254,6 +254,7 @@ environment branches plus a scheduled repair run. Continue with:
 | Understand every config key | [Configuration reference](../reference/configuration.md) |
 | Model roles, drift, multiple pipelines | [Modeling your promotion graph](promotion-graphs.md) |
 | Return hotfixes to the source branch | [Backflow](backflow.md) |
+| Make promotion PRs auditable change records (tickets, controls, sign-off) | [Governance templates](governance-templates.md) |
 | Read plans and review managed PRs | [Operating Oiax](operating.md) |
 | Diagnose a problem | [Troubleshooting](troubleshooting.md) |
 | Understand the design | [Architecture](../architecture.md) |
