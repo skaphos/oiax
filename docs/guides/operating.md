@@ -174,6 +174,23 @@ To recover, restore the branch at the head the promotion request merged
 --jq .head.sha`), then re-run the reconcile. Nothing is lost: the commits
 survive in the merge you already made.
 
+### Keep Issues enabled (GitHub, backflow only)
+
+Durable backflow-conflict artifacts are GitHub **issues**. A repository
+with the Issues feature switched off cannot host them: a backflow
+conflict still halts with exit 3, but the durable record that points
+operators at the failing commit cannot be created — the details survive
+only in the run log. Oiax reads `has_issues` on every plan when backflow
+is enabled and warns while the feature is off:
+
+```text
+backflow is enabled but the repository cannot host durable conflict artifacts (on GitHub, the Issues feature is disabled); a backflow conflict will still halt with exit 3 but leave no durable record for operators. Enable Issues in the repository's Settings -> General -> Features
+```
+
+Like the source-branch-deletion check, it is advisory: it never fails a
+reconcile, and an unreadable setting skips the check silently. Azure
+DevOps is unaffected (conflict artifacts are project-scoped work items).
+
 ## Branch protection and required checks
 
 Oiax opens and refreshes the promotion pull requests; **your branch

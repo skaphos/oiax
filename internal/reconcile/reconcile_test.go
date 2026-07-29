@@ -54,6 +54,12 @@ type fakeForge struct {
 	deletesSourceOnMergeErr   error
 	deletesSourceOnMergeCalls int
 
+	// conflictArtifactsUnsupported inverts the default (supported) so the
+	// zero-value fake models the common forge.
+	conflictArtifactsUnsupported  bool
+	supportsConflictArtifactsErr  error
+	supportsConflictArtifactCalls int
+
 	// Conflict-artifact store (SKA-601): a real in-memory ordered set that
 	// mimics the forge's ascending-by-issue-number list contract, so the
 	// record/adopt/advance/consolidate/close state machine and the sweep can be
@@ -89,6 +95,14 @@ func (f *fakeForge) RepoDeletesSourceOnMerge(context.Context) (bool, error) {
 		return false, f.deletesSourceOnMergeErr
 	}
 	return f.deletesSourceOnMerge, nil
+}
+
+func (f *fakeForge) SupportsConflictArtifacts(context.Context) (bool, error) {
+	f.supportsConflictArtifactCalls++
+	if f.supportsConflictArtifactsErr != nil {
+		return false, f.supportsConflictArtifactsErr
+	}
+	return !f.conflictArtifactsUnsupported, nil
 }
 
 func (f *fakeForge) TargetMergeMethods(_ context.Context, branch string) (forge.MergeMethods, error) {
@@ -2140,6 +2154,111 @@ func TestPlanSourceBranchDeletionCheckFailureIsNotFatal(t *testing.T) {
 	}
 }
 
+// TestPlanWarnsWhenConflictArtifactsUnsupported pins the early half of the
+// Issues-disabled defense: backflow is enabled but the repository cannot host
+// durable conflict artifacts (GitHub with Issues switched off), so the plan
+// must warn — with the remedy — before any conflict ever happens. Without it
+// the disablement is invisible until the first backflow conflict.
+func TestPlanWarnsWhenConflictArtifactsUnsupported(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	var logBuf bytes.Buffer
+	c := &Coordinator{
+		Git:   r,
+		Forge: &fakeForge{conflictArtifactsUnsupported: true},
+		Graph: testGraph(),
+		Log:   NewLogger("text", AnnotateGitHub, nil, &logBuf),
+	}
+	if _, err := c.Plan(context.Background()); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	log := logBuf.String()
+	for _, want := range []string{
+		"cannot host durable conflict artifacts",
+		"Issues feature is disabled",
+		"Enable Issues",
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("warning does not mention %q: %s", want, log)
+		}
+	}
+}
+
+// TestPlanSilentWhenConflictArtifactsSupported is the negative case: a
+// repository that can host conflict artifacts must produce no warning, and
+// the advisory read costs exactly one call per plan.
+func TestPlanSilentWhenConflictArtifactsSupported(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	var logBuf bytes.Buffer
+	f := &fakeForge{}
+	c := &Coordinator{
+		Git:   r,
+		Forge: f,
+		Graph: testGraph(),
+		Log:   NewLogger("text", AnnotateGitHub, nil, &logBuf),
+	}
+	if _, err := c.Plan(context.Background()); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if f.supportsConflictArtifactCalls != 1 {
+		t.Errorf("SupportsConflictArtifacts called %d times, want exactly 1 per plan",
+			f.supportsConflictArtifactCalls)
+	}
+	if strings.Contains(logBuf.String(), "cannot host durable conflict artifacts") {
+		t.Errorf("warned on a repository that supports conflict artifacts: %s", logBuf.String())
+	}
+}
+
+// TestPlanConflictArtifactCheckSkippedWithoutBackflow pins the gate: conflict
+// artifacts exist only for backflow, so a graph without backflow must neither
+// read the setting nor warn — a warning about a feature the graph does not use
+// is noise.
+func TestPlanConflictArtifactCheckSkippedWithoutBackflow(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	g := testGraph()
+	g.Backflow = engine.BackflowPolicy{}
+	var logBuf bytes.Buffer
+	f := &fakeForge{conflictArtifactsUnsupported: true}
+	c := &Coordinator{
+		Git:   r,
+		Forge: f,
+		Graph: g,
+		Log:   NewLogger("text", AnnotateGitHub, nil, &logBuf),
+	}
+	if _, err := c.Plan(context.Background()); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if f.supportsConflictArtifactCalls != 0 {
+		t.Errorf("SupportsConflictArtifacts called %d times without backflow, want 0",
+			f.supportsConflictArtifactCalls)
+	}
+	if strings.Contains(logBuf.String(), "cannot host durable conflict artifacts") {
+		t.Errorf("warned about conflict artifacts on a graph without backflow: %s", logBuf.String())
+	}
+}
+
+// TestPlanConflictArtifactCheckFailureIsNotFatal pins the advisory contract:
+// an unreadable setting degrades to a debug line and never fails a plan.
+func TestPlanConflictArtifactCheckFailureIsNotFatal(t *testing.T) {
+	r, _ := gitHarness(t)
+
+	var logBuf bytes.Buffer
+	c := &Coordinator{
+		Git:   r,
+		Forge: &fakeForge{supportsConflictArtifactsErr: errors.New("403 Resource not accessible by integration")},
+		Graph: testGraph(),
+		Log:   NewLogger("text", AnnotateGitHub, nil, &logBuf),
+	}
+	if _, err := c.Plan(context.Background()); err != nil {
+		t.Fatalf("plan failed on an unreadable repository setting, want it to proceed: %v", err)
+	}
+	if strings.Contains(logBuf.String(), "cannot host durable conflict artifacts") {
+		t.Errorf("warned despite being unable to read the setting: %s", logBuf.String())
+	}
+}
+
 // TestPlanMissingGraphBranchExplainsDeletion covers the diagnosis half of the
 // same hazard. Once auto-delete-on-merge HAS eaten a graph branch, the operator
 // meets a resolution failure, not the warning. A bare "branch not found" sends
@@ -2484,6 +2603,49 @@ func TestApplyBackflowConflictCreatesArtifact(t *testing.T) {
 	// commit conflicts).
 	if len(f.conflictCreated) != 1 || !strings.Contains(f.conflictCreated[0].Body, "applied 0 commit(s) cleanly") {
 		t.Errorf("created body = %q, want it to report the clean count", f.conflictCreated)
+	}
+}
+
+// TestApplyBackflowConflictUnsupportedForgeSkipsArtifact pins the late half
+// of the Issues-disabled defense. A conflict on a forge that cannot host
+// conflict artifacts must not attempt the doomed list/create round-trips —
+// on GitHub each write answers 410 forever, so retrying is pure noise — but
+// the conflict itself must still report divergence (exit 3), and the warning
+// must name the actual problem and its remedy instead of "leaving for next
+// run".
+func TestApplyBackflowConflictUnsupportedForgeSkipsArtifact(t *testing.T) {
+	r, _, a := conflictHarness(t)
+	var logBuf bytes.Buffer
+	f := &fakeForge{conflictArtifactsUnsupported: true}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph(),
+		Log: NewLogger("text", AnnotateGitHub, nil, &logBuf)}
+
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Divergence {
+		t.Error("want Divergence true (exit 3) even when no artifact can be recorded")
+	}
+	if res.Conflicts != 0 {
+		t.Errorf("Conflicts = %d, want 0 (no artifact created)", res.Conflicts)
+	}
+	if len(f.conflictCreated) != 0 || len(f.conflictUpdated) != 0 || len(f.conflictClosed) != 0 {
+		t.Errorf("artifact I/O on an unsupported forge: created=%d updated=%d closed=%d, want none",
+			len(f.conflictCreated), len(f.conflictUpdated), len(f.conflictClosed))
+	}
+	log := logBuf.String()
+	for _, want := range []string{
+		"cannot record a durable conflict artifact",
+		"Issues feature is disabled",
+		"enable Issues",
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("warning does not mention %q: %s", want, log)
+		}
+	}
+	if strings.Contains(log, "leaving for next run") {
+		t.Errorf("warning still promises a retry that can never succeed: %s", log)
 	}
 }
 

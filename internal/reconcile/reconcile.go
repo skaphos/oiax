@@ -97,6 +97,7 @@ type Result struct {
 func (c *Coordinator) Plan(ctx context.Context) (engine.Plan, error) {
 	c.warnMergeMethodMismatch(ctx)
 	c.warnSourceBranchDeletion(ctx)
+	c.warnConflictArtifactSupport(ctx)
 
 	// A shallow clone (actions/checkout's default fetch-depth: 1) has no merge
 	// base for fork points that predate the fetch depth, so the patch-identity
@@ -1369,6 +1370,35 @@ func (c *Coordinator) warnSourceBranchDeletion(ctx context.Context) {
 		strings.Join(sources, ", ")))
 }
 
+// warnConflictArtifactSupport warns when backflow is enabled but the
+// repository cannot host durable conflict artifacts (on GitHub: Issues is
+// disabled, so every conflict-artifact write answers 410 Gone).
+//
+// Without this check the disablement stays invisible until the first
+// backflow conflict, and then surfaces as a create failure that reads as
+// transient ("leaving for next run") but recurs on every reconcile. Backflow
+// itself still works while nothing conflicts, so this warns rather than
+// refuses — the posture of warnSourceBranchDeletion: an advisory settings
+// read that fails is logged at debug and never breaks a plan.
+func (c *Coordinator) warnConflictArtifactSupport(ctx context.Context) {
+	if !c.Graph.Backflow.Enabled {
+		return
+	}
+	supported, err := c.Forge.SupportsConflictArtifacts(ctx)
+	if err != nil {
+		c.log().Debug("skipping conflict-artifact repository-settings check: " + err.Error())
+		return
+	}
+	if supported {
+		return
+	}
+	c.log().Warn(
+		"backflow is enabled but the repository cannot host durable conflict artifacts " +
+			"(on GitHub, the Issues feature is disabled); a backflow conflict will still halt " +
+			"with exit 3 but leave no durable record for operators. Enable Issues in the " +
+			"repository's Settings -> General -> Features")
+}
+
 func (c *Coordinator) log() *slog.Logger {
 	if c.Log != nil {
 		return c.Log
@@ -1549,7 +1579,24 @@ func (c *Coordinator) recordBackflowConflict(
 	// (2) The full live source head is the ancestry key.
 	curHead := st.To.Head
 
-	// (3) List (best-effort). The conflicted flag is already set, so a list
+	// (3) Capability gate (best-effort). A forge that cannot host conflict
+	// artifacts at all — GitHub with Issues disabled — would fail every write
+	// below with a 410 that reads as transient, and every reconcile would
+	// re-attempt and re-warn forever. Name the actual problem and skip the
+	// doomed round-trips; the conflicted flag is already set, so the exit-3
+	// divergence is intact. An unreadable setting falls through to the normal
+	// path — the advisory check must never suppress recording on a working
+	// forge.
+	if supported, err := c.Forge.SupportsConflictArtifacts(ctx); err == nil && !supported {
+		c.log().Warn(fmt.Sprintf(
+			"cannot record a durable conflict artifact for %s -> %s: the repository cannot host "+
+				"conflict artifacts (on GitHub, the Issues feature is disabled); enable Issues in "+
+				"Settings -> General -> Features to get durable backflow-conflict records",
+			a.From, a.To))
+		return nil
+	}
+
+	// (4) List (best-effort). The conflicted flag is already set, so a list
 	// failure leaves any existing artifact untouched and exit 3 intact.
 	arts, err := c.Forge.ListConflictArtifacts(ctx, c.Graph.Name)
 	if err != nil {
@@ -1559,11 +1606,11 @@ func (c *Coordinator) recordBackflowConflict(
 		return nil
 	}
 
-	// (4) Consolidate duplicates on the read path and pick the canonical.
+	// (5) Consolidate duplicates on the read path and pick the canonical.
 	canon := c.canonicalConflictArtifacts(ctx, arts)
 	existing, ok := canon[edge]
 
-	// (5) The spec to create or refresh with, keyed to this run's live head.
+	// (6) The spec to create or refresh with, keyed to this run's live head.
 	// The failing subject is attacker-influenceable free text and lives ONLY
 	// in the rendered human text, never in a marker identity field. Unlike
 	// the create paths, a render failure here follows this function's
@@ -1592,7 +1639,7 @@ func (c *Coordinator) recordBackflowConflict(
 		Body:       body,
 	}
 
-	// (6) Absent: create.
+	// (7) Absent: create.
 	if !ok {
 		if _, err := c.Forge.CreateConflictArtifact(ctx, spec); err != nil {
 			c.log().Warn(fmt.Sprintf(
@@ -1615,7 +1662,7 @@ func (c *Coordinator) recordBackflowConflict(
 		return nil
 	}
 
-	// (7) Present: decide the write on the recorded head vs the live head.
+	// (8) Present: decide the write on the recorded head vs the live head.
 	if existing.SourceHead == curHead {
 		// Adopt, no write: the recorded head matches this run's source head, so
 		// the artifact already points the operator at the right stuck head. We

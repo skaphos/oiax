@@ -292,6 +292,12 @@ lives only in Git and the forge):
   close by hand rather than auto-closed — the same conservative posture
   as an orphaned backflow request.
 
+On GitHub the artifact is an issue, so the repository must have the
+**Issues** feature enabled. When it is off, the conflict still halts
+with exit 3 but no durable record can be created; Oiax warns on every
+plan while backflow is enabled and Issues are off. See
+[Keep Issues enabled](operating.md#keep-issues-enabled-github-backflow-only).
+
 This is the one outcome `plan` cannot foresee: a backflow whose commits
 only conflict at cherry-pick time shows in `plan` as an ordinary
 applyable change (exit 2), but `reconcile` hits the conflict and exits 3.

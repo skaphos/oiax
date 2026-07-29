@@ -210,6 +210,33 @@ or mark the commit `Oiax-Backflow: skip` if it should stay downstream.
 The next reconcile continues from the new state. See
 [the backflow guide](backflow.md#when-a-replay-conflicts).
 
+## `cannot host durable conflict artifacts` / `github api 410` on a conflict
+
+**Symptom.** On every plan:
+
+```
+backflow is enabled but the repository cannot host durable conflict artifacts (on GitHub, the Issues feature is disabled); a backflow conflict will still halt with exit 3 but leave no durable record for operators. Enable Issues in the repository's Settings -> General -> Features
+```
+
+or, on an older Oiax when a backflow conflict occurs:
+
+```
+backflow conflict artifact create failed for main -> development; leaving for next run
+  err="create conflict artifact: github api 410: Issues has been disabled in this repository."
+```
+
+**Cause.** GitHub conflict artifacts are issues, and the repository has
+the Issues feature switched off. Backflow itself still works and a
+conflict still halts with exit 3, but Oiax cannot leave the durable
+issue that points operators at the failing commit — and the 410 recurs
+on every reconcile until the setting changes.
+
+**Fix.** Enable **Settings -> General -> Features -> Issues** for the
+repository. The next reconcile that meets the conflict records the
+artifact normally. If your organization deliberately keeps Issues off,
+the warning is safe to ignore: the conflict details remain in the run
+log of every reconcile, just not in a durable issue.
+
 ## `--output json is not supported` on validate/graph
 
 **Symptom.**

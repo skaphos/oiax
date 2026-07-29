@@ -550,6 +550,18 @@ func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.Confli
 		p.url(fmt.Sprintf("/repos/%s/%s/issues", url.PathEscape(p.Owner), url.PathEscape(p.Repo))),
 		payload, &created)
 	if err != nil {
+		// GitHub answers issue writes with 410 Gone when the repository has
+		// Issues disabled. The capability gate (SupportsConflictArtifacts)
+		// normally catches this before any write, but a failed or raced
+		// settings read can still land here — say what the 410 means and how
+		// to fix it rather than leaving a bare status code that reads as
+		// transient.
+		var ae *apiError
+		if errors.As(err, &ae) && ae.StatusCode == http.StatusGone {
+			return forge.ConflictArtifact{}, fmt.Errorf(
+				"create conflict artifact: %w (Issues appear to be disabled for this repository; "+
+					"enable them in Settings -> General -> Features so Oiax can record backflow conflicts)", err)
+		}
 		return forge.ConflictArtifact{}, fmt.Errorf("create conflict artifact: %w", err)
 	}
 	// Apply the identity labels via the triage-only route. A failure here
@@ -868,6 +880,20 @@ func (p *Provider) RepoMergeMethods(ctx context.Context) (forge.MergeMethods, er
 	}, nil
 }
 
+// SupportsConflictArtifacts reads the repository's has_issues setting.
+// Conflict artifacts are issues, and a repository with Issues disabled
+// answers every issue write with 410 Gone — while the /issues list route
+// still answers 200 with pull requests, so ListConflictArtifacts alone can
+// never see the disablement. Shares the memoized repository GET with the
+// other settings readers; read-only, never changes settings.
+func (p *Provider) SupportsConflictArtifacts(ctx context.Context) (bool, error) {
+	repo, err := p.repoSettings(ctx)
+	if err != nil {
+		return false, fmt.Errorf("read repository issues setting: %w", err)
+	}
+	return repo.HasIssues, nil
+}
+
 // RepoDeletesSourceOnMerge reads the repository's delete_branch_on_merge
 // setting ("Automatically delete head branches"), which deletes a merged pull
 // request's head branch. Oiax opens every promotion request FROM a long-lived
@@ -911,6 +937,7 @@ type repoSettings struct {
 	AllowSquashMerge    bool `json:"allow_squash_merge"`
 	AllowRebaseMerge    bool `json:"allow_rebase_merge"`
 	DeleteBranchOnMerge bool `json:"delete_branch_on_merge"`
+	HasIssues           bool `json:"has_issues"`
 }
 
 // TargetMergeMethods reports the merge methods permitted for a specific target
