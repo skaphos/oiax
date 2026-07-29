@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0](https://github.com/skaphos/oiax/compare/v1.2.0...v1.3.0) (2026-07-29)
+
+
+### Features
+
+* **backflow:** squash-aware conflict handling + fix duplicate conflict artifacts ([#64](https://github.com/skaphos/oiax/issues/64)) ([2bf4112](https://github.com/skaphos/oiax/commit/2bf411288375c01f3ca4d194385f54ce11e0f831))
+* detect and explain a repository that cannot host conflict artifacts ([#69](https://github.com/skaphos/oiax/issues/69)) ([5272f26](https://github.com/skaphos/oiax/commit/5272f265a021bae1be786ebb00f8a77eefdf4069))
+* warn when the forge auto-deletes a promotion request's source branch ([#62](https://github.com/skaphos/oiax/issues/62)) ([05c7087](https://github.com/skaphos/oiax/commit/05c7087b66fd0f17662e594c79c2120b1eb906ed))
+
+
+### Bug Fixes
+
+* **backflow:** usable conflict-artifact guidance on the target repo ([#68](https://github.com/skaphos/oiax/issues/68)) ([1f0844d](https://github.com/skaphos/oiax/commit/1f0844dd3f35eac593fb76fab877cb9662df2071))
+
 ## [1.2.0](https://github.com/skaphos/oiax/compare/v1.1.0...v1.2.0) (2026-07-19)
 
 
