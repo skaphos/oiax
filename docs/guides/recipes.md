@@ -49,7 +49,7 @@ on:
   workflow_dispatch:
 jobs:
   drift:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
@@ -88,7 +88,7 @@ on:
     paths: [".oiax.yaml"]
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7          # PR head; default depth is fine
       - uses: skaphos/oiax@v1

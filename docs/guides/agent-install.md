@@ -69,10 +69,11 @@ gh auth status                           # gh CLI authenticated (you'll use it t
 ```
 
 - **git ≥ 2.45** is required for `plan`/`reconcile` (backflow uses `git
-  cherry-pick --empty=drop`). `ubuntu-latest` runners satisfy this; a
+  cherry-pick --empty=drop`). `ubuntu-24.04` runners satisfy this; a
   local machine may not.
 - If you will run the CLI locally to validate (recommended), you need the
-  binary. Until Oiax's first release, install from source with **Go 1.26+**:
+  binary. Prefer a released binary for production; to build the current
+  source, use **Go 1.27+**:
   ```bash
   go install github.com/skaphos/oiax/cmd/oiax@latest
   oiax version
@@ -249,7 +250,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   reconcile:
-    runs-on: ubuntu-latest             # Linux x64/ARM64 only
+    runs-on: ubuntu-24.04              # Linux x64/ARM64 only
     steps:
       - uses: actions/checkout@v7
         with:

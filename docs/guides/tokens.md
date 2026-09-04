@@ -93,7 +93,7 @@ Mint a token in a step and pass it to Oiax:
 ```yaml
 jobs:
   reconcile:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/create-github-app-token@v3.2.0
         id: app-token

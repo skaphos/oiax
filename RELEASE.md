@@ -7,10 +7,11 @@ tags, and publishes.
 
 1. **Release PR** (`.github/workflows/release-please.yml`): every push
    to `main` runs [release-please](https://github.com/googleapis/release-please)
-   (`googleapis/release-please-action@v5`, configured by
-   `release-please-config.json`), which maintains a release pull
-   request that aggregates conventional commits into `CHANGELOG.md` and
-   bumps `.release-please-manifest.json`. GitHub-release creation is
+   (`googleapis/release-please-action` v5.0.0, SHA-pinned in the workflow
+   and configured by `release-please-config.json`), which maintains a
+   release pull request that aggregates conventional commits into
+   `CHANGELOG.md` and bumps `.release-please-manifest.json`.
+   GitHub-release creation is
    skipped (`skip-github-release: true`) — GoReleaser owns that step.
 2. **Immutable tag**: after the release PR merges, the same workflow
    pushes the corresponding full `vMAJOR.MINOR.PATCH` annotated tag (as

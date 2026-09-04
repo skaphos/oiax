@@ -252,7 +252,7 @@ concurrency:
 
 jobs:
   reconcile:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -283,7 +283,7 @@ commits with `git cherry-pick --empty=drop`, an option older git lacks
 (Ubuntu 22.04 ships 2.34, Debian bookworm 2.39, and some GHES images are
 older still). The floor is asserted once at startup, so an unsupported
 runner fails fast with a clear error naming the required version and the
-detected one rather than failing deep inside a backflow. `ubuntu-latest`
+detected one rather than failing deep inside a backflow. `ubuntu-24.04`
 satisfies this.
 
 Events are hints to reconcile, not authoritative state. The model stays
@@ -346,12 +346,11 @@ workflow annotations for warnings/errors and a plan summary written to
 
 ## Roadmap
 
-The unreleased implementation already includes the full equivalence
-ladder, GitHub managed-request lifecycle, the CLI and Action wrapper, and
-backflow as specified by
-[ADR 0004](adr/0004-backflow-execution.md). The first planned release is
-**v1.0.0**, which makes the configuration API, exit codes, JSON plan
-format, and managed-request metadata compatibility contracts.
+The 1.x release line includes the full equivalence ladder, GitHub
+managed-request lifecycle, the CLI and Action wrapper, and backflow as
+specified by [ADR 0004](adr/0004-backflow-execution.md). The v1.0.0
+release established the configuration API, exit codes, JSON plan format,
+and managed-request metadata as compatibility contracts.
 
 The Azure DevOps forge provider (Azure Repos managed pull requests,
 backflow branch pushes, and Azure Boards work-item conflict artifacts)
