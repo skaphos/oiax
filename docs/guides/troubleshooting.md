@@ -66,7 +66,7 @@ git 2.45 or newer is required (backflow uses cherry-pick --empty=drop); detected
 `git cherry-pick --empty=drop`, added in git 2.45. (Ubuntu 22.04 ships
 2.34, Debian bookworm 2.39.)
 
-**Fix.** Use a runner with git ≥ 2.45 — `ubuntu-latest` on GitHub Actions
+**Fix.** Use a runner with git ≥ 2.45 — `ubuntu-24.04` on GitHub Actions
 satisfies it — or upgrade git locally. The `validate` and `graph`
 commands do not need it, only `plan`/`reconcile`.
 

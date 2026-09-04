@@ -16,7 +16,7 @@ between them with pull requests.
 
 ### From source
 
-Requires **Go 1.26 or newer**:
+Requires **Go 1.27 or newer**:
 
 ```bash
 go install github.com/skaphos/oiax/cmd/oiax@latest
@@ -58,7 +58,7 @@ by hand on a CI runner.
 newer** (backflow uses `git cherry-pick --empty=drop`, added in 2.45).
 The floor is checked once at startup; on older git you get a clear error
 naming the required and detected versions. The `validate` and `graph`
-inspection commands do not need it. `ubuntu-latest` on GitHub Actions
+inspection commands do not need it. `ubuntu-24.04` on GitHub Actions
 satisfies the floor.
 
 ## 2. Write your first graph

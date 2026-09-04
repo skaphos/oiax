@@ -328,7 +328,7 @@ already-returned and none is re-proposed.
 ## Requirements
 
 Backflow uses `git cherry-pick --empty=drop`, so `plan` and `reconcile`
-require **git 2.45 or newer**. `ubuntu-latest` satisfies this; the floor
+require **git 2.45 or newer**. `ubuntu-24.04` satisfies this; the floor
 is checked at startup with a clear error on older git.
 
 ## Next steps
