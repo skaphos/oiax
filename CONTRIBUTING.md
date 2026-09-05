@@ -58,6 +58,23 @@ go -C tools tool task verify-generated  # generated CLI reference is current
 Run `go -C tools tool task --list` for everything else. Go version and
 tool pins live in `.tool-versions` and `go.mod`.
 
+Linux is the supported automation platform. CI runs `test-cover` (including
+Git-backed CLI/reconcile scenarios) and `test-race` there. macOS and Windows
+run `test-portability`: a native build of every package and an explicit unit
+suite covering the entrypoint, wrapper contracts, configuration, engine,
+provider-neutral types/markers, and templates. Git-backed integration and
+provider subprocess fixtures are excluded from that task, not deleted.
+
+For a quick local check, run `go -C tools tool task test-portability`.
+The full suite remains available on any OS through `task test`, but is not
+a non-Linux support guarantee. Review new unit packages for inclusion in the
+portability task; do not add expensive subprocess scenarios to it.
+Linux has a 25-minute CI job budget with ten-minute package deadlines.
+Portability jobs have ten minutes, with three-minute unit-package deadlines.
+All existing `Test (<runner>)` check names are preserved, avoiding a
+branch-protection migration. See [platform support](docs/reference/platform-support.md)
+and [ADR 0016](docs/adr/0016-linux-automation-support.md).
+
 ## Generated artifacts
 
 `docs/reference/cli.md` is generated from the cobra command tree

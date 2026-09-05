@@ -41,8 +41,11 @@ go -C tools tool task verify-generated
 ```
 
 CI (`.github/workflows/ci.yml`) gates on: DCO sign-off, REUSE lint,
-lint, tests (three OSes), staticcheck + govulncheck, generated-artifact
-drift, and a GoReleaser snapshot build.
+lint, full coverage/integration and race tests on Linux, bounded build/unit
+portability checks on macOS/Windows, staticcheck + govulncheck,
+generated-artifact drift, and a GoReleaser snapshot build. Linux is the
+supported automation platform; other binaries are best-effort local CLI
+tools (ADR 0016).
 
 ## Conventions
 

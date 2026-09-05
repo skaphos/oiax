@@ -37,7 +37,20 @@ tasks:
   test-cover:
     desc: Run tests with coverage output
     cmds:
-      - go test -coverprofile=coverage.out ./...
+      - go test -timeout=10m -coverprofile=coverage.out ./...
+
+  test-race:
+    desc: Run the full suite with race detection and shuffled tests (Linux CI)
+    cmds:
+      - go test -timeout=10m -race -shuffle=on ./...
+
+  test-portability:
+    desc: Build all packages and run bounded local-CLI portability unit checks
+    # Explicit unit-only selection: cli/git/reconcile and provider subprocess
+    # fixtures remain covered by the full Linux suites.
+    cmds:
+      - go build ./...
+      - go test -timeout=3m ./cmd/oiax ./internal/actioncontract ./internal/cienv ./internal/config ./internal/engine ./internal/forge ./internal/forge/marker ./internal/tmpl ./pkg/api/...
 
   lint:
     desc: Run linters

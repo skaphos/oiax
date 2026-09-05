@@ -230,6 +230,14 @@ Under each host Oiax emits that host's native annotations and run summary
 pinned-config-ref fallback refusal below applies under any detected CI.
 See the [Azure Pipelines guide](guides/azure-pipelines.md).
 
+Linux (amd64/arm64) is the supported operating system for automation, whether
+invoked through a wrapper or the standalone CLI. macOS and Windows binaries
+remain best-effort local tools with build/unit portability checks; the full
+integration, coverage and race gates run on Linux. This support boundary does
+not change forge support or introduce a runtime OS refusal. See
+[ADR 0016](adr/0016-linux-automation-support.md) and
+[migration guidance](reference/platform-support.md).
+
 ```yaml
 name: Oiax
 

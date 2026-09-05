@@ -52,6 +52,13 @@ the [GitHub Action](github-action.md) downloads and verifies them for you.
 That is the intended production path — you will rarely install the binary
 by hand on a CI runner.
 
+Use Linux amd64/arm64 for supported automation. macOS/Windows binaries remain
+available for best-effort local inspection and development, with build/unit
+portability checks rather than full integration validation. If existing
+standalone jobs run on those operating systems, move them to Linux before
+adopting the major release that introduces this support boundary. See
+[platform support and migration](../reference/platform-support.md).
+
 ### git version
 
 `plan` and `reconcile` shell out to `git` and require **git 2.45 or
