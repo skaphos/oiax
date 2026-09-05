@@ -6,11 +6,14 @@ It assumes you have a branch-per-environment repository — long-lived
 branches like `development`, `test`, `qa`, `main` — and promote changes
 between them with pull requests.
 
-> **Release status.** Oiax is released: the `skaphos/oiax@v1` Action and
+> **Release status.** Oiax is released: the `skaphos/oiax@v2` Action and
 > per-tag prebuilt binaries (each with a `checksums.txt`) are published,
-> and `@v1` tracks the latest `v1.x.y`. The Action is the production path;
+> and `@v2` tracks the latest `v2.x.y`. The Action is the production path;
 > build from source (below) when you want to track `main` or work on Oiax
 > itself.
+
+Already running v1? Follow [Upgrading to v2](upgrading-v2.md) for the version
+pin changes, Linux support boundary, and optional notification rollout.
 
 ## 1. Install
 
@@ -56,7 +59,7 @@ Use Linux amd64/arm64 for supported automation. macOS/Windows binaries remain
 available for best-effort local inspection and development, with build/unit
 portability checks rather than full integration validation. If existing
 standalone jobs run on those operating systems, move them to Linux before
-adopting the major release that introduces this support boundary. See
+adopting v2.0.0 or newer, which introduces this support boundary. See
 [platform support and migration](../reference/platform-support.md).
 
 ### git version

@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: skaphos/oiax@v1
+      - uses: skaphos/oiax@v2
         with:
           config: .oiax.yaml
           mode: reconcile
@@ -59,12 +59,17 @@ The rest of this guide explains each part and why it is there.
 | `config` | `.oiax.yaml` | Path to the configuration file. |
 | `config-ref` | *(empty)* | Ref to read configuration from. Empty means the repository default branch — the [pinned-ref](promotion-graphs.md#where-configuration-is-read-from) default. |
 | `token` | `${{ github.token }}` | Token for forge API calls and pushing `oiax/` branches. **Change this** — see [Tokens](#tokens). |
-| `version` | Action ref's release | Optional exact binary override, e.g. `v1.0.0`. By default `@v1` reads the release manifest at that ref, so wrapper and binary advance together within v1. A cross-major override is rejected. |
+| `version` | Action ref's release | Optional exact binary override, e.g. `v2.0.0`. By default `@v2` reads the release manifest at that ref, so wrapper and binary advance together within v2. A cross-major override is rejected. |
 
-Release automation advances the floating `v1` tag only after a full
-`v1.x.y` release and its checksum-verified artifacts are published. A
-consumer on `@v1` therefore receives compatible minor and patch updates;
+Release automation advances the floating `v2` tag only after a full
+`v2.x.y` release and its checksum-verified artifacts are published. A
+consumer on `@v2` therefore receives compatible minor and patch updates;
 set `version` only when you need to hold the binary at an exact release.
+
+For an exact wrapper-and-binary pin, use `skaphos/oiax@v2.0.0` and omit
+`version`. Existing `@v1` users must explicitly change their Action ref to
+`@v2`; setting `version: v2.0.0` on `@v1` is rejected. See
+[Upgrading to v2](upgrading-v2.md) before enabling notifications.
 
 ## `fetch-depth: 0` is not optional
 

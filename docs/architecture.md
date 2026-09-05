@@ -267,7 +267,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: skaphos/oiax@v1
+      - uses: skaphos/oiax@v2
         with:
           config: .oiax.yaml
           mode: reconcile
@@ -392,6 +392,11 @@ The Azure DevOps forge provider (Azure Repos managed pull requests,
 backflow branch pushes, and Azure Boards work-item conflict artifacts)
 is implemented alongside GitHub — see
 [ADR 0009](adr/0009-azure-devops-forge-provider.md).
+
+Version 2.0.0 adds optional managed-request notifications for Teams, Slack,
+and webhooks, and establishes Linux-only production automation support.
+The configuration API remains v1; release and Action major versions do not
+rename that contract. See [Upgrading to v2](guides/upgrading-v2.md).
 
 Post-1.0 candidates include native GitHub App credential minting,
 org-level defaults, request templates and reviewer assignment, provider

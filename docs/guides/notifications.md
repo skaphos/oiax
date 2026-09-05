@@ -8,8 +8,10 @@ implemented (tracked separately in #76).
 
 ## Set up a destination
 
-Upgrade the binary before adding notification configuration. Add the following
-under the existing graph's `spec`, using only branches declared in that graph:
+Notifications require Oiax v2.0.0 or newer. Upgrade the Action/template and binary
+before adding notification configuration; see [Upgrading to v2](upgrading-v2.md).
+Add the following under the existing graph's `spec`, using only branches
+declared in that graph:
 
 ```yaml
 notifications:

@@ -106,7 +106,7 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      - uses: skaphos/oiax@v1
+      - uses: skaphos/oiax@v2
         with:
           config: .oiax.yaml
           mode: reconcile
@@ -176,7 +176,7 @@ Store it as a secret (e.g. `OIAX_TOKEN`) and pass it directly:
         with:
           fetch-depth: 0
           token: ${{ secrets.OIAX_TOKEN }}
-      - uses: skaphos/oiax@v1
+      - uses: skaphos/oiax@v2
         with:
           token: ${{ secrets.OIAX_TOKEN }}
 ```

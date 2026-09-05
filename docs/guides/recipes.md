@@ -14,7 +14,7 @@ applies nothing. Watch a few real events go by, confirm the actions match
 your intent, then flip the input to `mode: reconcile`.
 
 ```yaml
-- uses: skaphos/oiax@v1
+- uses: skaphos/oiax@v2
   with:
     mode: plan          # observe only; change to `reconcile` when satisfied
 ```
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7          # PR head; default depth is fine
-      - uses: skaphos/oiax@v1
+      - uses: skaphos/oiax@v2
         with:
           mode: validate
 ```

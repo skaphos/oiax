@@ -10,6 +10,10 @@ Task-oriented walkthroughs — see the [guides index](guides/README.md):
 
 - [Getting started](guides/getting-started.md) — install, write your
   first graph, inspect it locally.
+- [Upgrading to v2](guides/upgrading-v2.md) — version pins, Linux support,
+  and optional notification activation.
+- [Managed-request notifications](guides/notifications.md) — Teams, Slack,
+  webhooks, previews, and delivery recovery.
 - [Installing Oiax with an AI agent](guides/agent-install.md) — a
   playbook for a coding agent to infer, confirm, and set up the graph.
 - [Modeling your promotion graph](guides/promotion-graphs.md) — branches,

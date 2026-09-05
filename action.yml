@@ -40,9 +40,9 @@ inputs:
     default: ${{ github.token }}
   version:
     description: >-
-      Exact Oiax release version to download (for example v1.0.0).
-      Defaults to the version recorded by the Action ref, so @v1 follows
-      the newest published v1.x.y release.
+      Exact Oiax release version to download (for example v2.0.0).
+      Defaults to the version recorded by the Action ref, so @v2 follows
+      the newest published v2.x.y release.
     required: false
     default: ""
 
