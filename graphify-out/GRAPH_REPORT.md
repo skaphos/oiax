@@ -1,16 +1,16 @@
 # Graph Report - oiax  (2026-09-05)
 
 ## Corpus Check
-- 184 files · ~235,092 words
+- 186 files · ~236,481 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1806 nodes · 5026 edges · 113 communities (89 shown, 24 thin omitted)
-- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 414 edges (avg confidence: 0.85)
+- 1819 nodes · 5078 edges · 107 communities (85 shown, 22 thin omitted)
+- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 429 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b9c6392c`
+- Built from commit: `c5e9d059`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -19,10 +19,10 @@
 - Provider
 - github_test.go
 - Coordinator
-- github.com/spf13/cobra.Command
+- Plan
 - context.Context
 - Backflow Execution
-- fakeForge
+- ChangeRequest
 - common.sh
 - Tasks: [FEATURE NAME]
 - Run
@@ -35,7 +35,7 @@
 - Feature Specification: [FEATURE NAME]
 - Content Equivalence Ladder
 - annotationHandler
-- .doOnce
+- plan_reconcile_test.go
 - Pinned Configuration Ref (--config-ref)
 - ConflictArtifactID
 - Core Principles
@@ -44,7 +44,7 @@
 - Plan Format Version 1
 - writeJSON
 - time.Time
-- DeliveryPayloadV1
+- adapterPayload
 - [CHECKLIST TYPE] Checklist: [FEATURE NAME]
 - BuildPlan
 - RequestID
@@ -52,7 +52,7 @@
 - Design proposal in skaphos-resources under tools/oiax/
 - GoReleaser Publication
 - CI Workflow
-- ChangeRequest
+- ConflictArtifact
 - Deterministic Backflow Branch Naming
 - Token Guidance (GITHUB_TOKEN recursion guard)
 - Plan-First Rollout
@@ -64,9 +64,9 @@
 - testing.T
 - Tasks: Managed Request Notifications
 - Provider
-- Parse
+- v1/types.go
 - 0010 — Exported validation and defaulting on the config API
-- OpenNotificationNotes
+- run
 - Validate
 - NotificationRuntime
 - Deterministic Backflow Return Branch
@@ -87,18 +87,18 @@
 - Deploying Oiax from Azure Pipelines
 - github.go
 - Oiax Task-Oriented Guides
-- NotificationPolicy
+- LedgerV1
 - validGraph
 - Implementation Plan: Managed Request Notifications
 - Notification data model
 - 0009 — Azure DevOps forge provider
 - Merge-Commit Backflow Strategy
 - Request-text templates
-- render_test.go
+- EventV1
 - Research: Managed Request Notifications
 - Declarative Branch Promotion Reconciler
 - RepositoryIdentity
-- LedgerV1
+- EvaluateEdge
 - Notification validation guide
 - 0011 — Templatable request text
 - 0013 — Add an optional notification contract
@@ -113,16 +113,10 @@
 - Implementation validation evidence
 - Analysis remediation record
 - notificationtest/README.md
-- .Validate
-- artifacts.go
-- Plan
-- reconcile/render.go
-- Detect
-- azure_pipelines_test.go
-- capWriter
+- TestExecuteDivergenceMessage
+- github/notification_test.go
+- action_test.go
 - errNoResponse
-- newGenCommand
-- exitCodeError
 
 ## God Nodes (most connected - your core abstractions)
 1. `gitHarness()` - 77 edges
@@ -158,39 +152,35 @@
 - **Convergent Backflow Execution** — adr0004_deterministic_return_branch, adr0004_identity_ladder, adr0004_ephemeral_worktree, adr0004_conflict_divergence, adr0004_supersede_stale_request [EXTRACTED 1.00]
 - **Reconciliation Layer Model** — docs_architecture_pure_reconciliation_layers, docs_code_map_engine_core, docs_code_map_reconcile_layer, docs_code_map_git_layer [EXTRACTED 1.00]
 
-## Communities (113 total, 24 thin omitted)
+## Communities (107 total, 22 thin omitted)
 
 ### Community 0 - "reconcile_test.go"
 Cohesion: 0.08
 Nodes (108): BackflowBranchName(), NewLogger(), TestAnnotationEscapesWorkflowCommandChars(), TestAzureAnnotationEscapesLoggingCommandChars(), TestNewLoggerAnnotatesWarningsOnlyWhenSinkSet(), TestNewLoggerAzureAnnotations(), TestNewLoggerNoAnnotationSink(), assertExclusionReason() (+100 more)
 
 ### Community 1 - "Provider"
-Cohesion: 0.17
-Nodes (5): repoSettings, escapeRefPath(), Provider, issueNumber(), nextLink()
+Cohesion: 0.18
+Nodes (4): apiError, repoSettings, Provider, refDeleteMeansAbsent()
 
 ### Community 2 - "github_test.go"
-Cohesion: 0.13
-Nodes (54): issueSpec, prSpec, assertAuth(), decode(), Provider, newProvider(), TestCloseConflictArtifact(), TestCloseConflictArtifactRefusesNonArtifact() (+46 more)
+Cohesion: 0.10
+Nodes (60): issueSpec, prSpec, assertAuth(), decode(), Provider, newProvider(), TestCloseConflictArtifact(), TestCloseConflictArtifactRefusesNonArtifact() (+52 more)
 
 ### Community 3 - "Coordinator"
-Cohesion: 0.08
-Nodes (38): BranchState, Equivalence, log/slog.Logger, backflowToReturn(), EvaluateEdge(), Commit, EdgeObservation, commits() (+30 more)
+Cohesion: 0.14
+Nodes (10): log/slog.Logger, backflowToReturn(), Commit, EdgeObservation, Action, Coordinator, provenanceSHAs(), tmplCommits() (+2 more)
 
-### Community 4 - "github.com/spf13/cobra.Command"
-Cohesion: 0.20
-Nodes (21): loadedConfig, options, versionInfo, github.com/spf13/cobra.Command, newGraphCommand(), printGraph(), TestNotificationLoadedConfigRejectsOversizedSource(), newPlanCommand() (+13 more)
-
-### Community 5 - "context.Context"
-Cohesion: 0.18
-Nodes (4): context.Context, os/exec.Cmd, gitCommand(), Runner
+### Community 4 - "Plan"
+Cohesion: 0.06
+Nodes (62): Kind, exitCodeError, forgeKind, loadedConfig, options, versionInfo, github.com/spf13/cobra.Command, io.Writer (+54 more)
 
 ### Community 6 - "Backflow Execution"
 Cohesion: 0.05
 Nodes (42): Downloaded Artifact Verification, Oiax Composite GitHub Action, Action Pinned Config Ref, Git Ref Preparation, Release Binary Download, Human-in-the-Loop Steering, Adopt the Name Oiax, Tiller Ecosystem Collision (+34 more)
 
-### Community 7 - "fakeForge"
-Cohesion: 0.09
-Nodes (9): fakeForge, RequestState, BranchPush, CreateRequest, MergeMethods, Reason, RequestFilter, UpdateRequest (+1 more)
+### Community 7 - "ChangeRequest"
+Cohesion: 0.07
+Nodes (16): fakeForge, RequestState, os/exec.Cmd, ChangeRequest, RequestType, gitCommand(), changeRequest(), BranchPush (+8 more)
 
 ### Community 8 - "common.sh"
 Cohesion: 0.09
@@ -201,16 +191,16 @@ Cohesion: 0.07
 Nodes (26): Dependencies & Execution Order, Format: `[ID] [P?] [Story] Description`, Implementation for User Story 1, Implementation for User Story 2, Implementation for User Story 3, Implementation Strategy, Incremental Delivery, MVP First (User Story 1 Only) (+18 more)
 
 ### Community 10 - "Run"
-Cohesion: 0.06
-Nodes (70): main(), run(), TestRunExitCodes(), testing.TB, run(), TestDeprecatedAPIVersionWarns(), TestGenDocs(), TestGraphCommand() (+62 more)
+Cohesion: 0.14
+Nodes (22): testing.TB, TestNotificationLoadedConfigPinsFiles(), TestNotificationLoadedConfigRejectsOversizedSource(), TestPlanRefusesUnresolvableDefaultBranchUnderActions(), TestPlanRefusesUnresolvableDefaultBranchUnderAzurePipelines(), TestReconcileJSONAnnotationNotOnStdout(), TestReconcileJSONAzureAnnotationAndSummary(), parseRemoteURL() (+14 more)
 
 ### Community 11 - "newRepo"
-Cohesion: 0.13
-Nodes (46): newRepo(), oidLike(), requireGit(), runGit(), TestCherryPickCancelledContextIsOperationalError(), TestCherryPickConflict(), TestCherryPickDropsRedundant(), TestCherryPickHappyPath() (+38 more)
+Cohesion: 0.09
+Nodes (55): NotesOptions, Provider, Provider, newRepo(), oidLike(), requireGit(), runGit(), TestCherryPickCancelledContextIsOperationalError() (+47 more)
 
 ### Community 12 - "AcceptPolicy"
-Cohesion: 0.27
-Nodes (19): DeliveryKey(), Digest(), modelEvent(), modelLedger(), modelPolicy(), modelRepo(), modelRevision(), modelTime() (+11 more)
+Cohesion: 0.26
+Nodes (23): DeliveryKey(), modelEvent(), modelLedger(), modelPolicy(), modelRepo(), modelRevision(), modelTime(), TestNotificationAdmissionClaimAndMonotoneReceipt() (+15 more)
 
 ### Community 13 - "PromotionGraph Configuration Contract"
 Cohesion: 0.50
@@ -240,17 +230,17 @@ Nodes (11): ADR 0001: Adopt the name Oiax, Rationale: Tiller collided with Helm 
 Cohesion: 0.24
 Nodes (9): log/slog.Attr, log/slog.Handler, log/slog.Level, log/slog.Record, escapeAnnotation(), escapeAzureAnnotation(), formatAnnotation(), annotationHandler (+1 more)
 
-### Community 20 - ".doOnce"
-Cohesion: 0.25
-Nodes (4): failTransport, net/http.Client, net/http.Response, parseAPIError()
+### Community 20 - "plan_reconcile_test.go"
+Cohesion: 0.26
+Nodes (22): TestNotificationDisabledPreservesLegacyOutput(), runCode(), setupRepo(), setupShallowResolvableRepo(), TestExecuteThreadsCancellableContext(), TestPlanAssertsGitFloorBeforeConfigRead(), TestPlanForgeErrorExitsOne(), TestPlanInSyncExitsZero() (+14 more)
 
 ### Community 21 - "Pinned Configuration Ref (--config-ref)"
 Cohesion: 0.25
 Nodes (9): Agent Safety Rules (do not violate), ADR 0003: Read configuration from a pinned ref, Rationale: config is itself promoted and differs per branch; reading the triggering ref is nondeterministic and lets untrusted PR config run with write credentials, Engine Purity Rules, Reconciliation Loop, Layering Rule: entrypoint to engine to git/forge, depguard-enforced, oiax (root command), Pinned Configuration Ref (--config-ref) (+1 more)
 
 ### Community 22 - "ConflictArtifactID"
-Cohesion: 0.14
-Nodes (12): workItem, workItemBatch, encoding/json.RawMessage, artifactID(), fieldString(), Provider, hasTag(), htmlBody() (+4 more)
+Cohesion: 0.27
+Nodes (4): ConflictArtifactID, issueNumber(), prNumber(), understoodMarker()
 
 ### Community 23 - "Core Principles"
 Cohesion: 0.18
@@ -270,27 +260,27 @@ Nodes (6): Prompt Hotfix Backflow, Managed Request Lifecycle, Plan Diagnostics, 
 
 ### Community 27 - "writeJSON"
 Cohesion: 0.08
-Nodes (46): adoFake, adoFakePull, adoFakeWI, pullSpec, ghFake, ghFakeIssue, ghFakePull, net/http.HandlerFunc (+38 more)
+Nodes (48): adoFake, adoFakePull, adoFakeWI, pullSpec, ghFake, ghFakeIssue, ghFakePull, net/http.HandlerFunc (+40 more)
 
 ### Community 28 - "time.Time"
-Cohesion: 0.12
-Nodes (26): notificationCursor, notificationInterval, CreateDisposition, CreateOutcome, NotificationNotesProvider, SnapshotReader, LifecycleSeed, time.Time (+18 more)
+Cohesion: 0.11
+Nodes (27): LifecycleSeed, sync.Mutex, time.Time, AttemptResult, CommitSnapshot, DeliveryPayloadV1, LifecycleRequest, LifecycleState (+19 more)
 
-### Community 29 - "DeliveryPayloadV1"
-Cohesion: 0.10
-Nodes (30): Client, dialContextFunc, lookupNetIPFunc, net/netip.Addr, net/url.URL, adapterPayload(), allStrings(), TestNotificationAdapterGoldens() (+22 more)
+### Community 29 - "adapterPayload"
+Cohesion: 0.11
+Nodes (28): Client, dialContextFunc, failTransport, lookupNetIPFunc, net/netip.Addr, net/url.URL, adapterPayload(), allStrings() (+20 more)
 
 ### Community 30 - "[CHECKLIST TYPE] Checklist: [FEATURE NAME]"
 Cohesion: 0.40
 Nodes (4): [Category 1], [Category 2], [CHECKLIST TYPE] Checklist: [FEATURE NAME], Notes
 
 ### Community 31 - "BuildPlan"
-Cohesion: 0.09
-Nodes (51): BackflowPolicy, Branch, Expectations, Promotion, FromConfig(), Branch, Graph, Expectations (+43 more)
+Cohesion: 0.12
+Nodes (41): BranchState, Equivalence, FromConfig(), TestFromConfigAgreesWithDefault(), TestFromConfigAppliesDriftDefault(), TestFromConfigPreservesCherryPickMergeMethods(), TestFromConfigResolvesBackflowDefaults(), validGraph() (+33 more)
 
 ### Community 32 - "RequestID"
-Cohesion: 0.17
-Nodes (8): notificationCapabilityTrap, fakeForge, Provider, RequestID, Provider, LifecyclePage, LifecycleQuery, Lifecycle
+Cohesion: 0.11
+Nodes (10): notificationCapabilityTrap, fakeForge, Provider, Reason, RequestID, Provider, LifecyclePage, LifecycleQuery (+2 more)
 
 ### Community 35 - "GoReleaser Publication"
 Cohesion: 0.24
@@ -300,41 +290,41 @@ Nodes (11): Floating Major Action Tag, GoReleaser Publication, Release Tag Monot
 Cohesion: 0.24
 Nodes (10): Skaphos Contribution Governance, Cross-Platform Test Matrix, DCO Sign-Off Gate, Generated Artifact Drift Check, REUSE License Gate, GoReleaser Snapshot Build, Staticcheck and Govulncheck, CI Workflow (+2 more)
 
-### Community 37 - "ChangeRequest"
-Cohesion: 0.33
-Nodes (16): ChangeRequest, RequestType, Forge, assertAscending(), containsID(), findArtifact(), mustCreate(), mustCreateArtifact() (+8 more)
+### Community 37 - "ConflictArtifact"
+Cohesion: 0.36
+Nodes (15): ConflictArtifact, Forge, assertAscending(), containsID(), findArtifact(), mustCreate(), mustCreateArtifact(), mustList() (+7 more)
 
 ### Community 46 - "testing.T"
-Cohesion: 0.08
-Nodes (34): actionMetadata, testing.T, TestPublishedActionRunnerContract(), TestErrNoResponseWraps(), TestRepoString(), TestScrubToken(), TestMergeCommitAllowed(), TestMergeMethodsAllows() (+26 more)
+Cohesion: 0.09
+Nodes (31): pipelineTemplate, testing.T, TestPublishedAzurePipelinesTemplateContract(), TestNotificationLifecycleConformance(), TestErrNoResponseWraps(), TestRepoString(), TestScrubToken(), TestMergeCommitAllowed() (+23 more)
 
 ### Community 47 - "Tasks: Managed Request Notifications"
 Cohesion: 0.10
 Nodes (20): Dependencies and execution order, Implementation, Implementation, Implementation, Implementation, Implementation strategy and completion accounting, Parallel execution examples, Phase 1: Setup (+12 more)
 
 ### Community 48 - "Provider"
-Cohesion: 0.22
-Nodes (3): Provider, looksLikeJWT(), TestLooksLikeJWT()
+Cohesion: 0.18
+Nodes (4): net/http.Client, Provider, looksLikeJWT(), TestLooksLikeJWT()
 
-### Community 49 - "Parse"
-Cohesion: 0.21
-Nodes (13): IsDeprecatedAPIVersion(), Load(), Parse(), safeParseError(), TestLoadAcceptsFileAtLimit(), TestLoadExample(), TestLoadRejectsOversizedFile(), TestParseAcceptsTemplates() (+5 more)
+### Community 49 - "v1/types.go"
+Cohesion: 0.06
+Nodes (46): BackflowPolicy, Branch, Expectations, Promotion, IsDeprecatedAPIVersion(), Load(), Parse(), safeParseError() (+38 more)
 
 ### Community 50 - "0010 — Exported validation and defaulting on the config API"
 Cohesion: 0.29
 Nodes (6): 0010 — Exported validation and defaulting on the config API, Consequences, Context, Decision, Links, Options considered
 
-### Community 51 - "OpenNotificationNotes"
-Cohesion: 0.16
-Nodes (11): NotesOptions, Provider, Provider, NoteSnapshot, NotificationNotes, OpenNotificationNotes(), TestNotificationNotesNamespaceAndUnavailable(), validNotesAuthEnv() (+3 more)
+### Community 51 - "run"
+Cohesion: 0.23
+Nodes (17): TestRunExitCodes(), run(), TestDeprecatedAPIVersionWarns(), TestGenDocs(), TestGraphCommand(), TestInvalidOutputFlagRejected(), TestRootRejectsJSONOutputWithoutSubcommand(), TestRootVersionFlag() (+9 more)
 
 ### Community 52 - "Validate"
 Cohesion: 0.18
-Nodes (20): io.Reader, Decode(), Encode(), eventKind(), requestKind(), safeText(), codecLedger(), FuzzNotificationLedgerCodec() (+12 more)
+Nodes (21): io.Reader, Decode(), Encode(), eventKind(), requestKind(), safeText(), codecLedger(), FuzzNotificationLedgerCodec() (+13 more)
 
 ### Community 53 - "NotificationRuntime"
-Cohesion: 0.12
-Nodes (12): sync.Mutex, LedgerStore, Sender, Snapshot, Transition, NewLedger(), NewClock(), TestFixturesOwnSnapshots() (+4 more)
+Cohesion: 0.17
+Nodes (9): CreateDisposition, CreateOutcome, NotificationNotesProvider, SnapshotReader, LifecycleReader, LedgerStore, Sender, NotificationRuntime (+1 more)
 
 ### Community 54 - "Deterministic Backflow Return Branch"
 Cohesion: 0.67
@@ -345,20 +335,20 @@ Cohesion: 0.12
 Nodes (16): Assumptions, Clarifications, Edge Cases, Feature Specification: Managed Request Notifications, Functional Requirements, Key Entities, Measurable Outcomes, Out of Scope *(mandatory)* (+8 more)
 
 ### Community 65 - "Serialize"
-Cohesion: 0.06
-Nodes (51): adoPull, adoPullList, forkRef, gitRef, propertiesCollection, refList, refUpdateResult, refUpdateResults (+43 more)
+Cohesion: 0.05
+Nodes (60): adoPull, adoPullList, forkRef, gitRef, policyConfiguration, policyList, policyScope, policySettings (+52 more)
 
 ### Community 66 - "ValidOID"
-Cohesion: 0.23
-Nodes (11): ValidDigest(), ValidOID(), CheckRevision(), RevisionRelation, mapError(), New(), validateAppend(), Coordinator (+3 more)
+Cohesion: 0.17
+Nodes (13): Snapshot, Transition, ValidDigest(), ValidOID(), CheckRevision(), mapError(), New(), validateAppend() (+5 more)
 
 ### Community 67 - "tmpl.go"
-Cohesion: 0.12
-Nodes (37): text/template.FuncMap, text/template.Template, tmplCommits(), checkBodySafety(), compileTemplate(), Default(), execute(), funcMap() (+29 more)
+Cohesion: 0.13
+Nodes (36): text/template.FuncMap, text/template.Template, checkBodySafety(), compileTemplate(), Default(), execute(), funcMap(), Commit (+28 more)
 
 ### Community 68 - "time.Duration"
-Cohesion: 0.16
-Nodes (13): apiError, errNoResponse, net/http.Header, time.Duration, parseAPIError(), retryableStatus(), retryDelay(), serverBackoff() (+5 more)
+Cohesion: 0.12
+Nodes (17): apiError, capWriter, errNoResponse, net/http.Header, net/http.Response, time.Duration, isDuplicateActiveRequest(), parseAPIError() (+9 more)
 
 ### Community 69 - "ParseRemoteURL"
 Cohesion: 0.26
@@ -369,16 +359,16 @@ Cohesion: 0.14
 Nodes (14): Azure Repos, Choosing a mode, Connecting Azure DevOps to GitHub, Create the service connection, Deploying Oiax from Azure Pipelines, `fetchDepth: 0` is not optional, Next steps, Parameters (+6 more)
 
 ### Community 71 - "github.go"
-Cohesion: 0.15
-Nodes (19): apiError, apiError, ghIssue, ghLabel, ghPull, ghRef, ghRepo, ghUser (+11 more)
+Cohesion: 0.18
+Nodes (16): apiError, ghIssue, ghLabel, ghPull, ghRef, ghRepo, ghUser, conflictMarker() (+8 more)
 
 ### Community 72 - "Oiax Task-Oriented Guides"
 Cohesion: 0.20
 Nodes (14): CLI Exit-Code Contract, Example request-text templates, Oiax Installation Artifacts, Agent Installation Confirmation Gate, Backflow Hotfix Return, Plan-First Repository Adoption, Promotion Graph Quickstart, CI-Triggering Installation Token (+6 more)
 
-### Community 73 - "NotificationPolicy"
-Cohesion: 0.19
-Nodes (8): claimDelay(), deliveryPayload(), destinationForKey(), enabledDestinations(), NotificationRuntime, NotificationDestination, NotificationPolicy, NotificationTemplates
+### Community 73 - "LedgerV1"
+Cohesion: 0.18
+Nodes (10): LedgerV1, RenewClaim(), claimDelay(), deliveryPayload(), destinationForKey(), enabledDestinations(), NotificationRuntime, NotificationDestination (+2 more)
 
 ### Community 74 - "validGraph"
 Cohesion: 0.18
@@ -404,9 +394,9 @@ Nodes (8): Live Merge-Method Fence, Merge-Commit Backflow Strategy, Skip-in-Rang
 Cohesion: 0.22
 Nodes (9): Configuration keys, Functions, Rendering rules and constraints, Request-text templates, `spec.templates.backflowMergeMessage`, `spec.templates.promotion`, `.backflow`, `.backflowConflict`, Untrusted variables, Variable context (+1 more)
 
-### Community 80 - "render_test.go"
-Cohesion: 0.23
-Nodes (15): RenderText(), mergePlan(), samplePlan(), TestRenderCherryPickEdgeOmitsStrategy(), TestRenderersPropagateWriteError(), TestRenderJSONIsPlanFormatVersion1(), TestRenderMarkdownMergeStrategyEdge(), TestRenderMarkdownTable() (+7 more)
+### Community 80 - "EventV1"
+Cohesion: 0.24
+Nodes (14): notificationCursor, notificationInterval, EventRevision, EventV1, CleanText(), FixedFacts(), RenderBuiltin(), SafeRequestURL() (+6 more)
 
 ### Community 82 - "Research: Managed Request Notifications"
 Cohesion: 0.25
@@ -417,12 +407,12 @@ Cohesion: 0.33
 Nodes (7): Git 2.45 Runtime Contract, Git Runner Shell-Out, Declarative Branch Promotion Reconciler, Pure Reconciliation Layering, Provider-Neutral Engine Core, System Git Layer, Reconcile Coordination Layer
 
 ### Community 84 - "RepositoryIdentity"
-Cohesion: 0.27
-Nodes (10): EventID(), EventV1, RepositoryIdentity, GraphKey(), TestNotificationIdentity(), CleanText(), FixedFacts(), RenderBuiltin() (+2 more)
+Cohesion: 0.18
+Nodes (15): Digest(), EventID(), RepositoryIdentity, GraphKey(), NewLedger(), TestNotificationIdentity(), TestFixturesOwnSnapshots(), MergeEvent() (+7 more)
 
-### Community 85 - "LedgerV1"
-Cohesion: 0.33
-Nodes (11): LedgerV1, ScanProgress, AdmitEvent(), CheckCapacity(), Claim(), RecordResult(), RenewClaim(), RetryDelay() (+3 more)
+### Community 85 - "EvaluateEdge"
+Cohesion: 0.38
+Nodes (13): EvaluateEdge(), commits(), Commit, idSet(), patchIDs(), TestEvaluateEdge(), TestEvaluateEdgeExclusionReasons(), TestEvaluateEdgeIsDeterministic() (+5 more)
 
 ### Community 86 - "Notification validation guide"
 Cohesion: 0.29
@@ -476,38 +466,26 @@ Nodes (6): Current checkpoint — lifecycle completeness and bounded delivery, E
 Cohesion: 0.67
 Nodes (3): Analysis remediation record, Document verification, Resolved gate: C1 / T001
 
-### Community 102 - ".Validate"
-Cohesion: 0.25
-Nodes (8): findCycle(), Branch, Promotion, PromotionGraph, sortedBranchNames(), validateRefName(), validateRequestTemplate(), validateTemplatePath()
+### Community 102 - "TestExecuteDivergenceMessage"
+Cohesion: 0.29
+Nodes (8): main(), run(), captureProcessStreams(), TestExecuteDivergenceMessage(), TestExecuteExitCodes(), TestExitCodeErrorMessage(), TestWriteStepSummary(), Execute()
 
-### Community 103 - "artifacts.go"
-Cohesion: 0.26
-Nodes (10): policyConfiguration, policyList, policyScope, policySettings, wiqlResult, wiState, wiStates, boolValue() (+2 more)
-
-### Community 104 - "Plan"
-Cohesion: 0.27
-Nodes (11): forgeKind, planExitCode(), planReportsDivergence(), TestPlanExitCode(), resolveForgeKind(), writeAzureSummary(), writeGitHubSummary(), writeStepSummary() (+3 more)
-
-### Community 105 - "reconcile/render.go"
-Cohesion: 0.24
-Nodes (9): io.Writer, ActionType, actionVerb(), edgeSummaryText(), exclusionCounts(), mdCell(), RenderJSON(), returnedSubjects() (+1 more)
-
-### Community 107 - "Detect"
-Cohesion: 0.40
-Nodes (4): Kind, Detect(), TestDetect(), buildLogger()
+### Community 103 - "github/notification_test.go"
+Cohesion: 0.60
+Nodes (5): notificationPull(), serveNotificationIdentity(), TestNotificationLifecycleDetailFailureRetainsPartialProgress(), TestNotificationLifecyclePaginationOverlapsAndDeduplicatesMovement(), TestNotificationLifecycleRejectsCrossOriginContinuation()
 
 ## Knowledge Gaps
 - **258 isolated node(s):** `common.sh script`, `github.com/skaphos/oiax`, `actionMetadata`, `pipelineTemplate`, `versionInfo` (+253 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **24 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **22 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `BuildPlan()` connect `BuildPlan` to `Plan`, `reconcile_test.go`, `Coordinator`, `Pinned Configuration Ref (--config-ref)`?**
-  _High betweenness centrality (0.199) - this node is a cross-community bridge._
+- **Why does `BuildPlan()` connect `BuildPlan` to `reconcile_test.go`, `Coordinator`, `Plan`, `Pinned Configuration Ref (--config-ref)`?**
+  _High betweenness centrality (0.223) - this node is a cross-community bridge._
 - **Why does `Reconciliation Loop` connect `Pinned Configuration Ref (--config-ref)` to `BuildPlan`?**
-  _High betweenness centrality (0.194) - this node is a cross-community bridge._
+  _High betweenness centrality (0.218) - this node is a cross-community bridge._
 - **Are the 5 inferred relationships involving `gitHarness()` (e.g. with `.commit()` and `TestScenarioBackflowMixedDropAndApplyConverges()`) actually correct?**
   _`gitHarness()` has 5 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 5 inferred relationships involving `testGraph()` (e.g. with `TestScenarioBackflowMixedDropAndApplyConverges()` and `TestScenarioBackflowPushIsByteIdenticalAcrossIndependentRepos()`) actually correct?**

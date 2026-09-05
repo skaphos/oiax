@@ -17,7 +17,7 @@ import (
 func adapterPayload() notification.DeliveryPayloadV1 {
 	repo := notification.RepositoryIdentity{Provider: "github", Host: "github.com", ID: "123", Name: "example/repo"}
 	e := notification.EventV1{ID: notification.EventID(repo, "42", "request-merged"), Kind: "request-merged", Graph: "environments", Repository: repo,
-		Request:    notification.RequestV1{ID: "42", Type: "promotion", Source: "development", Destination: "test", URL: "https://github.com/example/repo/pull/42"},
+		Request:    notification.RequestV1{ID: "42", Type: "promotion", Source: "development", Destination: "test", LogicalSource: "development", LogicalDestination: "test", URL: "https://github.com/example/repo/pull/42"},
 		OccurredAt: time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC), ObservedAt: time.Date(2026, 9, 4, 18, 1, 0, 0, time.UTC), Snapshot: notification.CommitSnapshot{CommitsUnavailable: true}}
 	return notification.DeliveryPayloadV1{SchemaVersion: 1, Event: e, Message: notification.RenderedMessageV1{Title: "Custom constant", Body: "These commits were promoted to the test environment. <!channel> @everyone"}}
 }

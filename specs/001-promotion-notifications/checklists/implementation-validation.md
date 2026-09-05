@@ -25,6 +25,16 @@ Slack plain-text blocks, and the flat generic schema, including every FR-008
 fact, explicit request ID/observed time, commit unavailability, inert hostile
 text, fixed safe links, generic event-ID header, and transport-specific acks.
 
+T023–T024 and T035 complete merge normalization and built-in presentation.
+Provider-authoritative merged state/time and current topology route promotion,
+explicit backflow, and legacy backflow facts without inferring ownership, merge,
+or a deleted logical source. Default subscriptions admit both managed request
+types only at/after their durable activation cutoff. The four event/type wording
+combinations distinguish ready-for-review from completed branch promotion and
+never claim deployment. Required facts reject control text, oversized identity,
+cross-repository/query/fragment links, preserve explicit unavailable/truncated/
+unknown commit state, and include Azure organization/project/repository IDs.
+
 T029 and T031–T033 now complete the bounded dispatcher slice: runtime mutations
 use caller-observed CAS revisions, messages persist before claims, claims renew
 against the current accepted config/generation, destination workers send in
@@ -49,25 +59,25 @@ Verification on this checkpoint:
 | `go test -race -shuffle=on ./...` with the documented process-local Git settings | PASS |
 | `go test -race -shuffle=on ./internal/forge/github ./internal/forge/azuredevops ./internal/forge/forgetest` | PASS |
 | `go test -race -shuffle=on -count=10 -timeout=60s ./internal/notification/delivery` | PASS |
+| `go test -race -shuffle=on -count=10 ./internal/notification ./internal/notification/delivery` | PASS |
 | focused notification/reconcile race tests, repeated 10 times after concurrent dispatch | PASS |
 | `go -C tools tool task lint` | PASS, 0 issues |
 | `go -C tools tool task build` | PASS |
 | `go -C tools tool task verify-generated` | PASS |
-| `reuse lint` | PASS, all 284 files compliant |
-| `graphify update .` | PASS: 1,806 nodes, 5,026 edges, 113 communities |
+| `reuse lint` | PASS, all 286 files compliant |
+| `graphify update .` | PASS: 1,819 nodes, 5,078 edges, 107 communities |
 | `graphify diagnose multigraph --max-examples 1` | PASS: no missing/dangling endpoints, self-loops or collapsed edges; raw producer loss not measured |
 | `git diff --check` | PASS |
 
-US1 remains incomplete: the rest of merge integration and default-presentation
-matrices, built-binary
+US1 remains incomplete: the rest of merge integration, built-binary
 notification scenarios and independent acceptance evidence are still unchecked.
 Creation provenance, custom templates, immutable commit enrichment, preview and
 diagnostics remain later phases.
 
 Resume in this order:
 
-1. Complete T019 and T023–T024 merge integration/normalization/presentation,
-   especially both request types and default rendering matrices.
+1. Complete T019 and T030 merge/observation integration, especially first
+   activation, incomplete discovery, competing runs and core exit isolation.
 2. Finish T030 and T034–T038: adversarial observation/config-order races,
    default presentation, built-binary merge scenarios, exact core exit evidence
    and the independent US1 matrix. Do not contact live receivers in unit tests.

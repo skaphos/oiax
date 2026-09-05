@@ -186,8 +186,8 @@
     "semantic_hash": "8fe034edf8986c6a6112f9aa7bc2aa13"
   },
   "docs/reference/cli.md": {
-    "mtime": 1788609561.2441294,
-    "seen": 1788609712.4477608,
+    "mtime": 1788610466.3243277,
+    "seen": 1788611016.042872,
     "ast_hash": "7b6013c867461629fc6688dbf003447b",
     "semantic_hash": "7b6013c867461629fc6688dbf003447b"
   },
@@ -954,9 +954,9 @@
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/checklists/implementation-validation.md": {
-    "mtime": 1788610423.0319705,
-    "seen": 1788610436.2445319,
-    "ast_hash": "f4dd0eb6ff1414fab79ca71c5bd135a6",
+    "mtime": 1788611010.1928866,
+    "seen": 1788611016.0428748,
+    "ast_hash": "e1cdeb883beb3b898eea3d77594e8511",
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/checklists/remediation.md": {
@@ -1026,9 +1026,9 @@
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/tasks.md": {
-    "mtime": 1788610422.9595222,
-    "seen": 1788610436.2445388,
-    "ast_hash": "1cfc7a0307699f0a4df60050d3a9575e",
+    "mtime": 1788611010.1106157,
+    "seen": 1788611016.0428832,
+    "ast_hash": "d003a583b03a503f4380594e603527ca",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/notification_test.go": {
@@ -1062,9 +1062,9 @@
     "semantic_hash": ""
   },
   "internal/notification/delivery/adapters_test.go": {
-    "mtime": 1788610306.6523209,
-    "seen": 1788610436.244477,
-    "ast_hash": "5e76ce5140b6be597a80cdeeafb9016f",
+    "mtime": 1788610956.3794794,
+    "seen": 1788611016.042815,
+    "ast_hash": "1d4b8f38da847b7f6d0d62ddf1ef1a5e",
     "semantic_hash": ""
   },
   "internal/notification/delivery/client.go": {
@@ -1098,9 +1098,9 @@
     "semantic_hash": ""
   },
   "internal/notification/render.go": {
-    "mtime": 1788579280.3860087,
-    "seen": 1788581296.214025,
-    "ast_hash": "5c8f27e04f11c2b1b4a511293501aeb6",
+    "mtime": 1788610901.1425452,
+    "seen": 1788611016.042825,
+    "ast_hash": "8d77432b63afe652cac8b6e24c3c7a46",
     "semantic_hash": ""
   },
   "internal/notification/schedule.go": {
@@ -1164,9 +1164,21 @@
     "semantic_hash": ""
   },
   "internal/notification/delivery/testdata/webhook.golden.json": {
-    "mtime": 1788610274.7648718,
-    "seen": 1788610436.244483,
-    "ast_hash": "8905b67acc29f9a5b9bcd5759b31ac2c",
+    "mtime": 1788610956.446471,
+    "seen": 1788611016.04282,
+    "ast_hash": "f43a564385fab87a03ee6cc046a548a6",
+    "semantic_hash": ""
+  },
+  "internal/notification/render_test.go": {
+    "mtime": 1788610956.5123239,
+    "seen": 1788611016.042826,
+    "ast_hash": "37ad0858cea6f5b7064381dce2994453",
+    "semantic_hash": ""
+  },
+  "internal/notification/select_test.go": {
+    "mtime": 1788610908.3160825,
+    "seen": 1788611016.042828,
+    "ast_hash": "c5a531770083df2a72a0a7f47d8bbf49",
     "semantic_hash": ""
   }
 }

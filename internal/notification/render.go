@@ -33,11 +33,23 @@ func SafeRequestURL(e EventV1) bool {
 	if e.Request.ID == "" {
 		return false
 	}
-	suffix := "/pull/" + url.PathEscape(e.Request.ID)
-	if e.Repository.Provider == "azuredevops" {
-		suffix = "/pullrequest/" + url.PathEscape(e.Request.ID)
+	parts := strings.Split(e.Repository.Name, "/")
+	var expected string
+	switch e.Repository.Provider {
+	case "github":
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return false
+		}
+		expected = "/" + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1]) + "/pull/" + url.PathEscape(e.Request.ID)
+	case "azuredevops":
+		if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+			return false
+		}
+		expected = "/" + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1]) + "/_git/" + url.PathEscape(parts[2]) + "/pullrequest/" + url.PathEscape(e.Request.ID)
+	default:
+		return false
 	}
-	return strings.HasSuffix(u.EscapedPath(), suffix)
+	return strings.EqualFold(u.EscapedPath(), expected)
 }
 
 // FixedFacts is independent of template content and transport. Required identity
@@ -49,13 +61,21 @@ func FixedFacts(e EventV1) (string, error) {
 	if (e.Kind != v1.NotificationRequestCreated && e.Kind != v1.NotificationRequestMerged) || (e.Request.Type != v1.NotificationPromotion && e.Request.Type != v1.NotificationBackflow) {
 		return "", ErrInvalidState
 	}
-	fields := []string{e.Repository.Name, e.Graph, e.Request.Source, e.Request.Destination, e.Request.ID, e.Request.URL}
+	identity := []string{e.Repository.Provider, e.Repository.Host}
+	if e.Repository.Provider == "azuredevops" {
+		if e.Repository.OrganizationID == "" || e.Repository.ProjectID == "" {
+			return "", ErrInvalidState
+		}
+		identity = append(identity, e.Repository.OrganizationID, e.Repository.ProjectID)
+	}
+	identity = append(identity, e.Repository.ID)
+	fields := append([]string{e.Repository.Name, e.Graph, e.Request.Source, e.Request.Destination, e.Request.ID, e.Request.URL}, identity...)
 	for _, s := range fields {
 		if !utf8.ValidString(s) || CleanText(s, false) != s {
 			return "", ErrInvalidState
 		}
 	}
-	facts := fmt.Sprintf("Repository: %s (%s/%s/%s)\nGraph: %s\nEvent: %s\nRequest type: %s\nSource: %s\nDestination: %s\nEvent ID: %s\nRequest ID: %s\nRequest: %s\nObserved at: %s", e.Repository.Name, e.Repository.Provider, e.Repository.Host, e.Repository.ID, e.Graph, e.Kind, e.Request.Type, e.Request.Source, e.Request.Destination, e.ID, e.Request.ID, e.Request.URL, e.ObservedAt.UTC().Format(time.RFC3339))
+	facts := fmt.Sprintf("Repository: %s (%s)\nGraph: %s\nEvent: %s\nRequest type: %s\nSource: %s\nDestination: %s\nEvent ID: %s\nRequest ID: %s\nRequest: %s\nObserved at: %s", e.Repository.Name, strings.Join(identity, "/"), e.Graph, e.Kind, e.Request.Type, e.Request.Source, e.Request.Destination, e.ID, e.Request.ID, e.Request.URL, e.ObservedAt.UTC().Format(time.RFC3339))
 	if e.Snapshot.CommitsUnavailable {
 		facts += "\nCommit details unavailable; see the request."
 	} else if e.Snapshot.CommitsTruncated {
