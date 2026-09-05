@@ -1,5 +1,25 @@
 # Implementation validation evidence
 
+## Platform-policy rebase — 2026-09-05
+
+PR #77 is rebased onto `ec43b8e`, the merged PR #78 platform-support decision
+(ADR 0016). Linux retains full coverage/race checks and notification-specific
+integration plus per-package coverage gates. macOS/Windows build all code and
+run bounded portability units, now including `internal/notification/...`.
+Git-backed CLI/coordinator notification scenarios remain Linux CI gates.
+
+The temporary 20-minute package / 45-minute Windows job workaround was removed;
+Linux test tasks explicitly use ten-minute package deadlines and portability
+units use three minutes. The `*.golden.json` LF checkout fix remains. CI contract
+tests cover the platform conditions, notification coverage commands and updated
+portable package selection. The production implementation and its existing
+tests are unchanged by the rebase; no acceptance testing or release was added.
+
+Commit IDs and timings in the earlier handoffs below describe pre-rebase
+checkpoints. The original tip is retained locally at
+`backup/pr77-before-platform-rebase-20260905`; post-rebase CI remains the
+authoritative hosted validation for the new history.
+
 ## Implementation handoff — 2026-09-05
 
 All 78 in-scope checklist tasks are complete. The maintainer explicitly instructed
