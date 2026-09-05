@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rillan AI LLC
+// SPDX-License-Identifier: MIT
+
 package actioncontract_test
 
 import (
