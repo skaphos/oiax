@@ -11,7 +11,7 @@ func DueDeliveries(l *LedgerV1, now time.Time) []string {
 	groups := map[string][]string{}
 	for key, r := range l.Deliveries {
 		d := l.Destinations[r.Destination]
-		if !d.Active || d.Generation != r.Generation || r.Status == StatusDelivered || r.Status == StatusSkipped || now.Before(r.NextAttemptAt) || now.Before(r.Lease.Until) || now.Before(d.Lease.Until) {
+		if !d.Active || d.Generation != r.Generation || r.Status == StatusDelivered || r.Status == StatusSkipped || now.Before(r.NextAttemptAt) || now.Before(r.Lease.Until) || now.Before(d.Lease.Until) || now.Before(d.NextSendAt) {
 			continue
 		}
 		groups[r.Destination] = append(groups[r.Destination], key)

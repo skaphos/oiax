@@ -25,9 +25,10 @@ func TestNotificationLifecycleConformance(t *testing.T) {
 				body = strings.Repeat("Full detail required. ", 50) + mk.Serialize(mk.Marker{Version: "v1", Graph: seed.Graph, Type: string(seed.Type), Source: seed.Source, Destination: seed.Destination, SourceHead: strings.Repeat("a", 40)})
 			}
 			status := "active"
-			if seed.State == notification.LifecycleMerged {
+			switch seed.State {
+			case notification.LifecycleMerged:
 				status = "completed"
-			} else if seed.State == notification.LifecycleClosed {
+			case notification.LifecycleClosed:
 				status = "abandoned"
 			}
 			pr := adoPull{PullRequestID: seed.ID, Status: status, Description: body, CreationDate: seed.CreatedAt.Format("2006-01-02T15:04:05Z07:00"), ClosedDate: seed.MergedAt.Format("2006-01-02T15:04:05Z07:00"), SourceRefName: "refs/heads/" + seed.Source, TargetRefName: "refs/heads/" + seed.Destination}

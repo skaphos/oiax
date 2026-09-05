@@ -1,46 +1,57 @@
 # Implementation validation evidence
 
-## Current checkpoint — resume on another machine
+## Current checkpoint — bounded delivery resumed
 
 2026-09-04: work-in-progress implementation checkpoint for draft PR #77,
 branch `spec/promotion-notifications`. **Not merge-ready or deployable.**
-The evidence below for T002–T015 describes the earlier foundation snapshot,
-not a passing verification of all code in this checkpoint.
+T029 and T031–T033 now complete the bounded dispatcher slice: runtime mutations
+use caller-observed CAS revisions, messages persist before claims, claims renew
+against the current accepted config/generation, destination workers send in
+parallel while remaining sequential and one-second-spaced within a destination,
+and accepted sends with failed receipt persistence report explicit uncertainty.
+Mutating CLI finalization initializes only the exact notes ref, continues pending
+dispatch after incomplete observation, and logs notification deferral without
+changing the core apply error or exit 0/1/3. All-disabled and canceled invocations
+bypass capabilities before endpoint lookup or outbound work.
 
-T001–T015 are checked complete; T016–T080 remain unchecked. US1 is partially
-implemented: both provider lifecycle readers and their shared conformance
-fixtures, Teams/Slack/webhook adapters, HTTPS transport protections, built-in
-rendering, merge selection, scheduling and observation scaffolding are present.
-These additions have not completed the US1 acceptance matrix.
+New regression coverage includes competing workers, a real local bare-remote
+notes initialization with no `oiax/` branch/tag creation, 1,000 repeated
+evaluations after durable success, due/lease/pacing fences, 20-destination fair
+allocation under the 100-run/10-destination bounds, independent destination
+failure, a blocked slow sender alongside a successful sender, and accepted-send
+receipt uncertainty. No live receiver or external repository was contacted.
 
-Checkpoint verification: `GOCACHE=/tmp/oiax-go-build go test ./... -run '^$'`
-fails because `internal/reconcile/notification_merge_test.go` references
-`NotificationRuntime.Dispatch`, which has not been implemented. Keep this
-tests-first failure visible; do not skip the test or add a no-op implementation
-merely to make CI green. Whitespace verification passes. The full suite and
-lint must be rerun after completing the interrupted implementation.
+Verification on this checkpoint:
+
+| Check | Result |
+|---|---|
+| `go test -race -shuffle=on ./...` with the documented process-local Git settings | PASS |
+| focused notification/reconcile race tests, repeated 10 times after concurrent dispatch | PASS |
+| `go -C tools tool task lint` | PASS, 0 issues |
+| `go -C tools tool task build` | PASS |
+| `go -C tools tool task verify-generated` | PASS |
+| `graphify update .` | PASS: 1,787 nodes, 4,962 edges, 107 communities |
+| `graphify diagnose multigraph --max-examples 1` | PASS: no missing/dangling endpoints, self-loops or collapsed edges; raw producer loss not measured |
+| `git diff --check` | PASS |
+
+US1 remains incomplete: provider pagination/incomplete-scan adversarial coverage,
+the rest of merge integration and default-presentation matrices, built-binary
+notification scenarios and independent acceptance evidence are still unchecked.
+Creation provenance, custom templates, immutable commit enrichment, preview and
+diagnostics remain later phases.
 
 Resume in this order:
 
-1. Read the feature's `tasks.md`, spec, plan, contracts and repository guidance.
-   Continue US1 from T016–T019; the existing tests cover only part of that matrix.
-2. Implement durable dispatch in `internal/reconcile/notification_delivery.go`
-   using the existing reducers, saved messages, claims, renewal and monotone
-   results. Respect bounded time, concurrency, per-destination spacing and
-   fresh policy checks before sending. Do not contact live receivers in tests.
-3. Reconcile runtime store calls with the in-memory CAS fixture:
-   `notification_observe.go` currently passes an empty expected revision on
-   every commit, while `notificationtest.MemoryStore` requires the current
-   revision after initialization. Preserve stale-write/conflict guarantees.
-4. Complete secret-safe event/message persistence, lifecycle pagination and
-   incomplete-scan tests, then wire the runtime into mutating CLI finalization.
-   The CLI currently carries the loaded policy but does not run notifications.
-   Keep all-disabled invocations free of notification I/O and preserve core
-   exit codes and unmanaged-request boundaries.
-5. Continue creation provenance, custom templates, immutable commit enrichment,
-   preview/diagnostics and release validation in task dependency order.
-   Refresh `graphify-out/` afterward: its committed refresh predates the latest
-   US1 files. Recheck coverage, race tests, lint and generated artifacts.
+1. Complete T016–T019 and T020–T028 provider/client/presentation conformance,
+   especially pagination movement, dense/incomplete scans, unmanaged requests,
+   both request types and exact adapter goldens.
+2. Finish T030 and T034–T038: adversarial observation/config-order races,
+   default presentation, built-binary merge scenarios, exact core exit evidence
+   and the independent US1 matrix. Do not contact live receivers in unit tests.
+3. Continue creation provenance, custom templates, immutable commit enrichment,
+   preview/diagnostics and release validation in task dependency order. Refresh
+   `graphify-out/` after later code changes, then recheck coverage, race tests,
+   lint and generated artifacts.
 
 Namespace-only ADR 0015 is accepted following explicit maintainer approval of
 `notes/oiax`; broader ADRs 0013/0014 remain proposed. No live receiver sends,

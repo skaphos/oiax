@@ -55,9 +55,12 @@ conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.`,
 			}
 			writeStepSummary(cmd, plan)
 
-			res, err := coord.Apply(cmd.Context(), plan)
-			if err != nil {
-				return err
+			res, applyErr := coord.Apply(cmd.Context(), plan)
+			if notificationErr := coord.FinalizeNotifications(cmd.Context()); notificationErr != nil {
+				coord.Log.Warn("notification finalization deferred", "reason", notificationErr)
+			}
+			if applyErr != nil {
+				return applyErr
 			}
 			if res.Divergence {
 				return exitCodeError{code: 3, msg: "converged with reported divergence"}

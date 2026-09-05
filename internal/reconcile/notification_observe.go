@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/skaphos/oiax/internal/engine"
@@ -16,6 +17,7 @@ import (
 // NotificationRuntime owns effects independently of the branch engine. All
 // callback dependencies are installed before use; one instance is one invocation.
 type NotificationRuntime struct {
+	commitMu       sync.Mutex
 	Store          notification.LedgerStore
 	Reader         forge.LifecycleReader
 	Repository     notification.RepositoryIdentity
@@ -56,6 +58,29 @@ func policyDigest(p *v1.NotificationPolicy) string {
 	return notification.Digest("policy-v1", string(data))
 }
 
+// commit supplies the caller-observed revision required by LedgerStore and
+// retries only explicit CAS conflicts. The transition is deliberately passed
+// through unchanged so every attempt reduces a freshly read snapshot.
+func (r *NotificationRuntime) commit(ctx context.Context, transition notification.Transition) (notification.Snapshot, error) {
+	if r.Store == nil || transition == nil {
+		return notification.Snapshot{}, notification.ErrInvalidState
+	}
+	r.commitMu.Lock()
+	defer r.commitMu.Unlock()
+	for range 5 {
+		current, err := r.Store.Read(ctx)
+		if err != nil && !errors.Is(err, notification.ErrAbsent) {
+			return notification.Snapshot{}, err
+		}
+		next, err := r.Store.Commit(ctx, current.Revision, transition)
+		if errors.Is(err, notification.ErrConflict) {
+			continue
+		}
+		return next, err
+	}
+	return notification.Snapshot{}, notification.ErrConflict
+}
+
 func (r *NotificationRuntime) Activate(ctx context.Context) error {
 	if !r.Policy.IsEnabled() {
 		return nil
@@ -65,7 +90,7 @@ func (r *NotificationRuntime) Activate(ctx context.Context) error {
 	}
 	revision := notification.PolicyRevisionV1{ConfigOID: r.ConfigOID, PolicyDigest: policyDigest(r.Policy)}
 	now := r.now()
-	_, err := r.Store.Commit(ctx, "", func(ctx context.Context, current *notification.LedgerV1) (*notification.LedgerV1, error) {
+	_, err := r.commit(ctx, func(ctx context.Context, current *notification.LedgerV1) (*notification.LedgerV1, error) {
 		if current == nil {
 			current = notification.NewLedger(r.Repository, r.Graph, r.ConfigOID)
 		}
@@ -86,7 +111,7 @@ func (r *NotificationRuntime) Admit(ctx context.Context, events []notification.E
 	if !r.Policy.IsEnabled() || len(events) == 0 {
 		return nil
 	}
-	_, err := r.Store.Commit(ctx, "", func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
+	_, err := r.commit(ctx, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
 		if l == nil {
 			return nil, notification.ErrAbsent
 		}
@@ -184,7 +209,7 @@ func (r *NotificationRuntime) Observe(ctx context.Context) error {
 }
 
 func (r *NotificationRuntime) recordObservation(ctx context.Context, requests []notification.LifecycleRequest, scan string, progress notification.ScanProgress, now time.Time) error {
-	_, err := r.Store.Commit(ctx, "", func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
+	_, err := r.commit(ctx, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
 		if l == nil {
 			return nil, notification.ErrAbsent
 		}
