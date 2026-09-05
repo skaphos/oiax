@@ -26,6 +26,10 @@ the [reference](../reference/), and for the design see
 
 ## Use
 
+- **[Upgrading to v2](upgrading-v2.md)** — update version pins, review Linux
+  support, and activate notifications separately.
+- **[Managed-request notifications](notifications.md)** — Teams, Slack,
+  webhooks, previews, and delivery recovery.
 - **[Backflow: returning hotfixes](backflow.md)** — bring downstream-only
   commits back to your source branch.
 - **[Governance change-record templates](governance-templates.md)** —

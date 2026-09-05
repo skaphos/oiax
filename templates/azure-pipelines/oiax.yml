@@ -17,7 +17,7 @@
 #       - repository: oiax
 #         type: github
 #         name: skaphos/oiax
-#         ref: refs/tags/v1.3.0        # pin template and version together
+#         ref: refs/tags/v2.0.0        # pin template and version together
 #         endpoint: <github-service-connection>
 #
 #   steps:
@@ -26,10 +26,10 @@
 #       persistCredentials: true       # required: the ref-prepare fetch
 #     - template: templates/azure-pipelines/oiax.yml@oiax
 #       parameters:
-#         version: v1.3.0
+#         version: v2.0.0
 #         githubToken: $(OIAX_GITHUB_TOKEN)
 #
-# Unlike the Action — whose @v1 ref carries a release manifest that picks
+# Unlike the Action — whose @v2 ref carries a release manifest that picks
 # the binary for it — a template ref cannot see what release it came from,
 # so `version` is required. Pin the template `ref` and `version` to the
 # same release so wrapper and binary stay in step.
@@ -43,7 +43,7 @@
 
 parameters:
   - name: version
-    displayName: Exact Oiax release version to download (for example v1.3.0)
+    displayName: Exact Oiax release version to download (for example v2.0.0)
     type: string
   - name: mode
     displayName: "What to run: validate, plan, or reconcile"

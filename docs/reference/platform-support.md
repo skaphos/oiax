@@ -2,7 +2,7 @@
 
 Linux is Oiax's supported platform for production automation, including
 standalone `plan`/`reconcile` jobs and the GitHub Action/Azure Pipelines wrappers.
-This policy takes effect with the major release containing ADR 0016; it does
+This policy takes effect in v2.0.0, as recorded in ADR 0016; it does
 not retroactively change older releases.
 
 | Platform | Support scope | Validation |
@@ -24,14 +24,17 @@ The configuration API, CLI arguments and exit codes are unchanged.
 ## Migration
 
 If production automation invokes Oiax directly on macOS or Windows, move that
-job to a Linux amd64/arm64 runner before upgrading to the major release with
-this policy. This also applies when the forge is GitHub or Azure DevOps:
+job to a Linux amd64/arm64 runner before upgrading to v2.0.0 or newer.
+This also applies when the forge is GitHub or Azure DevOps:
 the forge and the runner OS are independent choices.
 
 Retain the same reviewed graph configuration and repository credentials, and
 verify checkout paths, shell commands and Git ≥ 2.45 on the new runner.
 The supplied GitHub Action and Azure Pipelines template already require Linux,
 so their existing Linux consumers need no runner migration.
+
+See [Upgrading to v2](../guides/upgrading-v2.md) for Action/template version pins
+and optional notification activation.
 
 Local users can keep their native binary. Users unable to migrate automation
 may pin their existing release while planning the move; this does not create

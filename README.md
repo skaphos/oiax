@@ -7,10 +7,15 @@ GitOps repositories.
 > Releases](https://github.com/skaphos/oiax/releases): edge evaluation
 > through the full equivalence ladder, the GitHub forge provider (and
 > Azure DevOps as of 1.1.0), managed promotion requests, and backflow. Run
-> it with the `skaphos/oiax@v1` Action or the [Azure Pipelines
-> template](docs/guides/azure-pipelines.md); the floating `@v1` tag tracks
-> the latest `v1.x.y`. New here? Start with the
+> it with the `skaphos/oiax@v2` Action or the [Azure Pipelines
+> template](docs/guides/azure-pipelines.md); the floating `@v2` tag tracks
+> the latest `v2.x.y`. New here? Start with the
 > [getting-started guide](docs/guides/getting-started.md).
+
+Version 2 adds optional Teams, Slack, and webhook notifications and makes Linux
+the supported platform for production automation. Existing v1 users should
+follow [Upgrading to v2](docs/guides/upgrading-v2.md); `@v1` does not move to v2
+automatically. The configuration API remains `oiax.skaphos.dev/v1`.
 
 Branch-based GitOps repositories model environments as long-lived
 branches — `development → test → qa → production-stage-1 → main` — and
@@ -112,15 +117,15 @@ See [platform support and migration](docs/reference/platform-support.md).
 - uses: actions/checkout@v7
   with:
     fetch-depth: 0         # required: full history for correct equivalence detection
-- uses: skaphos/oiax@v1
+- uses: skaphos/oiax@v2
   with:
     config: .oiax.yaml
     mode: reconcile        # validate | plan | reconcile
 ```
 
-Release automation advances `@v1` only after publishing a successful
-`v1.x.y` release. The Action reads that release's manifest and downloads
-the matching binary, so wrapper and binary update together within v1.
+Release automation advances `@v2` only after publishing a successful
+`v2.x.y` release. The Action reads that release's manifest and downloads
+the matching binary, so wrapper and binary update together within v2.
 
 `fetch-depth: 0` is not optional: `actions/checkout`'s default shallow
 clone (`fetch-depth: 1`) has no merge base, which silently degrades
@@ -147,6 +152,8 @@ artifacts). See
 ## Documentation
 
 - [Documentation index](docs/README.md)
+- [Upgrading to v2](docs/guides/upgrading-v2.md) — Action and Azure version pins,
+  Linux support, and notification activation
 - [Guides](docs/guides/README.md) — getting started, GitHub Action and
   Azure Pipelines setup, tokens, backflow, day-two operations,
   troubleshooting

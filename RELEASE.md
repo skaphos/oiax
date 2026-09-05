@@ -39,10 +39,16 @@ tags, and publishes.
 The composite Action (`action.yml`) consumes those release artifacts: it
 reads the version from `.release-please-manifest.json` at the Action ref,
 downloads that binary for the runner platform, and verifies it against
-`checksums.txt`. Consumers using `skaphos/oiax@v1` therefore receive the
-newest published `v1.x.y` wrapper and binary together; consumers can set
+`checksums.txt`. Consumers using `skaphos/oiax@v2` therefore receive the
+newest published `v2.x.y` wrapper and binary together; consumers can set
 the Action's `version` input to a full tag when they need an exact binary
 within the same major. The Action rejects a cross-major override.
+
+The v2.0.0 release established the `v2` Action tag. `v1` remains on the 1.x
+release line; a major release never advances another major's floating tag.
+Consumers must opt into v2 by changing their Action ref, or pin both their
+Azure template and binary to v2.0.0. See
+[Upgrading to v2](docs/guides/upgrading-v2.md).
 
 ## Publishing to the GitHub Marketplace
 
@@ -50,7 +56,7 @@ Listing the Action on the [GitHub Marketplace](https://github.com/marketplace)
 is separate from release automation and is a **manual, one-time** step.
 GitHub exposes no API for the *Publish this Action to the GitHub Marketplace*
 toggle, so neither release-please nor GoReleaser can set it. The listing only
-adds discoverability: `skaphos/oiax@v1` resolves from tags and release assets
+adds discoverability: `skaphos/oiax@v2` resolves from tags and release assets
 whether or not a listing exists.
 
 The listing anchors to a **release** — you tick the checkbox on the release

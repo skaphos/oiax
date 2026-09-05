@@ -255,7 +255,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0               # REQUIRED — full history; shallow degrades detection
-      - uses: skaphos/oiax@v1
+      - uses: skaphos/oiax@v2
         with:
           config: .oiax.yaml
           mode: reconcile
