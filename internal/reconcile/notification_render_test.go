@@ -129,3 +129,23 @@ func TestNotificationPreviewDecisions(t *testing.T) {
 		}
 	}
 }
+
+func TestNotificationPreviewUsesCreationPrecisionEvidence(t *testing.T) {
+	second := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	policy := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "ops", Type: v1.NotificationWebhook, EndpointEnv: "ENDPOINT", Events: []v1.NotificationEvent{v1.NotificationRequestCreated}}}}
+	repo := notification.RepositoryIdentity{Provider: "github", Host: "github.com", ID: "1", Name: "example/repo"}
+	revision := notification.PolicyRevisionV1{ConfigOID: strings.Repeat("a", 40), PolicyDigest: policyDigest(policy)}
+	l, err := notification.AcceptPolicy(notification.NewLedger(repo, "graph", revision.ConfigOID), revision, policy, second.Add(100*time.Millisecond), notification.RevisionEvidence{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := mergeEvent(repo, "42", second)
+	e.Kind = v1.NotificationRequestCreated
+	e.ID = notification.EventID(repo, "42", e.Kind)
+	e.ObservedAt = second.Add(500 * time.Millisecond)
+	l.KnownRequests["42"] = notification.LifecycleRequest{Repository: repo, Graph: "graph", Request: e.Request, CreatedAt: second, Origin: &notification.NotificationOriginV1{Version: 1, OperationID: "created", Graph: "graph", ConfigOID: revision.ConfigOID, ObservedAt: second.Add(200 * time.Millisecond), LogicalSource: "dev", LogicalTarget: "test", SourceOID: strings.Repeat("b", 40), BaseOID: strings.Repeat("c", 40)}}
+	p := composeNotificationPreview(policy, l, []notification.EventV1{e}, engine.Plan{}, e.ObservedAt, "complete", "")
+	if len(p.Items) != 1 || p.Items[0].Decision != "pending" {
+		t.Fatal("preview disagrees with actual admission", p)
+	}
+}

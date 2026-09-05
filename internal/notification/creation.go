@@ -33,12 +33,13 @@ func CreationEvent(graph *engine.Graph, policy *v1.NotificationPolicy, req Lifec
 	return eventForRequest(graph, policy, req, v1.NotificationRequestCreated, req.CreatedAt, observedAt)
 }
 
-// A whole-second server timestamp describes the second containing creation.
+// EventAdmissionTime returns the subscription eligibility time shared by
+// admission and read-only preview. A whole-second server timestamp describes the second containing creation.
 // Original pre-POST evidence can prove that an operation in that same second
 // began after an activation cutoff. Use it only for subscription eligibility;
 // the public event retains the server timestamp verbatim. This never grants a
 // grace period to legacy/adopted requests or compensates arbitrary clock skew.
-func creationAdmissionTime(l *LedgerV1, event EventV1) time.Time {
+func EventAdmissionTime(l *LedgerV1, event EventV1) time.Time {
 	when := event.OccurredAt
 	if event.Kind != v1.NotificationRequestCreated || when.Nanosecond() != 0 {
 		return when

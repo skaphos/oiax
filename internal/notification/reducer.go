@@ -154,7 +154,7 @@ func AdmitEvent(l *LedgerV1, configOID string, event EventV1) (*LedgerV1, error)
 	if existing, ok := out.Events[event.ID]; ok {
 		event = existing
 	}
-	eligibleAt := creationAdmissionTime(out, event)
+	eligibleAt := EventAdmissionTime(out, event)
 	admitted := false
 	for name, d := range out.Destinations {
 		sub, ok := d.Subscriptions[SubscriptionKey(event.Kind, event.Request.Type)]

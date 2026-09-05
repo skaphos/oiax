@@ -81,6 +81,7 @@ func (r *NotificationRuntime) preview(ctx context.Context, plan engine.Plan) *No
 		if !req.Repository.Same(r.Repository) {
 			return
 		}
+		l.KnownRequests[req.Request.ID] = req
 		if e, ok := notification.CreationEvent(r.Topology, r.Policy, req, now); ok {
 			events = append(events, e)
 		}
@@ -169,7 +170,7 @@ func composeNotificationPreview(policy *v1.NotificationPolicy, l *notification.L
 				case !d.IsEnabled() || !ds.Active || recorded && record.Status == notification.StatusSkipped:
 					item.Decision, item.Reason = "subscription-not-active", "subscription-retired"
 				case !subscribed:
-				case !recorded && e.OccurredAt.Before(sub.Cutoff):
+				case !recorded && notification.EventAdmissionTime(l, e).Before(sub.Cutoff):
 					item.Decision, item.Reason = "subscription-not-active", "before-subscription-cutoff"
 				case recorded && ((record.Status == notification.StatusRetryable && now.Before(record.NextAttemptAt)) || now.Before(record.Lease.Until) || now.Before(ds.NextSendAt)):
 					item.Decision, item.Reason = "retry-not-due", "retry-or-lease-not-due"
