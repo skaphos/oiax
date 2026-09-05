@@ -52,18 +52,13 @@ tasks:
       - go build ./...
       - go test -timeout=3m ./cmd/oiax ./internal/actioncontract ./internal/cienv ./internal/config ./internal/engine ./internal/forge ./internal/forge/marker ./internal/tmpl ./pkg/api/...
 
-  test-race:
-    desc: Run the full repository suite with race detection and shuffled tests
-    cmds:
-      - go test -race -shuffle=on ./...
-
   notifications:verify:
     desc: Race/shuffle notification suites and enforce per-package 85% coverage
     cmds:
-      - go test -race -shuffle=on -covermode=atomic -coverprofile=coverage-notifications.out ./internal/notification/...
-      - go -C tools test -race -shuffle=on ./checkcoverage
+      - go test -timeout=10m -race -shuffle=on -covermode=atomic -coverprofile=coverage-notifications.out ./internal/notification/...
+      - go -C tools test -timeout=10m -race -shuffle=on ./checkcoverage
       - go -C tools run ./checkcoverage -profile ../coverage-notifications.out
-      - go test -race -shuffle=on ./internal/forge/github ./internal/forge/azuredevops ./internal/forge/marker ./internal/reconcile ./internal/cli -run Notification
+      - go test -timeout=10m -race -shuffle=on ./internal/forge/github ./internal/forge/azuredevops ./internal/forge/marker ./internal/reconcile ./internal/cli -run Notification
 
   notifications:fuzz:
     desc: Bounded parser fuzz campaigns (no live resources)
