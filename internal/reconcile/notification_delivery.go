@@ -25,6 +25,10 @@ func (r *NotificationRuntime) Dispatch(ctx context.Context) error {
 	if r.Store == nil || r.LookupEnv == nil || r.Sender == nil || !notification.ValidOID(r.ConfigOID) {
 		return notification.ErrInvalidState
 	}
+	templates, err := notification.ResolveTemplates(r.Policy)
+	if err != nil {
+		return err
+	}
 	operationID := ""
 	if r.OperationID != nil {
 		operationID = r.OperationID()
@@ -77,7 +81,7 @@ func (r *NotificationRuntime) Dispatch(ctx context.Context) error {
 					return
 				}
 				attemptID := notification.Digest("attempt-v1", operationID, current.key)
-				err := r.dispatchOne(stageCtx, current.key, attemptID, current.destination)
+				err := r.dispatchOne(stageCtx, current.key, attemptID, current.destination, templates)
 				if errors.Is(err, notification.ErrNotDue) {
 					continue
 				}
@@ -123,7 +127,7 @@ func destinationForKey(l *notification.LedgerV1, key string, configured map[stri
 	return destination, ok
 }
 
-func (r *NotificationRuntime) dispatchOne(ctx context.Context, key, attemptID string, destination v1.NotificationDestination) error {
+func (r *NotificationRuntime) dispatchOne(ctx context.Context, key, attemptID string, destination v1.NotificationDestination, templates *notification.TemplateSet) error {
 	prepared, err := r.commit(ctx, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
 		if l == nil {
 			return nil, notification.ErrAbsent
@@ -135,7 +139,7 @@ func (r *NotificationRuntime) dispatchOne(ctx context.Context, key, attemptID st
 		if record.Message != nil {
 			return l.Clone(), nil
 		}
-		message, err := notification.RenderBuiltin(l.Events[record.EventID])
+		message, err := templates.Render(destination.Name, l.Events[record.EventID])
 		if err != nil {
 			return nil, err
 		}

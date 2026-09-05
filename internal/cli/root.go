@@ -17,6 +17,7 @@ import (
 	"github.com/skaphos/oiax/internal/config"
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/git"
+	"github.com/skaphos/oiax/internal/notification"
 	"github.com/skaphos/oiax/internal/tmpl"
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
@@ -232,6 +233,9 @@ func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*loadedConf
 				return nil, err
 			}
 		}
+	}
+	if _, err := notification.ResolveTemplates(cfg.Spec.Notifications); err != nil {
+		return nil, err
 	}
 	return &loadedConfig{Graph: engine.FromConfig(cfg), Templates: ts, Notifications: cfg.Spec.Notifications, NotificationSources: sources, ConfigOID: configRef}, nil
 }

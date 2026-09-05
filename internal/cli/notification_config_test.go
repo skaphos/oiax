@@ -72,6 +72,26 @@ func TestNotificationLoadedConfigRejectsOversizedSource(t *testing.T) {
 	}
 }
 
+func TestNotificationLoadedConfigValidatesClosedTemplates(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	configText := "apiVersion: oiax.skaphos.dev/v1\nkind: PromotionGraph\nmetadata: {name: graph}\nspec:\n  branches: {development: {}}\n  notifications:\n    templates: {bodyFile: message.txt}\n"
+	if err := os.WriteFile(".oiax.yaml", []byte(configText), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{"{{.SecretCanary}}", "{{if false}}{{.SecretCanary}}{{end}}", "{{env `SecretCanary`}}", strings.Repeat("x", (12<<10)+1)} {
+		if err := os.WriteFile("message.txt", []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.Background())
+		_, err := loadGraph(cmd, &options{configPath: ".oiax.yaml"}, "")
+		if err == nil || strings.Contains(err.Error(), "SecretCanary") {
+			t.Fatalf("invalid/unredacted template: %v", err)
+		}
+	}
+}
+
 type notificationCapabilityTrap struct {
 	*fakeForge
 	t *testing.T

@@ -1,6 +1,44 @@
 # Implementation validation evidence
 
-## Current checkpoint — optional creation alerts and recovery
+## Current increment — routing and custom presentation
+
+2026-09-05: the maintainer explicitly deferred live acceptance testing to adoption
+after release. T076/T077 are out of the current implementation scope, not passed
+tests. No live messages, provider merges, repository settings or release actions
+are authorized by this decision. Local automated tests remain required.
+
+Custom notification title/body slots now compile at configuration load from the
+pinned source, validate against all four lifecycle/request combinations, and
+render through a closed fact-only context. Explicit empty strings override;
+missing slots inherit. Field validation also visits inactive branches. Times are
+captured RFC3339 strings, not objects exposing methods. The deterministic helpers
+match the existing request-template `trunc`/`shortSHA` semantics without importing
+the request-template package (which depends on notification ownership markers).
+Ranges are bounded to `.Commits`; template inclusion, method calls, assignment,
+`with` and unbounded/integer ranges are not exposed. Source is capped at 1 MiB,
+execution output at 12 KiB, and inert titles at 256 runes. Error messages identify
+the configuration slot without echoing template source or execution values.
+
+Routing tests cover all 12 transport/event/type combinations, destination
+identity changes, empty/disabled/removed selections, new subscriptions, template
+edits and secret-variable identity preservation. Recorded retirement differs from
+all-disabled zero-I/O processing; resumed old epochs admit disabled-interval
+events, while new names and recorded re-enables use fresh cutoffs.
+
+A two-destination runtime regression verifies different saved wording for the
+same event and byte-equivalent retries after a descendant configuration edit,
+without replaying the successful destination. Existing adapter tests independently
+retain required facts with constant and empty text.
+
+Verification: focused race/shuffle routing, rendering, dispatch and pinned-file
+tests passed; lint passed with zero issues. A 10-second, two-worker
+`FuzzNotificationTemplate` campaign passed 239,686 executions. Full notification
+compiled-CLI regressions also passed: `go test -race -shuffle=on
+./internal/notification/... ./internal/reconcile ./internal/cli -run
+'TestTemplate|TestRouting|TestNotification|TestRender|TestFixedFacts'`
+(CLI 75.092 seconds). This includes the prior merge and creation binary matrices.
+
+## Earlier checkpoint — optional creation alerts and recovery
 
 2026-09-05: T039–T048 complete the local US2 creation-alert milestone. Optional
 PR-created notifications are now wired through both forges and the CLI.
