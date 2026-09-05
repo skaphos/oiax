@@ -1,0 +1,148 @@
+package github
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/skaphos/oiax/internal/forge"
+	"github.com/skaphos/oiax/internal/notification"
+	v1 "github.com/skaphos/oiax/pkg/api/v1"
+)
+
+func (p *Provider) RepositoryIdentity(ctx context.Context) (notification.RepositoryIdentity, error) {
+	p.notificationIdentityOnce.Do(func() {
+		var repo struct {
+			ID       int64  `json:"id"`
+			FullName string `json:"full_name"`
+		}
+		if _, err := p.do(ctx, http.MethodGet, p.url("/repos/"+url.PathEscape(p.Owner)+"/"+url.PathEscape(p.Repo)), nil, &repo); err != nil || repo.ID <= 0 || repo.FullName == "" {
+			p.notificationIdentityError = notification.ErrLifecycleUnavailable
+			return
+		}
+		p.notificationIdentityValue = notification.RepositoryIdentity{Provider: "github", Host: gitRemoteHost, ID: strconv.FormatInt(repo.ID, 10), Name: repo.FullName}
+	})
+	return p.notificationIdentityValue, p.notificationIdentityError
+}
+
+// ListLifecyclePage walks all requests by immutable creation order. It never
+// uses baseline lookback or updated/merged-order heuristics. The preceding page
+// overlaps each continuation to recover boundary movement, with stable-ID dedup.
+func (p *Provider) ListLifecyclePage(ctx context.Context, query forge.LifecycleQuery) (forge.LifecyclePage, error) {
+	result := forge.LifecyclePage{Progress: notification.ScanProgress{Version: 1, From: query.From, Through: query.Through}}
+	page := 1
+	if query.Cursor != "" {
+		var err error
+		page, err = strconv.Atoi(query.Cursor)
+		if err != nil || page < 1 || page > 1000000 {
+			return result, notification.ErrDiscoveryIncomplete
+		}
+	}
+	if query.Through.IsZero() || query.Graph == "" || query.Limit < 0 || query.Limit > 100 {
+		return result, notification.ErrDiscoveryIncomplete
+	}
+	seen := map[string]bool{}
+	for number := max(1, page-1); number <= page; number++ {
+		var pulls []ghPull
+		endpoint := p.url(fmt.Sprintf("/repos/%s/%s/pulls?state=all&sort=created&direction=asc&per_page=100&page=%d", url.PathEscape(p.Owner), url.PathEscape(p.Repo), number))
+		headers, err := p.do(ctx, http.MethodGet, endpoint, nil, &pulls)
+		result.Pages++
+		if err != nil || len(pulls) > 100 {
+			result.Progress.Cursor = strconv.Itoa(page)
+			return result, notification.ErrDiscoveryIncomplete
+		}
+		for _, listed := range pulls {
+			m, managed := managedMarker(listed)
+			if !managed || m.Graph != query.Graph {
+				continue
+			}
+			req, err := p.GetLifecycleRequest(ctx, forge.RequestID(strconv.Itoa(listed.Number)))
+			if errors.Is(err, notification.ErrNotManaged) {
+				continue
+			}
+			if err != nil {
+				result.Progress.Cursor = strconv.Itoa(page)
+				return result, notification.ErrDiscoveryIncomplete
+			}
+			if req.Graph != query.Graph || req.CreatedAt.After(query.Through) || seen[req.Request.ID] {
+				continue
+			}
+			seen[req.Request.ID] = true
+			result.Requests = append(result.Requests, req)
+		}
+		if number == page {
+			next := nextLink(headers.Get("Link"))
+			if next != "" && !p.sameOrigin(next) {
+				result.Progress.Cursor = strconv.Itoa(page)
+				return result, notification.ErrDiscoveryIncomplete
+			}
+			result.Progress.Complete = next == ""
+			if !result.Progress.Complete {
+				result.Progress.Cursor = strconv.Itoa(page + 1)
+			}
+		}
+	}
+	sort.Slice(result.Requests, func(i, j int) bool { return result.Requests[i].Request.ID < result.Requests[j].Request.ID })
+	return result, nil
+}
+
+func (p *Provider) GetLifecycleRequest(ctx context.Context, id forge.RequestID) (notification.LifecycleRequest, error) {
+	number, err := strconv.Atoi(string(id))
+	if err != nil || number <= 0 {
+		return notification.LifecycleRequest{}, notification.ErrRequestMissing
+	}
+	pr, err := p.getPull(ctx, number)
+	if err != nil {
+		var api *apiError
+		if errors.As(err, &api) && api.StatusCode == 404 {
+			return notification.LifecycleRequest{}, notification.ErrRequestMissing
+		}
+		return notification.LifecycleRequest{}, notification.ErrLifecycleUnavailable
+	}
+	m, ok := managedMarker(pr)
+	if !ok || pr.Head.Repo.FullName == "" || (m.Type != "promotion" && m.Type != "backflow") {
+		return notification.LifecycleRequest{}, notification.ErrNotManaged
+	}
+	repo, err := p.RepositoryIdentity(ctx)
+	if err != nil {
+		return notification.LifecycleRequest{}, err
+	}
+	if !strings.EqualFold(pr.Base.Repo.FullName, repo.Name) {
+		return notification.LifecycleRequest{}, notification.ErrNotManaged
+	}
+	created, err := time.Parse(time.RFC3339Nano, pr.CreatedAt)
+	if err != nil {
+		return notification.LifecycleRequest{}, notification.ErrLifecycleUnavailable
+	}
+	r := notification.LifecycleRequest{Repository: repo, Graph: m.Graph, CreatedAt: created.UTC(), SourceOID: pr.Head.SHA, BaseOID: pr.Base.SHA,
+		Request: notification.RequestV1{ID: strconv.Itoa(pr.Number), Type: v1.NotificationRequestType(m.Type), Source: pr.Head.Ref, Destination: pr.Base.Ref, URL: "https://" + gitRemoteHost + "/" + url.PathEscape(p.Owner) + "/" + url.PathEscape(p.Repo) + "/pull/" + strconv.Itoa(pr.Number)}}
+	if m.Type == "promotion" {
+		r.Request.LogicalSource = pr.Head.Ref
+		r.Request.LogicalDestination = pr.Base.Ref
+	}
+	switch pr.State {
+	case "open":
+		r.State = notification.LifecycleOpen
+	case "closed":
+		r.State = notification.LifecycleClosed
+		if pr.MergedAt != nil {
+			merged, err := time.Parse(time.RFC3339Nano, *pr.MergedAt)
+			if err != nil {
+				return notification.LifecycleRequest{}, notification.ErrLifecycleUnavailable
+			}
+			r.State = notification.LifecycleMerged
+			r.MergedAt = merged.UTC()
+		}
+	default:
+		return notification.LifecycleRequest{}, notification.ErrLifecycleUnavailable
+	}
+	return r, nil
+}
+
+var _ forge.LifecycleReader = (*Provider)(nil)

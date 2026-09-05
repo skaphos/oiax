@@ -2,9 +2,12 @@ package v1
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Default applies the documented defaulting pass in place, following the
@@ -22,6 +25,7 @@ import (
 // Default never overwrites a set field and is idempotent. It applies no
 // semantic judgement — call Validate to check the result.
 func (g *PromotionGraph) Default() {
+	g.Spec.Notifications.Default()
 	if g.APIVersion == "" {
 		g.APIVersion = APIVersion
 	}
@@ -145,6 +149,94 @@ func (g *PromotionGraph) Validate() []error {
 
 	errs = append(errs, g.validateBackflow()...)
 	errs = append(errs, g.validateTemplates()...)
+	errs = append(errs, g.ValidateNotifications()...)
+	return errs
+}
+
+var notificationNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+var notificationEnvPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// ValidateNotifications checks non-secret structure only. Syntax/sample rendering
+// of templates belongs to the loader; this public validator performs no I/O.
+// Rejected values are deliberately excluded from diagnostic text.
+func (g *PromotionGraph) ValidateNotifications() []error {
+	p := g.Spec.Notifications
+	if p == nil {
+		return nil
+	}
+	var errs []error
+	report := func(path, action string) { errs = append(errs, fmt.Errorf("spec.notifications.%s: %s", path, action)) }
+	if len(p.Destinations) > 20 {
+		report("destinations", "configure at most 20 destinations")
+	}
+	keys := make([]string, 0, len(p.EnvironmentNames))
+	for k := range p.EnvironmentNames {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for i, k := range keys {
+		label := p.EnvironmentNames[k]
+		if _, ok := g.Spec.Branches[k]; !ok {
+			report(fmt.Sprintf("environmentNames[%d]", i), "use a declared graph branch")
+		}
+		if !utf8.ValidString(label) || strings.TrimSpace(label) == "" || utf8.RuneCountInString(label) > 100 || strings.ContainsFunc(label, unicode.IsControl) {
+			report(fmt.Sprintf("environmentNames[%d]", i), "use a nonempty label of at most 100 runes without controls")
+		}
+	}
+	validateSlots := func(path string, slots *NotificationTemplates) {
+		if slots == nil {
+			return
+		}
+		if slots.Body != nil && slots.BodyFile != "" {
+			report(path, "body and bodyFile are mutually exclusive")
+		}
+		if slots.BodyFile != "" && (validateTemplatePath(slots.BodyFile) != nil || strings.Contains(slots.BodyFile, ":")) {
+			report(path+".bodyFile", "use a clean repository-relative file path")
+		}
+		for _, value := range []*string{slots.Title, slots.Body} {
+			if value != nil && (len(*value) > 1<<20 || !utf8.ValidString(*value)) {
+				report(path, "use valid UTF-8 template sources of at most 1 MiB")
+			}
+		}
+	}
+	validateSlots("templates", p.Templates)
+	names := make(map[string]bool)
+	for i, d := range p.Destinations {
+		path := fmt.Sprintf("destinations[%d]", i)
+		if !notificationNamePattern.MatchString(d.Name) {
+			report(path+".name", "use 1–63 lowercase ASCII letters, digits or hyphens, starting and ending alphanumeric")
+		}
+		if names[d.Name] {
+			report(path+".name", "use a unique destination name")
+		}
+		names[d.Name] = true
+		switch d.Type {
+		case NotificationTeams, NotificationSlack, NotificationWebhook:
+		default:
+			report(path+".type", "choose teams, slack or webhook; email is not supported")
+		}
+		if !notificationEnvPattern.MatchString(d.EndpointEnv) {
+			report(path+".endpointEnv", "use an environment variable name, not a URL or credential")
+		}
+		if d.AllowPrivateNetwork && d.Type != NotificationWebhook {
+			report(path+".allowPrivateNetwork", "private unicast is available only for generic webhooks")
+		}
+		events := make(map[NotificationEvent]bool)
+		for j, e := range d.Events {
+			if (e != NotificationRequestCreated && e != NotificationRequestMerged) || events[e] {
+				report(fmt.Sprintf("%s.events[%d]", path, j), "choose unique request-created or request-merged entries")
+			}
+			events[e] = true
+		}
+		types := make(map[NotificationRequestType]bool)
+		for j, kind := range d.RequestTypes {
+			if (kind != NotificationPromotion && kind != NotificationBackflow) || types[kind] {
+				report(fmt.Sprintf("%s.requestTypes[%d]", path, j), "choose unique promotion or backflow entries")
+			}
+			types[kind] = true
+		}
+		validateSlots(path+".templates", d.Templates)
+	}
 	return errs
 }
 

@@ -36,11 +36,11 @@ conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.`,
 			if err != nil {
 				return err
 			}
-			g, ts, err := loadGraph(cmd, opts, ref)
+			loaded, err := loadGraph(cmd, opts, ref)
 			if err != nil {
 				return err
 			}
-			coord, err := buildCoordinator(cmd, g, ts, runner)
+			coord, err := buildCoordinator(cmd, loaded, runner)
 			if err != nil {
 				return err
 			}

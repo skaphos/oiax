@@ -8,10 +8,10 @@ It is not a completed test report.
 
 - Implementation of [#75](https://github.com/skaphos/oiax/issues/75), Go from
   `go.mod`, Git ≥2.45, and a full-history clone.
-- Resolved T001 authority gate: a recorded maintainer-reviewed basis that the
-  exact notes ref/write operation conforms to Constitution XI, or a separately
-  reviewed conforming design. These docs and endpoint credentials are not approval
-  to implement or exercise the pending writer proposal.
+- Preserve the T001 namespace decision in ADR 0015/Constitution XI v2.0.0:
+  only the exact notification notes ref and expected-tip, append-only operation
+  are in scope. Namespace authority is resolved; implementation conformance and
+  operator authorization for disposable live resources are still prerequisites.
 - Disposable GitHub and Azure repositories with a valid Oiax graph and branches
   created by an operator. Runtime forge credentials need notes read/write access.
   Tests must not automatically change repository permissions/settings.

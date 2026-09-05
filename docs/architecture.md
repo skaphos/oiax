@@ -161,8 +161,10 @@ ancestor of the new one, so supersede stays monotonic under concurrent
 runs that observe different heads). At most one active managed backflow
 request exists per (source,target): on a new hotfix the stale request is
 closed with an explanatory comment and the new one opened. Branches
-under `oiax/` are Oiax's to force-push and delete; no ref outside that
-namespace is ever force-pushed. The replay runs in an ephemeral detached
+under `oiax/` (`refs/heads/oiax/`) are Oiax's to force-push and delete;
+backflow never force-pushes a branch outside that namespace. The separate
+notes namespace permission below does not broaden backflow's targets.
+The replay runs in an ephemeral detached
 worktree, never the caller's checkout, and that worktree is removed on
 every exit path.
 
@@ -350,7 +352,13 @@ workflow annotations for warnings/errors and a plan summary written to
   validation, `--` separators), never interpolated into shell.
 - Backflow runs in an ephemeral detached worktree, never the caller's
   checkout, and that worktree is removed on every exit path.
-- Force-push is confined to the `oiax/` ref namespace.
+- Force-push authority is confined to `refs/heads/oiax/` and
+  `refs/notes/oiax/`. Notes updates require an explicit expected tip and
+  append-only commit ancestry, with no deletion or rewind; long-lived
+  branches remain protected. [ADR 0015](adr/0015-oiax-owned-notes-namespace.md)
+  records this governance extension. The proposed notification writer is
+  narrower (`refs/notes/oiax/notifications/v1/<graph-key>`) and is not yet
+  implemented; this permission is not a claim of shipped notes support.
 
 ## Roadmap
 

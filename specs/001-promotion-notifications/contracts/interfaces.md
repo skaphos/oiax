@@ -75,12 +75,13 @@ source. Existing v1 ownership-marker parse/replace behavior must stay byte-compa
 
 ## Ledger store
 
-**Implementation gate (C1):** The notes-write mechanism remains a proposal, not
-an approved extension of Constitution XI. T001 must record maintainer review of
-the exact reserved ref and explicit-lease operation against the existing rule
-before T012 or any dependent remote writes/delivery are implemented. If that
-operation is outside the permitted namespace, revise the mechanism or pursue a
-separate explicit constitution change; this contract does not grant an exception.
+**Namespace authority (C1/T001 resolved):** The maintainer explicitly extended
+ownership to `refs/notes/oiax/`; [ADR 0015](../../../docs/adr/0015-oiax-owned-notes-namespace.md)
+and Constitution XI v2.0.0 record the change. Notification writes remain limited
+to the exact ref grammar below, expected-tip comparisons and append-only commits,
+with no deletion or rewind. [T001 evidence](../checklists/implementation-validation.md)
+records the decision, not completed implementation, live-write permission or
+blanket acceptance of the broader proposed ledger contract.
 
 `LedgerStore.Read(ctx)` returns a validated snapshot and revision OID, or a
 distinct absent state. `Commit(ctx, expectedOID, transition)` creates a child

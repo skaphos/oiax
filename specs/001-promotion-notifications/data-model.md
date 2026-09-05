@@ -1,6 +1,8 @@
 # Notification data model
 
-Proposed design for [spec.md](spec.md); none of these types is implemented yet.
+Design for [spec.md](spec.md). Foundation types, transitions and notes storage
+are implemented locally through T015; lifecycle observation and outbound delivery
+remain pending. See [implementation evidence](checklists/implementation-validation.md).
 
 ## Configuration
 

@@ -72,6 +72,11 @@ type Coordinator struct {
 	// conflict artifacts (SKA-54). A nil Templates uses the built-in
 	// defaults, mirroring Log's nil-safety.
 	Templates *tmpl.Set
+	// Optional notification inputs remain separate from engine.Graph. Effects
+	// are wired only by the notification coordinator, never by branch planning.
+	NotificationPolicy  *v1.NotificationPolicy
+	NotificationSources map[string]string
+	ConfigOID           string
 }
 
 // Result carries what Apply did, for exit-code and summary decisions.

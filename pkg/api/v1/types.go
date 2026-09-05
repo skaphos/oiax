@@ -122,6 +122,124 @@ type PromotionGraphSpec struct {
 	// and a curated function set only — configuration stays declarative
 	// data, never executable code. Unset slots use Oiax's built-in text.
 	Templates *Templates `yaml:"templates,omitempty" json:"templates,omitempty"`
+	// Notifications optionally routes managed-request lifecycle events. Endpoint
+	// values are runtime secrets, never configuration data.
+	Notifications *NotificationPolicy `yaml:"notifications,omitempty" json:"notifications,omitempty"`
+}
+
+// NotificationEvent identifies a managed-request lifecycle event.
+type NotificationEvent string
+
+const (
+	NotificationRequestCreated NotificationEvent = "request-created"
+	NotificationRequestMerged  NotificationEvent = "request-merged"
+)
+
+// NotificationRequestType selects branch promotion or hotfix backflow.
+type NotificationRequestType string
+
+const (
+	NotificationPromotion NotificationRequestType = "promotion"
+	NotificationBackflow  NotificationRequestType = "backflow"
+)
+
+// NotificationTransport identifies a supported outbound interface.
+type NotificationTransport string
+
+const (
+	NotificationTeams   NotificationTransport = "teams"
+	NotificationSlack   NotificationTransport = "slack"
+	NotificationWebhook NotificationTransport = "webhook"
+)
+
+// NotificationPolicy supplies independent named recipients and presentation.
+type NotificationPolicy struct {
+	Destinations     []NotificationDestination `yaml:"destinations,omitempty" json:"destinations,omitempty"`
+	EnvironmentNames map[string]string         `yaml:"environmentNames,omitempty" json:"environmentNames,omitempty"`
+	Templates        *NotificationTemplates    `yaml:"templates,omitempty" json:"templates,omitempty"`
+}
+
+// NotificationDestination names a runtime endpoint variable, never its value.
+// Nil Enabled means true; nil selections mean defaults; empty selections mean off.
+type NotificationDestination struct {
+	Name                string                    `yaml:"name" json:"name"`
+	Type                NotificationTransport     `yaml:"type" json:"type"`
+	EndpointEnv         string                    `yaml:"endpointEnv" json:"endpointEnv"`
+	Enabled             *bool                     `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Events              []NotificationEvent       `yaml:"events" json:"events,omitzero"`
+	RequestTypes        []NotificationRequestType `yaml:"requestTypes" json:"requestTypes,omitzero"`
+	AllowPrivateNetwork bool                      `yaml:"allowPrivateNetwork,omitempty" json:"allowPrivateNetwork,omitempty"`
+	Templates           *NotificationTemplates    `yaml:"templates,omitempty" json:"templates,omitempty"`
+}
+
+// NotificationTemplates overrides slots independently. Pointer text preserves an
+// explicitly empty template; nil inherits. Body and BodyFile are exclusive.
+type NotificationTemplates struct {
+	Title    *string `yaml:"title,omitempty" json:"title,omitempty"`
+	Body     *string `yaml:"body,omitempty" json:"body,omitempty"`
+	BodyFile string  `yaml:"bodyFile,omitempty" json:"bodyFile,omitempty"`
+}
+
+// MarshalYAML preserves nil versus explicitly empty selections: YAML's default
+// slice encoder otherwise serializes both as [], silently disabling defaults.
+// Decoding remains the ordinary strict struct decoder (no unknown-field bypass).
+func (d NotificationDestination) MarshalYAML() (any, error) {
+	var events *[]NotificationEvent
+	var types *[]NotificationRequestType
+	if d.Events != nil {
+		events = &d.Events
+	}
+	if d.RequestTypes != nil {
+		types = &d.RequestTypes
+	}
+	return struct {
+		Name                string                     `yaml:"name"`
+		Type                NotificationTransport      `yaml:"type"`
+		EndpointEnv         string                     `yaml:"endpointEnv"`
+		Enabled             *bool                      `yaml:"enabled,omitempty"`
+		Events              *[]NotificationEvent       `yaml:"events,omitempty"`
+		RequestTypes        *[]NotificationRequestType `yaml:"requestTypes,omitempty"`
+		AllowPrivateNetwork bool                       `yaml:"allowPrivateNetwork,omitempty"`
+		Templates           *NotificationTemplates     `yaml:"templates,omitempty"`
+	}{d.Name, d.Type, d.EndpointEnv, d.Enabled, events, types, d.AllowPrivateNetwork, d.Templates}, nil
+}
+
+// IsEnabled reports eligibility without resolving secrets or applying defaults.
+func (d NotificationDestination) IsEnabled() bool {
+	return (d.Enabled == nil || *d.Enabled) && (d.Events == nil || len(d.Events) > 0) && (d.RequestTypes == nil || len(d.RequestTypes) > 0)
+}
+
+// IsEnabled reports whether notification effects are needed at all. False must
+// bypass discovery, ledger reads/writes, retirement and endpoint variable reads.
+func (p *NotificationPolicy) IsEnabled() bool {
+	if p != nil {
+		for _, d := range p.Destinations {
+			if d.IsEnabled() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Default fills omitted notification selections without overwriting opt-outs.
+func (p *NotificationPolicy) Default() {
+	if p == nil {
+		return
+	}
+	for i := range p.Destinations {
+		d := &p.Destinations[i]
+		if d.Enabled == nil {
+			enabled := true
+			d.Enabled = &enabled
+		}
+		if d.Events == nil {
+			d.Events = []NotificationEvent{NotificationRequestMerged}
+		}
+		if d.RequestTypes == nil {
+			d.RequestTypes = []NotificationRequestType{NotificationPromotion, NotificationBackflow}
+		}
+	}
 }
 
 // Branch holds per-branch settings.

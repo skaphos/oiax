@@ -88,7 +88,9 @@ Before touching the engine, read `docs/architecture.md`. In particular:
 - `internal/engine` is pure — no provider calls, no `internal/git` or
   `internal/forge` imports (depguard enforces this), deterministic plans.
 - Oiax never merges, never approves, never touches unmanaged requests,
-  never force-pushes outside the `oiax/` ref namespace.
+  and never force-pushes long-lived branches. Its owned ref families are
+  `refs/heads/oiax/` and `refs/notes/oiax/`; notes writes require explicit
+  expected-tip, append-only updates with no deletion or rewind (ADR 0015).
 - Exit codes and the JSON plan format are compatibility contracts;
   changes need an ADR.
 

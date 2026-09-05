@@ -21,6 +21,7 @@
 - User refinement: Notifications need customizable presentation, environment names, and the commits included in the request; for example, “These commits were promoted to the test environment.” Branch-promotion completion does not assert deployment completion.
 - Analysis remediation: A fully disabled invocation performs no notification I/O and therefore cannot record a disabled generation. Re-enabling the same destination resumes its last durable subscriptions/backlog unless an intervening transition was recorded while another destination remained enabled. A new destination name establishes a fresh activation cutoff.
 - Analysis remediation: Configuration revisions are ordered by verified Git ancestry, not worker start time or CAS arrival order. An older or unorderable revision cannot replace newer durable notification policy. Latency acceptance is measured at the bounded normal load defined under SC-001, separately from backlog recovery.
+- Maintainer decision: Explicitly extend Oiax's owned namespace to `refs/notes/oiax/`, using Git's standard notes prefix. [ADR 0015](../../docs/adr/0015-oiax-owned-notes-namespace.md) and Constitution XI v2.0.0 record the namespace-only authorization; notification updates remain expected-tip and append-only, with no notes deletion/rewind or force-push of long-lived branches.
 
 ## User Scenarios & Testing *(mandatory)*
 

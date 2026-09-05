@@ -24,11 +24,12 @@ GitHub documents notes in its [reference API](https://docs.github.com/en/enterpr
 
 **Limits:** Neither a lease nor a Git receipt can make an external HTTP send atomic. A crashed or suspended worker, expired lease, or failed receipt write can leave delivery uncertain. Such retries retain the event ID and may duplicate a message. Persisted successful delivery is terminal. General concurrency does not rely on CI serialization, but documented single-run concurrency reduces ambiguous recoveries. See [ADR 0014](../../docs/adr/0014-notification-delivery-ledger.md).
 
-**Authority correction (C1):** This is a proposed mechanism, not a finding that
-an explicit-lease write to the notes namespace satisfies Constitution XI. T001
-must establish and record that conformity before the writer is implemented.
-The plan's XI gate is PENDING. An ADR cannot grant an exception; if the operation
-conflicts, redesign it or seek a separate explicit governance change.
+**Authority resolution (C1):** Following the analysis, the maintainer explicitly
+approved extending the owned namespace to `refs/notes/oiax/`. ADR 0015 and
+Constitution XI v2.0.0 record that separate governance amendment. T001 now records
+the exact narrower notification target and expected-tip, append-only safeguards;
+namespace approval is no longer pending. The broader ledger design is still a
+proposal requiring implementation and platform verification.
 
 ## 3. Activation, event discovery, and creation provenance
 
@@ -132,8 +133,8 @@ Restrict endpoint access to HTTPS global-unicast addresses by default; private n
 
 **Research disposition:** Product alternatives have concrete proposals, including
 revision ordering, all-disabled resumption and payload handoff. Notes-write
-constitutional authority remains unresolved under C1/T001; provider capability
-and real-channel tests are additional implementation release gates. SC-001 now
+namespace authority is resolved under C1/T001 and ADR 0015; provider capability
+and real-channel tests remain implementation release gates. SC-001 now
 uses the same bounded normal workload and predeclared sampling protocol in the
 specification, plan and quickstart; backlog recovery is tested separately. No
 notification has been sent and no remote ref was created during this planning work.

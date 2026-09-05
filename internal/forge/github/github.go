@@ -48,6 +48,7 @@ import (
 
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
+	"github.com/skaphos/oiax/internal/notification"
 )
 
 const (
@@ -145,9 +146,12 @@ type Provider struct {
 	// Resilience tunables. Zero values use the production defaults above; they
 	// exist only so tests can shrink backoff and the response cap without a
 	// process-global. They are not part of the public contract.
-	retryMax     int
-	retryBackoff time.Duration
-	maxRespBytes int64
+	retryMax                  int
+	retryBackoff              time.Duration
+	maxRespBytes              int64
+	notificationIdentityOnce  sync.Once
+	notificationIdentityValue notification.RepositoryIdentity
+	notificationIdentityError error
 }
 
 var _ forge.Forge = (*Provider)(nil)

@@ -24,19 +24,18 @@ request interface has neither durable delivery receipts nor atomic delivery clai
 
 ## Decision
 
-**Authority gate remains pending:** This proposed ADR does not establish that
-`refs/notes/oiax/notifications/v1/<graph-key>` with an explicit-lease push is
-permitted by Constitution XI. Before implementing the writer, T001 must record
-the exact operation and maintainer-reviewed basis for conformity with the current
-restriction. If it conflicts, redesign the mechanism or address governance in a
-separate explicit change; this ADR cannot grant a namespace exception. Neither
-repository write permissions nor append-only ancestry resolves that authority
-question. No accepted ADR or constitution text is changed by this proposal.
+**Namespace authority resolved:** The maintainer explicitly approved extending
+ownership to `refs/notes/oiax/`, recorded separately in
+[ADR 0015](0015-oiax-owned-notes-namespace.md) and Constitution XI v2.0.0.
+[T001 evidence](../../specs/001-promotion-notifications/checklists/implementation-validation.md)
+records the exact expected-tip, append-only operation. This resolves C1 without
+inferring permission from an ADR proposal. This ADR remains proposed for its
+broader state/delivery contract; implementation and platform verification remain.
 
 Propose a reserved `refs/notes/oiax/notifications/v1/<graph-key>` ref containing
 bounded ledger snapshots. Ref writes require the exact observed old object ID;
 each new commit has that tip as its parent. Conflicts reread/reduce instead of
-overwriting. Subject to that gate, the proposed mechanism uses explicit-lease Git push and must enforce
+overwriting. The proposed mechanism uses explicit-lease Git push and must enforce
 append-only ancestry and this exact namespace. It never pushes release tags or
 creates a branch. Repository administrators grant notes-write permissions; Oiax
 does not change permissions or settings itself.

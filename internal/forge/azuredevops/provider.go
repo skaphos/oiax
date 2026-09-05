@@ -16,6 +16,7 @@ import (
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
 	mk "github.com/skaphos/oiax/internal/forge/marker"
+	"github.com/skaphos/oiax/internal/notification"
 )
 
 // mergedLookback bounds how far back merged-request discovery asks the API for
@@ -87,9 +88,12 @@ type Provider struct {
 	// repoID memoizes the repository's immutable GUID so TargetMergeMethods,
 	// called once per target branch during a reconcile, resolves it with a
 	// single GET rather than one per edge.
-	repoIDOnce sync.Once
-	repoIDVal  string
-	repoIDErr  error
+	repoIDOnce                sync.Once
+	repoIDVal                 string
+	repoIDErr                 error
+	notificationIdentityOnce  sync.Once
+	notificationIdentityValue notification.RepositoryIdentity
+	notificationIdentityError error
 }
 
 var _ forge.Forge = (*Provider)(nil)

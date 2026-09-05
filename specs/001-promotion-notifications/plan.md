@@ -6,7 +6,7 @@
 
 **Tracking**: [#75](https://github.com/skaphos/oiax/issues/75); email follow-up [#76](https://github.com/skaphos/oiax/issues/76).
 
-**Status**: Design and task remediation drafted; implementation has not started. Constitution XI notes-write compliance remains PENDING (T001), so this is not an unconditional implementation-ready plan. ADRs are proposals for repository review. Setup reports the feature directory key `001-promotion-notifications`; the actual Git branch is shown above.
+**Status**: Setup and foundation T001–T015 are complete, with local test evidence in [implementation-validation.md](checklists/implementation-validation.md). Lifecycle discovery and delivery remain pending (T016–T080); this is not a shipped notification feature. Namespace authority comes from ADR 0015 and Constitution XI v2.0.0. ADRs 0013/0014 remain proposed for their broader contracts. Setup reports the feature directory key `001-promotion-notifications`; the actual Git branch is shown above.
 
 ## Summary
 
@@ -52,16 +52,17 @@ Pre-research review found no inherent conflict with optional notifications; stat
 | VIII | Environment labels reference declared branches; logical edge captured, not guessed from backflow names | PASS |
 | IX | Proposed status, explicit scope and endpoint-acceptance limits; no deployment claim | PASS |
 | X | Engine independent; add depguard denial of effects/HTTP for pure notification code | PASS |
-| XI | Reserved notes ref and explicit-lease operation require T001 maintainer disposition against the existing force-push restriction; ancestry guards alone do not settle authorization | PENDING — blocks T012 and dependent writes/delivery |
+| XI | Explicit maintainer extension to `refs/notes/oiax/` in ADR 0015/Constitution v2.0.0; notification target remains narrower, expected-tip and append-only, no rewind/deletion or long-lived-branch force-push; T001 evidence recorded | PASS — authority resolved; enforcement tests still required |
 | XII | Proposed [0013](../../docs/adr/0013-notification-configuration-contract.md) and [0014](../../docs/adr/0014-notification-delivery-ledger.md) cover additive contracts; no existing removal/deprecation | PASS |
 
 Implementation gates: race/shuffle tests, fuzz untrusted origin/ledger/URL/template inputs, at least 85% statement coverage on new notification packages, generated-reference drift checks, and same-change operator docs. Existing Taskfile targets do not enforce race/shuffle or a coverage floor; add reproducible feature verification targets and wire them into CI when implementing. This plan does not claim to resolve unrelated constitution TODOs.
 
-T001 must record the exact permitted ref/operation and its basis under the current
-constitution before the notes writer is implemented. A maintainer's ADR approval
-is not an exception to a MUST rule: if the proposed operation conflicts, redesign
-it or obtain a separately reviewed constitution change. This remediation changes
-neither governance nor permissions and performs no ref write.
+T001 records the maintainer's explicit namespace extension, separately documented
+in ADR 0015 and the amended Constitution XI. The permitted notification operation
+is an explicit expected-tip update to the exact reserved notes ref, creating a
+child of the expected tip (or requiring absence for initialization). No rewrite
+or deletion is authorized. The governance edit remains subject to normal PR
+publication; it does not change platform permissions or perform a ref write.
 
 ## Project Structure
 
@@ -86,7 +87,7 @@ docs/adr/
 ~~~
 
 The implementation backlog is now in [tasks.md](tasks.md); remediation evidence
-and the unresolved authority gate are in [checklists/remediation.md](checklists/remediation.md).
+and the resolved namespace decision are in [checklists/remediation.md](checklists/remediation.md).
 
 ### Source Code (planned changes)
 
@@ -129,7 +130,7 @@ fixed footer includes all FR-008 fields, explicitly request ID and observed time
 
 ## Phase 1 — Design and implementation sequence
 
-1. **Contracts and policy.** Resolve T001 before affected writes. Add optional configuration, environment names, templates, public validation/defaulting, and loaded-policy wiring. Pin omitted/false/empty semantics and all-disabled resumption. Setup scaffolds fixture documentation only; typed fixtures follow model/interface definitions in T010. Review the proposed ADRs in the implementation PR without assuming acceptance.
+1. **Contracts and policy.** Preserve the recorded T001 namespace decision and exact writer safeguards. Add optional configuration, environment names, templates, public validation/defaulting, and loaded-policy wiring. Pin omitted/false/empty semantics and all-disabled resumption. Setup scaffolds fixture documentation only; typed fixtures follow model/interface definitions in T010. Review the broader proposed ADRs in the implementation PR without assuming acceptance.
 2. **Pure model and presentation.** Implement stable IDs, revision-ordered epochs, monotone transitions, typed template context, complete FR-008 footer, persisted delivery payload, and deterministic preview. Validate all event/request combinations. Test stale workers, all-disabled intervals, per-destination overrides, unknown fields, secret exclusion and overflow.
 3. **Durable ledger.** Build notes read/create/expected-tip updates, parsing caps, claims and receipts. Race workers against a bare Git remote; prove namespace guards, no rewind and success monotonicity. Persist immutable commit facts and rendered retry payloads.
 4. **Forge lifecycle and snapshots.** Add complete/incomplete pages, known-request polling, explicit creation/adoption disposition and initial origin. Fetch event-specific commits; test source advancement, squash/rebase, deleted refs, partial POST success and short-lived requests.
@@ -156,7 +157,7 @@ Run race/shuffle suites on all supported OSes; enforce the new-package 85% floor
 
 ## Operational risks and rollback
 
-- Notes-write constitutional authority requires T001 before implementation; notes permission and live expected-tip semantics separately require opt-in conformance on both forges before release. Neither platform permissions nor passing tests grant constitutional authority. Denied writes suspend sends and leave core work usable.
+- Notes-write namespace authority is recorded in T001/ADR 0015; notes permission and live expected-tip semantics separately require opt-in conformance on both forges before release. Namespace approval does not satisfy those platform gates. Denied writes suspend sends and leave core work usable.
 - Stale/divergent config revisions defer notifications, not core work; restore ordered history with a reviewed descendant config commit. Fully disabled runs cannot record retirement or stop older workers through the untouched ledger; use a new destination name for a fresh cutoff after re-enable.
 - A send and its receipt are not atomic. Recovered leases or lost receipts can duplicate externally accepted messages; stable IDs remain available.
 - Dense history, long outages and capacity limits can delay notifications. Incomplete scans retain cursors and known pending deliveries; never silently advance past unseen data.
@@ -166,9 +167,9 @@ Run race/shuffle suites on all supported OSes; enforce the new-package 85% floor
 
 ## Complexity Tracking
 
-No constitution exception is granted or requested by these artifacts. The notes
-proposal has an unresolved authority gate, C1/T001, rather than a PASS inferred
-from append-only ancestry. The exact operation must be demonstrated to conform
-before affected implementation, or the design must change through review. Pure
-models and documentation can be reviewed without ref-write authority. Proposed
-ADRs remain proposed; platform verification gates remain additional requirements.
+The maintainer explicitly extended Constitution XI to the standard notes prefix
+with an Oiax-owned subtree, recorded in ADR 0015. This is a documented governance
+amendment, not a silent exception or permission inferred from ancestry guards.
+C1/T001 is resolved for the constrained notes operation. ADRs 0013/0014 remain
+proposed for their broader contracts; implementation, negative-target tests and
+platform verification remain additional requirements.

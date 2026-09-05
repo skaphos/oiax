@@ -1,6 +1,6 @@
 # 0004 — Backflow execution
 
-- Status: accepted
+- Status: accepted; blanket ref-namespace restriction partially superseded by [ADR 0015](0015-oiax-owned-notes-namespace.md). Backflow branch behavior is unchanged.
 - Date: 2026-07-11
 
 ## Context

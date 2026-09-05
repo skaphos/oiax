@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 
@@ -86,7 +88,7 @@ func Parse(data []byte) (*v1.PromotionGraph, error) {
 		if errors.Is(err, io.EOF) {
 			return nil, errors.New("configuration is empty")
 		}
-		return nil, fmt.Errorf("parse configuration: %w", err)
+		return nil, safeParseError(err)
 	}
 
 	var extra any
@@ -101,6 +103,26 @@ func Parse(data []byte) (*v1.PromotionGraph, error) {
 		return nil, fmt.Errorf("unsupported kind %q (want %q)", cfg.Kind, v1.KindPromotionGraph)
 	}
 	return &cfg, nil
+}
+
+// yaml.TypeError can include excerpts of rejected scalar values (including
+// secret URLs). Preserve only safe legacy field-name diagnostics, never values.
+func safeParseError(err error) error {
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		return errors.New("parse configuration: invalid YAML syntax; check document structure")
+	}
+	var messages []error
+	field := regexp.MustCompile(`^line [0-9]+: field [A-Za-z_][A-Za-z0-9_]* not found in type [A-Za-z0-9_.]+$`)
+	line := regexp.MustCompile(`^line [0-9]+:`)
+	for _, message := range typeErr.Errors {
+		if field.MatchString(message) && !strings.Contains(message, "Notification") {
+			messages = append(messages, errors.New(message))
+			continue
+		}
+		messages = append(messages, fmt.Errorf("%s invalid field, duplicate key or value type; check the configuration schema", line.FindString(message)))
+	}
+	return fmt.Errorf("parse configuration: %w", errors.Join(messages...))
 }
 
 // IsDeprecatedAPIVersion reports whether apiVersion is the deprecated
