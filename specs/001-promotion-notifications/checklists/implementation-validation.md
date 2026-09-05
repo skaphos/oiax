@@ -1,9 +1,19 @@
 # Implementation validation evidence
 
-## Current checkpoint — bounded delivery resumed
+## Current checkpoint — lifecycle completeness and bounded delivery
 
-2026-09-04: work-in-progress implementation checkpoint for draft PR #77,
-branch `spec/promotion-notifications`. **Not merge-ready or deployable.**
+2026-09-05: work-in-progress implementation checkpoint for PR #77,
+branch `spec/promotion-notifications`. The PR is marked ready for review, but the
+feature checklist remains incomplete and it is **not merge-ready or deployable.**
+T016 and T020–T022 now establish equivalent lifecycle discovery contracts for
+both forges. GitHub creation and merge scans use their respective authoritative
+timestamps, so an old request merged after activation and a request created and
+merged between runs are both retained. Full detail hydration, overlapping page
+movement with stable-ID deduplication, Azure frozen-interval partitioning and
+repeated ID-set verification all fail closed: deleted/denied details, unstable
+enumeration, cross-origin continuation, and dense same-timestamp intervals keep
+partial progress explicitly incomplete.
+
 T029 and T031–T033 now complete the bounded dispatcher slice: runtime mutations
 use caller-observed CAS revisions, messages persist before claims, claims renew
 against the current accepted config/generation, destination workers send in
@@ -26,25 +36,25 @@ Verification on this checkpoint:
 | Check | Result |
 |---|---|
 | `go test -race -shuffle=on ./...` with the documented process-local Git settings | PASS |
+| `go test -race -shuffle=on ./internal/forge/github ./internal/forge/azuredevops ./internal/forge/forgetest` | PASS |
 | focused notification/reconcile race tests, repeated 10 times after concurrent dispatch | PASS |
 | `go -C tools tool task lint` | PASS, 0 issues |
 | `go -C tools tool task build` | PASS |
 | `go -C tools tool task verify-generated` | PASS |
-| `graphify update .` | PASS: 1,787 nodes, 4,962 edges, 107 communities |
+| `graphify update .` | PASS: 1,797 nodes, 4,992 edges, 101 communities |
 | `graphify diagnose multigraph --max-examples 1` | PASS: no missing/dangling endpoints, self-loops or collapsed edges; raw producer loss not measured |
 | `git diff --check` | PASS |
 
-US1 remains incomplete: provider pagination/incomplete-scan adversarial coverage,
-the rest of merge integration and default-presentation matrices, built-binary
+US1 remains incomplete: safe-client and adapter goldens, the rest of merge
+integration and default-presentation matrices, built-binary
 notification scenarios and independent acceptance evidence are still unchecked.
 Creation provenance, custom templates, immutable commit enrichment, preview and
 diagnostics remain later phases.
 
 Resume in this order:
 
-1. Complete T016–T019 and T020–T028 provider/client/presentation conformance,
-   especially pagination movement, dense/incomplete scans, unmanaged requests,
-   both request types and exact adapter goldens.
+1. Complete T017–T019 and T023–T028 client/presentation conformance, especially
+   redirect/TLS/DNS defenses, both request types and exact adapter goldens.
 2. Finish T030 and T034–T038: adversarial observation/config-order races,
    default presentation, built-binary merge scenarios, exact core exit evidence
    and the independent US1 matrix. Do not contact live receivers in unit tests.

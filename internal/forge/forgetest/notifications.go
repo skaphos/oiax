@@ -2,6 +2,8 @@ package forgetest
 
 import (
 	"context"
+	"errors"
+	"sort"
 	"testing"
 	"time"
 
@@ -31,13 +33,16 @@ func RunLifecycle(t *testing.T, factory func(*testing.T, []LifecycleSeed) forge.
 		seed := func(id int, state notification.LifecycleState) LifecycleSeed {
 			return LifecycleSeed{ID: id, Graph: "graph", Type: "promotion", Source: "dev", Destination: "test", State: state, CreatedAt: now.Add(-365 * 24 * time.Hour), MergedAt: now.Add(-time.Minute), Managed: true}
 		}
-		seeds := []LifecycleSeed{seed(1, notification.LifecycleOpen), seed(2, notification.LifecycleMerged), seed(3, notification.LifecycleClosed), seed(4, notification.LifecycleMerged), seed(5, notification.LifecycleMerged), seed(6, notification.LifecycleMerged), seed(7, notification.LifecycleMerged)}
+		seeds := []LifecycleSeed{seed(1, notification.LifecycleOpen), seed(2, notification.LifecycleMerged), seed(3, notification.LifecycleClosed), seed(4, notification.LifecycleMerged), seed(5, notification.LifecycleMerged), seed(6, notification.LifecycleMerged), seed(7, notification.LifecycleMerged), seed(8, notification.LifecycleMerged)}
 		seeds[3].Managed = false
 		seeds[4].Fork = true
 		seeds[5].Graph = "other"
 		seeds[6].Type = "backflow"
 		seeds[6].Source = "oiax/backflow/removed/abcdef0"
 		seeds[6].Destination = "dev"
+		// Request 8 was both created and merged between observations. Request 2
+		// was created long before activation but merged inside the same window.
+		seeds[7].CreatedAt = now.Add(-2 * time.Minute)
 		reader, ok := factory(t, seeds).(forge.LifecycleReader)
 		if !ok {
 			t.Fatal("provider lacks optional lifecycle capability")
@@ -46,27 +51,36 @@ func RunLifecycle(t *testing.T, factory func(*testing.T, []LifecycleSeed) forge.
 		if err != nil || identity.ID == "" || identity.Host == "" {
 			t.Fatal("immutable identity missing", err)
 		}
-		q := forge.LifecycleQuery{Graph: "graph", Through: now, Limit: 100}
-		found := map[string]notification.LifecycleRequest{}
-		complete := false
-		for range 100 {
-			page, err := reader.ListLifecyclePage(context.Background(), q)
-			if err != nil {
-				t.Fatal(err)
+		scan := func(q forge.LifecycleQuery) map[string]notification.LifecycleRequest {
+			t.Helper()
+			found := map[string]notification.LifecycleRequest{}
+			for range 100 {
+				page, err := reader.ListLifecyclePage(context.Background(), q)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, req := range page.Requests {
+					found[req.Request.ID] = req
+				}
+				if page.Progress.Complete {
+					return found
+				}
+				q.Cursor = page.Progress.Cursor
 			}
-			for _, req := range page.Requests {
-				found[req.Request.ID] = req
-			}
-			if page.Progress.Complete {
-				complete = true
-				break
-			}
-			q.Cursor = page.Progress.Cursor
-		}
-		if !complete {
 			t.Fatal("small stable scan never completed")
+			return nil
 		}
-		if len(found) != 4 {
+		ids := func(found map[string]notification.LifecycleRequest) []string {
+			out := make([]string, 0, len(found))
+			for id := range found {
+				out = append(out, id)
+			}
+			sort.Strings(out)
+			return out
+		}
+
+		found := scan(forge.LifecycleQuery{Graph: "graph", Through: now, Limit: 100})
+		if len(found) != 5 {
 			t.Fatalf("wrong ownership/graph filtering: %+v", found)
 		}
 		if found["2"].State != notification.LifecycleMerged || !found["2"].MergedAt.Equal(now.Add(-time.Minute)) {
@@ -78,7 +92,16 @@ func RunLifecycle(t *testing.T, factory func(*testing.T, []LifecycleSeed) forge.
 		if found["7"].Request.Type != "backflow" || found["7"].Request.LogicalSource != "" {
 			t.Fatal("legacy backflow logical edge fabricated")
 		}
-		for _, id := range []forge.RequestID{"1", "2", "3", "7"} {
+		created := scan(forge.LifecycleQuery{Graph: "graph", Kind: v1.NotificationRequestCreated, From: now.Add(-10 * time.Minute), Through: now, Limit: 100})
+		if got := ids(created); len(got) != 1 || got[0] != "8" {
+			t.Fatalf("short-lived creation window = %v, want [8]", got)
+		}
+		merged := scan(forge.LifecycleQuery{Graph: "graph", Kind: v1.NotificationRequestMerged, From: now.Add(-10 * time.Minute), Through: now, Limit: 100})
+		if got := ids(merged); len(got) != 3 || got[0] != "2" || got[1] != "7" || got[2] != "8" {
+			t.Fatalf("merge window = %v, want old merge, legacy backflow, and short-lived request", got)
+		}
+
+		for _, id := range []forge.RequestID{"1", "2", "3", "7", "8"} {
 			req, err := reader.GetLifecycleRequest(context.Background(), id)
 			if err != nil || req.Request.ID != string(id) {
 				t.Fatal("known request direct refresh failed", err)
@@ -89,6 +112,10 @@ func RunLifecycle(t *testing.T, factory func(*testing.T, []LifecycleSeed) forge.
 		}
 		if _, err := reader.GetLifecycleRequest(context.Background(), "4"); err == nil {
 			t.Fatal("unmanaged detail accepted")
+		}
+		page, err := reader.ListLifecyclePage(context.Background(), forge.LifecycleQuery{Graph: "graph", Kind: v1.NotificationRequestCreated, Cursor: "not-a-provider-cursor", Through: now, Limit: 100})
+		if !errors.Is(err, notification.ErrDiscoveryIncomplete) || page.Progress.Complete {
+			t.Fatalf("invalid continuation = (%+v, %v), want explicit incomplete scan", page.Progress, err)
 		}
 	})
 }

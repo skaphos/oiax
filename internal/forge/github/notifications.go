@@ -36,6 +36,17 @@ func (p *Provider) RepositoryIdentity(ctx context.Context) (notification.Reposit
 // overlaps each continuation to recover boundary movement, with stable-ID dedup.
 func (p *Provider) ListLifecyclePage(ctx context.Context, query forge.LifecycleQuery) (forge.LifecyclePage, error) {
 	result := forge.LifecyclePage{Progress: notification.ScanProgress{Version: 1, From: query.From, Through: query.Through}}
+	kind := query.Kind
+	if kind == "" {
+		kind = v1.NotificationRequestCreated
+	}
+	if kind != v1.NotificationRequestCreated && kind != v1.NotificationRequestMerged {
+		return result, notification.ErrDiscoveryIncomplete
+	}
+	from := query.From
+	if from.IsZero() {
+		from = time.Unix(0, 0).UTC()
+	}
 	page := 1
 	if query.Cursor != "" {
 		var err error
@@ -58,11 +69,15 @@ func (p *Provider) ListLifecyclePage(ctx context.Context, query forge.LifecycleQ
 			return result, notification.ErrDiscoveryIncomplete
 		}
 		for _, listed := range pulls {
-			m, managed := managedMarker(listed)
-			if !managed || m.Graph != query.Graph {
+			id := strconv.Itoa(listed.Number)
+			if listed.Number <= 0 || seen[id] {
 				continue
 			}
-			req, err := p.GetLifecycleRequest(ctx, forge.RequestID(strconv.Itoa(listed.Number)))
+			seen[id] = true
+			// The list representation is only an index. Ownership and lifecycle
+			// facts come from the full detail response so a missing/truncated body
+			// can never silently hide a managed request.
+			req, err := p.GetLifecycleRequest(ctx, forge.RequestID(id))
 			if errors.Is(err, notification.ErrNotManaged) {
 				continue
 			}
@@ -70,10 +85,16 @@ func (p *Provider) ListLifecyclePage(ctx context.Context, query forge.LifecycleQ
 				result.Progress.Cursor = strconv.Itoa(page)
 				return result, notification.ErrDiscoveryIncomplete
 			}
-			if req.Graph != query.Graph || req.CreatedAt.After(query.Through) || seen[req.Request.ID] {
+			when := req.CreatedAt
+			if kind == v1.NotificationRequestMerged {
+				if req.State != notification.LifecycleMerged {
+					continue
+				}
+				when = req.MergedAt
+			}
+			if req.Graph != query.Graph || when.Before(from) || when.After(query.Through) {
 				continue
 			}
-			seen[req.Request.ID] = true
 			result.Requests = append(result.Requests, req)
 		}
 		if number == page {

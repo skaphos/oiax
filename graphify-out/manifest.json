@@ -186,8 +186,8 @@
     "semantic_hash": "8fe034edf8986c6a6112f9aa7bc2aa13"
   },
   "docs/reference/cli.md": {
-    "mtime": 1788580743.3841286,
-    "seen": 1788581296.214066,
+    "mtime": 1788609561.2441294,
+    "seen": 1788609712.4477608,
     "ast_hash": "7b6013c867461629fc6688dbf003447b",
     "semantic_hash": "7b6013c867461629fc6688dbf003447b"
   },
@@ -954,9 +954,9 @@
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/checklists/implementation-validation.md": {
-    "mtime": 1788581128.473952,
-    "seen": 1788581296.21407,
-    "ast_hash": "6b4722f5e31565924c7e09314c43dbb3",
+    "mtime": 1788609701.053828,
+    "seen": 1788609712.447764,
+    "ast_hash": "d3136729a989d09fdbdefe8c70f6ee36",
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/checklists/remediation.md": {
@@ -1026,15 +1026,15 @@
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/tasks.md": {
-    "mtime": 1788581128.3112879,
-    "seen": 1788581296.2140758,
-    "ast_hash": "c88efeea8a8cec25626f5b1337a42743",
+    "mtime": 1788609700.9693506,
+    "seen": 1788609712.4477708,
+    "ast_hash": "7f93f9f0ffcec15c999fecb457aa28a8",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/notification_test.go": {
-    "mtime": 1788580398.8643124,
-    "seen": 1788581296.214004,
-    "ast_hash": "f99060094e99f38fbfbef57ae3edaf34",
+    "mtime": 1788609486.545603,
+    "seen": 1788609712.447689,
+    "ast_hash": "abf2f8deaf3397c686bc11b6dec51229",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/notifications.go": {
@@ -1044,21 +1044,21 @@
     "semantic_hash": ""
   },
   "internal/forge/forgetest/notifications.go": {
-    "mtime": 1788579280.2791512,
-    "seen": 1788581296.214008,
-    "ast_hash": "fd7f25b85aa2283bced0156a992a2975",
+    "mtime": 1788609285.6523018,
+    "seen": 1788609712.447695,
+    "ast_hash": "c54ccd2dc69f03aa6e8d55f7022e69da",
     "semantic_hash": ""
   },
   "internal/forge/github/notification_test.go": {
-    "mtime": 1788579280.293954,
-    "seen": 1788581296.214011,
-    "ast_hash": "9458587385bf523a6e0d92d0e51fe915",
+    "mtime": 1788609486.480823,
+    "seen": 1788609712.4476979,
+    "ast_hash": "a8748d170ca556714f1e9e335a42ea88",
     "semantic_hash": ""
   },
   "internal/forge/github/notifications.go": {
-    "mtime": 1788579280.2977111,
-    "seen": 1788581296.214012,
-    "ast_hash": "715f47d1e3f44e44c44fe2e5abd4116f",
+    "mtime": 1788609326.8982058,
+    "seen": 1788609712.4476988,
+    "ast_hash": "812a040472c3de81da3fec21a9905870",
     "semantic_hash": ""
   },
   "internal/notification/delivery/adapters_test.go": {
