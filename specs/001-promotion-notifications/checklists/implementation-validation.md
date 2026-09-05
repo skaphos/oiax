@@ -1,6 +1,72 @@
 # Implementation validation evidence
 
-## Current checkpoint — basic merge-alert integration
+## Current checkpoint — optional creation alerts and recovery
+
+2026-09-05: T039–T048 complete the local US2 creation-alert milestone. Optional
+PR-created notifications are now wired through both forges and the CLI.
+The merge-alert integration checkpoint was committed as `e404360`
+before this increment. The full feature remains **not merge-ready or deployable**:
+custom templates, immutable commit enrichment, previews/diagnostics, operator
+documentation and live release acceptance are still later phases.
+
+Creation provenance is a separate, non-templatable, HTML-escaped JSON comment in
+the initial POST body. It does not modify the v1 ownership marker or establish
+ownership itself. The parser enforces the 4 KiB encoded block bound, exact field
+names, unique keys/blocks, valid OIDs/times and bounded text. A valid origin must
+match existing provider-verified ownership; backflow retains its logical source
+separately from its actual candidate branch. Baseline updates preserve origin.
+
+The internal forge create contract now returns explicit created/adopted outcomes.
+An actual successful POST survives a later label/property failure in the returned
+outcome. An adopted PR gets only its own recovered origin, never the attempted
+operation's origin; a legacy survivor stays without provenance. Both providers
+recover origin from the full initial body without requiring supplemental Azure
+properties. Pre-POST source/base OIDs remain hints, not verified commit membership.
+
+The CLI durably activates notifications before core apply, then retains outcomes
+incrementally at promotion and backflow create sites. Finalization confirms those
+IDs directly before bounded discovery, so an incomplete scan does not suppress
+an actual create. A later invocation can recover from the original body if all
+notification reads failed after POST. Core errors remain authoritative; metadata
+failure or a later failed create still returns exit 1 while eligible notification
+work proceeds. Creation/merge have distinct IDs and independent opt-in cutoffs.
+
+A deterministic regression exposed whole-second timestamp precision at first
+activation. Original pre-POST evidence now disambiguates eligibility only inside
+that same second; the forge occurrence timestamp remains unchanged, and an
+operation before the cutoff still produces no historical backfill. The rule is
+documented in the data model and covered with a fixed clock plus coarse-timestamp
+compiled CLI fixtures.
+
+Evidence for this increment:
+
+| Check | Result |
+|---|---|
+| Origin parser/format/ownership/preservation tests | PASS; first failed on the missing codec before implementation |
+| Shared creation conformance on both providers | PASS, 20 cases: both request types × success, metadata failure, POST failure, adoption with origin, legacy adoption |
+| Creation/recovery/default opt-in runtime tests | PASS for promotion and backflow; independent creation/merge IDs and no duplicate sends |
+| Partial backflow apply outcome | PASS, original logical source/config and pushed source OID retained alongside the original follow-up error |
+| Whole-second activation cutoff regression | PASS after reproducing the missed first-run creation; original timestamps unchanged |
+| Compiled CLI creation matrix | PASS, eight both-forge cases including initial activation, partial core progress, failed metadata, failed POST, unavailable reads then fresh-process recovery, source advancement and later merge |
+| `go test -race -shuffle=on ./internal/cli -run '^TestNotification(Creation\|Merge)Binary$' -count=1` | PASS, all 20 merge/creation subprocess scenarios |
+| `go test ./internal/forge/marker -run '^$' -fuzz '^FuzzNotificationOrigin$' -fuzztime=10s -parallel=2` | PASS, 577,422 executions, no failing corpus |
+| `go test -race -shuffle=on ./...` with process-local Git settings | PASS |
+| `go -C tools tool task lint` | PASS, 0 issues |
+| `go -C tools tool task build` | PASS |
+| `go -C tools tool task verify-generated` | PASS, reference unchanged |
+| `reuse lint` | PASS, all 302 files compliant |
+| `git diff --check` | PASS |
+
+Tests used the workspace-safe cache and local-only fixture permissions described
+below. Live provider writes, channel visibility, cross-OS execution and latency
+acceptance were not run. No push, live notification send or repository-setting
+change was performed.
+
+Next: routing-generation coverage, custom notification templates, pinned-file
+validation and immutable event-specific commit snapshots (US3). Full read-only
+notification preview and operational diagnostics (US4) remain afterward.
+
+## Earlier checkpoint — basic merge-alert integration
 
 2026-09-05: T019, T036 and T038 complete the local US1 merge-alert milestone.
 The remaining US1 integration work now has executable local evidence.

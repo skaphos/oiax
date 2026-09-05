@@ -35,9 +35,9 @@ func (f *fakeForge) ListManagedRequests(_ context.Context, filter forge.RequestF
 	return f.open, nil
 }
 
-func (f *fakeForge) CreateRequest(_ context.Context, req forge.CreateRequest) (engine.ChangeRequest, error) {
+func (f *fakeForge) CreateRequest(_ context.Context, req forge.CreateRequest) (forge.CreateOutcome, error) {
 	f.created = append(f.created, req)
-	return engine.ChangeRequest{ID: "1", Type: req.Type, Source: req.Source, Target: req.Target, SourceHead: req.SourceHead}, nil
+	return forge.CreateOutcome{Request: engine.ChangeRequest{ID: "1", Type: req.Type, Source: req.Source, Target: req.Target, SourceHead: req.SourceHead}, Disposition: forge.RequestCreated, Origin: req.Origin}, nil
 }
 
 func (f *fakeForge) UpdateRequest(_ context.Context, req forge.UpdateRequest) error {

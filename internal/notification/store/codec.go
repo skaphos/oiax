@@ -240,7 +240,7 @@ func Validate(l *notification.LedgerV1) error {
 		}
 		if r.Origin != nil {
 			o := r.Origin
-			if o.Version != 1 || !safeText(o.OperationID, 128) || o.OperationID == "" || o.Graph != l.Graph || !notification.ValidOID(o.ConfigOID) || !notification.ValidOID(o.SourceOID) || !notification.ValidOID(o.BaseOID) || o.ObservedAt.IsZero() || !safeText(o.LogicalSource, 1024) || !safeText(o.LogicalTarget, 1024) {
+			if !notification.ValidOrigin(*o) || o.Graph != l.Graph {
 				return bad
 			}
 		}

@@ -110,8 +110,12 @@ type notificationBinaryFixture struct {
 	server                   *httptest.Server
 	mu                       sync.Mutex
 	seeds                    []forgetest.LifecycleSeed
+	bodies                   map[int]string
 	received                 []notificationReceived
 	failDelivery             bool
+	failMetadata             bool
+	failDiscovery            bool
+	failDetails              bool
 	failTarget               string
 	createdTargets           []string
 	lifecycleReads           int
@@ -119,7 +123,7 @@ type notificationBinaryFixture struct {
 
 func newNotificationBinaryFixture(t *testing.T, binary, provider, transport string, extraDestinations ...string) *notificationBinaryFixture {
 	t.Helper()
-	f := &notificationBinaryFixture{t: t, binary: binary, provider: provider, transport: transport}
+	f := &notificationBinaryFixture{t: t, binary: binary, provider: provider, transport: transport, bodies: map[int]string{}}
 	f.dir = filepath.Join(t.TempDir(), "checkout")
 	gittest.InitRepo(t, f.dir)
 	writeNotificationFixture(t, filepath.Join(f.dir, ".oiax.yaml"), []byte(fmt.Sprintf(notificationBinaryConfig, transport)+strings.Join(extraDestinations, "\n")))
@@ -231,6 +235,9 @@ func (f *notificationBinaryFixture) pull(s forgetest.LifecycleSeed) map[string]a
 	if s.Managed {
 		body = mk.Serialize(mk.Marker{Version: "v1", Graph: s.Graph, Type: string(s.Type), Source: s.Source, Destination: s.Destination, SourceHead: f.oid})
 	}
+	if saved, ok := f.bodies[s.ID]; ok {
+		body = saved
+	}
 	if f.provider == "azuredevops" {
 		status := "active"
 		switch s.State {
@@ -296,12 +303,32 @@ func (f *notificationBinaryFixture) serve(w http.ResponseWriter, r *http.Request
 		respond(map[string]any{"workItems": []any{}}) // read-only artifact query
 		return
 	}
-	// Only create's labels/properties may mutate the fake forge. All other
-	// edits (including an accidental touch of an unmanaged request) fail.
+	// Only fixture-created requests may receive baseline/metadata writes.
 	if r.Method != http.MethodGet {
-		if len(f.createdTargets) > 0 && (r.URL.Path == "/repos/example/repo/issues/101/labels" || r.URL.Path == collection+"/101/properties") {
-			respond(map[string]any{})
-			return
+		for id := range f.bodies {
+			requestPath := fmt.Sprintf("%s/%d", collection, id)
+			if r.URL.Path == requestPath && r.Method == http.MethodPatch {
+				var payload map[string]string
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					f.t.Error(err)
+				}
+				body := payload["body"]
+				if f.provider == "azuredevops" {
+					body = payload["description"]
+				}
+				f.bodies[id] = body
+				respond(map[string]any{})
+				return
+			}
+			if r.URL.Path == fmt.Sprintf("/repos/example/repo/issues/%d/labels", id) || r.URL.Path == requestPath+"/properties" {
+				if f.failMetadata {
+					w.WriteHeader(http.StatusBadRequest)
+					respond(map[string]string{"message": "fixture metadata rejected"})
+				} else {
+					respond(map[string]any{})
+				}
+				return
+			}
 		}
 		f.t.Errorf("unexpected forge mutation: %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -329,6 +356,11 @@ func (f *notificationBinaryFixture) serve(w http.ResponseWriter, r *http.Request
 		lifecycle := q.Get("state") == "all" || q.Get("searchCriteria.maxTime") != ""
 		if lifecycle {
 			f.lifecycleReads++
+			if f.failDiscovery {
+				w.WriteHeader(http.StatusBadRequest)
+				respond(map[string]string{"message": "fixture scan unavailable"})
+				return
+			}
 		}
 		list := []any{}
 		for _, seed := range f.seeds {
@@ -346,6 +378,10 @@ func (f *notificationBinaryFixture) serve(w http.ResponseWriter, r *http.Request
 			respond(list)
 		}
 	case strings.HasPrefix(r.URL.Path, collection+"/"):
+		if f.failDetails {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/properties") {
 			respond(map[string]any{"value": map[string]any{}})
 			return
@@ -388,8 +424,9 @@ func (f *notificationBinaryFixture) create(w http.ResponseWriter, r *http.Reques
 	f.createdTargets = append(f.createdTargets, target)
 	s := f.seed(100+len(f.createdTargets), "promotion", "open", time.Now().UTC(), true)
 	s.Source, s.Destination = source, target
-	s.CreatedAt = time.Now().UTC()
+	s.CreatedAt = time.Now().UTC().Truncate(time.Second) // exercise coarse API timestamps
 	f.seeds = append(f.seeds, s)
+	f.bodies[s.ID] = body
 	pr := f.pull(s)
 	if f.provider == "azuredevops" {
 		pr["description"] = body

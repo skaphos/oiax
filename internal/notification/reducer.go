@@ -154,10 +154,11 @@ func AdmitEvent(l *LedgerV1, configOID string, event EventV1) (*LedgerV1, error)
 	if existing, ok := out.Events[event.ID]; ok {
 		event = existing
 	}
+	eligibleAt := creationAdmissionTime(out, event)
 	admitted := false
 	for name, d := range out.Destinations {
 		sub, ok := d.Subscriptions[SubscriptionKey(event.Kind, event.Request.Type)]
-		if !d.Active || !ok || event.OccurredAt.Before(sub.Cutoff) {
+		if !d.Active || !ok || eligibleAt.Before(sub.Cutoff) {
 			continue
 		}
 		key := DeliveryKey(event.ID, name, d.Generation)

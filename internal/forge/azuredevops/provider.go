@@ -329,7 +329,7 @@ func changeRequest(pr adoPull, m mk.Marker) engine.ChangeRequest {
 // duplicate active request (HTTP 409 TF401179) is adopted as success: the
 // provider re-lists and returns the surviving request instead of erroring — the
 // forge is the concurrency arbiter for promotion requests.
-func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (engine.ChangeRequest, error) {
+func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (forge.CreateOutcome, error) {
 	m := mk.Marker{
 		Version:     mk.Version,
 		Graph:       req.Graph,
@@ -341,10 +341,17 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 	// Reject a marker value that could forge marker lines or break out of the
 	// HTML comment before it is ever written to the forge.
 	if err := mk.Validate(m); err != nil {
-		return engine.ChangeRequest{}, fmt.Errorf("create request: %w", err)
+		return forge.CreateOutcome{}, fmt.Errorf("create request: %w", err)
 	}
 	serialized := mk.Serialize(m)
 	description := serialized + "\n\n" + req.Body
+	if req.Origin != nil && (!mk.NotificationOriginMatches(*req.Origin, m) || req.Origin.SourceOID != req.SourceHead) {
+		return forge.CreateOutcome{}, fmt.Errorf("create request: %w", notification.ErrInvalidState)
+	}
+	description, err := mk.AppendNotificationOrigin(description, req.Origin)
+	if err != nil {
+		return forge.CreateOutcome{}, fmt.Errorf("create request: %w", err)
+	}
 
 	payload := map[string]any{
 		"sourceRefName": refHead(req.Source),
@@ -362,35 +369,45 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 	// TF401179, which the adopt path below turns into success — so a retry that
 	// races a first attempt that actually landed re-lists and adopts rather than
 	// double-opening.
-	_, err := p.send(ctx, http.MethodPost, p.gitPath("/pullrequests"), contentTypeJSON, payload, &created, true)
+	_, err = p.send(ctx, http.MethodPost, p.gitPath("/pullrequests"), contentTypeJSON, payload, &created, true)
 	if err != nil {
 		if isDuplicateActiveRequest(err) {
 			adopted, aerr := p.adoptDuplicate(ctx, req)
 			if aerr != nil {
-				return engine.ChangeRequest{}, fmt.Errorf("create request: adopt duplicate: %w", errors.Join(err, aerr))
+				return forge.CreateOutcome{}, fmt.Errorf("create request: adopt duplicate: %w", errors.Join(err, aerr))
 			}
 			if adopted != nil {
-				return *adopted, nil
+				out := forge.CreateOutcome{Request: *adopted, Disposition: forge.RequestAdopted}
+				if req.Origin != nil {
+					if actual, readErr := p.GetLifecycleRequest(ctx, forge.RequestID(adopted.ID)); readErr == nil {
+						out.Origin = actual.Origin
+					}
+				}
+				return out, nil
 			}
 		}
-		return engine.ChangeRequest{}, fmt.Errorf("create request: %w", err)
+		return forge.CreateOutcome{}, fmt.Errorf("create request: %w", err)
+	}
+	if created.PullRequestID <= 0 {
+		return forge.CreateOutcome{}, fmt.Errorf("create request: missing request ID")
+	}
+	out := forge.CreateOutcome{Request: engine.ChangeRequest{
+		ID: strconv.Itoa(created.PullRequestID), Type: req.Type, Source: req.Source, Target: req.Target, SourceHead: req.SourceHead,
+	}, Disposition: forge.RequestCreated}
+	if req.Origin != nil {
+		origin := *req.Origin
+		out.Origin = &origin
 	}
 
 	// Mirror the marker to the durable PR-properties store. A failure here is
-	// surfaced: the request exists with a valid description marker, so the next
-	// reconcile re-lists, adopts it via the 409 path, and re-attempts the
-	// properties write — the reconcile is idempotent.
+	// surfaced with the successful POST outcome. The initial description already
+	// contains ownership and creation origin, so discovery can recover both even
+	// if this process exits before supplemental properties are written.
 	if err := p.putMarkerProperty(ctx, created.PullRequestID, serialized); err != nil {
-		return engine.ChangeRequest{}, fmt.Errorf("create request: %w", err)
+		return out, fmt.Errorf("create request: %w", err)
 	}
 
-	return engine.ChangeRequest{
-		ID:         strconv.Itoa(created.PullRequestID),
-		Type:       req.Type,
-		Source:     req.Source,
-		Target:     req.Target,
-		SourceHead: req.SourceHead,
-	}, nil
+	return out, nil
 }
 
 // adoptDuplicate re-lists open managed requests for the same graph and type and

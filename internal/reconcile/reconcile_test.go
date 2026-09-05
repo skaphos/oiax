@@ -131,12 +131,12 @@ func (f *fakeForge) ListManagedRequests(_ context.Context, filter forge.RequestF
 // (MergeMethods), so there is deliberately no reconcile test here that would
 // only exercise the fakeForge echo; one lands with the fence itself.
 
-func (f *fakeForge) CreateRequest(_ context.Context, req forge.CreateRequest) (engine.ChangeRequest, error) {
+func (f *fakeForge) CreateRequest(_ context.Context, req forge.CreateRequest) (forge.CreateOutcome, error) {
 	f.created = append(f.created, req)
 	if f.createErr != nil {
-		return engine.ChangeRequest{}, f.createErr
+		return forge.CreateOutcome{}, f.createErr
 	}
-	return f.createResult, nil
+	return forge.CreateOutcome{Request: f.createResult, Disposition: forge.RequestCreated, Origin: req.Origin}, nil
 }
 
 func (f *fakeForge) UpdateRequest(_ context.Context, req forge.UpdateRequest) error {

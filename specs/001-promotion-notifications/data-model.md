@@ -61,6 +61,14 @@ orphaned edges are reported as skipped. For a legacy backflow PR with no logical
 source evidence, send the actual head/base refs, identify it as backflow, and mark
 logical edge unavailable. Never fabricate the real downstream branch.
 
+Activation is persisted before core creation begins. When a provider reports a
+creation timestamp at whole-second precision, the immutable pre-POST observation
+may disambiguate eligibility within that same second: an operation observed after
+the subscription cutoff is eligible even if the reported second starts before
+the cutoff. The event keeps the forge's `occurredAt` unchanged. This is not a
+general clock-skew allowance; missing origin, an operation before the cutoff,
+or an origin in a different second cannot move eligibility forward.
+
 ## Ledger snapshot
 
 `LedgerV1` contains `version`, immutable repository/graph identity, `anchorOID`,

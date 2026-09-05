@@ -222,11 +222,13 @@ func (r *NotificationRuntime) recordObservation(ctx context.Context, requests []
 				continue
 			}
 			l.KnownRequests[request.Request.ID] = request
-			if event, eligible := notification.MergeEvent(r.Topology, r.Policy, request, now); eligible {
-				var err error
-				l, err = notification.AdmitEvent(l, r.ConfigOID, event)
-				if err != nil {
-					return nil, err
+			for _, normalize := range []func(*engine.Graph, *v1.NotificationPolicy, notification.LifecycleRequest, time.Time) (notification.EventV1, bool){notification.CreationEvent, notification.MergeEvent} {
+				if event, eligible := normalize(r.Topology, r.Policy, request, now); eligible {
+					var err error
+					l, err = notification.AdmitEvent(l, r.ConfigOID, event)
+					if err != nil {
+						return nil, err
+					}
 				}
 			}
 		}

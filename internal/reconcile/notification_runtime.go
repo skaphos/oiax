@@ -15,10 +15,42 @@ import (
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
 
-// FinalizeNotifications runs the optional effect stage after core apply. Its
-// caller owns exit semantics: notification diagnostics must never replace the
-// core reconciliation result or error.
-func (c *Coordinator) FinalizeNotifications(ctx context.Context) (err error) {
+// PrepareNotifications establishes durable activation cutoffs before any PR
+// POST, so a first enabled invocation can truthfully announce its own creates.
+// Failure defers notifications only; the caller must still run core apply.
+func (c *Coordinator) PrepareNotifications(ctx context.Context) error {
+	return c.withNotificationRuntime(ctx, func(r *NotificationRuntime) error { return r.Activate(ctx) })
+}
+
+// FinalizeNotifications recovers actual POST outcomes independently of scans,
+// then observes lifecycle and dispatches. It never replaces the core result.
+func (c *Coordinator) FinalizeNotifications(ctx context.Context, outcomes ...forge.CreateOutcome) error {
+	return c.withNotificationRuntime(ctx, func(r *NotificationRuntime) error {
+		if err := r.Activate(ctx); err != nil {
+			return err
+		}
+		var problems []error
+		for _, outcome := range outcomes {
+			if outcome.Request.ID == "" || outcome.Origin == nil || (outcome.Disposition != forge.RequestCreated && outcome.Disposition != forge.RequestAdopted) {
+				continue
+			}
+			// No event is made from the attempted POST alone. The provider
+			// confirms ownership, immutable origin and the real creation time.
+			request, err := r.Reader.GetLifecycleRequest(ctx, forge.RequestID(outcome.Request.ID))
+			if err != nil {
+				problems = append(problems, notification.ErrLifecycleUnavailable)
+				continue
+			}
+			if err := r.recordObservation(ctx, []notification.LifecycleRequest{request}, "", notification.ScanProgress{}, r.now()); err != nil {
+				problems = append(problems, err)
+			}
+		}
+		problems = append(problems, r.Observe(ctx), r.Dispatch(ctx))
+		return errors.Join(problems...)
+	})
+}
+
+func (c *Coordinator) withNotificationRuntime(ctx context.Context, run func(*NotificationRuntime) error) (err error) {
 	if !c.NotificationPolicy.IsEnabled() {
 		return nil
 	}
@@ -64,12 +96,22 @@ func (c *Coordinator) FinalizeNotifications(ctx context.Context) (err error) {
 		},
 		VerifyRevision: c.notificationRevisionRelation,
 	}
-	if err := runtime.Activate(ctx); err != nil {
-		return err
+	return run(runtime)
+}
+
+// notificationOrigin captures pre-POST hints without changing core error
+// semantics. Config and branch state are already pinned/validated by the CLI;
+// unavailable optional evidence means no creation provenance for this attempt.
+func (c *Coordinator) notificationOrigin(ctx context.Context, source, target, head string) *notification.NotificationOriginV1 {
+	if !c.NotificationPolicy.IsEnabled() || !notification.ValidOID(c.ConfigOID) || !notification.ValidOID(head) || c.Git == nil {
+		return nil
 	}
-	observeErr := runtime.Observe(ctx)
-	dispatchErr := runtime.Dispatch(ctx)
-	return errors.Join(observeErr, dispatchErr)
+	base, err := c.Git.Head(ctx, target)
+	if err != nil || !notification.ValidOID(base) {
+		c.log().Warn("notification creation provenance unavailable")
+		return nil
+	}
+	return &notification.NotificationOriginV1{Version: 1, OperationID: newNotificationOperationID(), Graph: c.Graph.Name, ConfigOID: c.ConfigOID, ObservedAt: time.Now().UTC(), LogicalSource: source, LogicalTarget: target, SourceOID: head, BaseOID: base}
 }
 
 func (c *Coordinator) notificationRevisionRelation(ctx context.Context, accepted, incoming string) (notification.RevisionRelation, error) {

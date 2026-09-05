@@ -13,6 +13,10 @@ func MergeEvent(graph *engine.Graph, policy *v1.NotificationPolicy, req Lifecycl
 	if graph == nil || req.Graph != graph.Name || req.State != LifecycleMerged || req.MergedAt.IsZero() || req.Request.ID == "" {
 		return EventV1{}, false
 	}
+	return eventForRequest(graph, policy, req, v1.NotificationRequestMerged, req.MergedAt, observedAt)
+}
+
+func eventForRequest(graph *engine.Graph, policy *v1.NotificationPolicy, req LifecycleRequest, kind v1.NotificationEvent, occurredAt, observedAt time.Time) (EventV1, bool) {
 	r := req.Request
 	eligible := false
 	switch r.Type {
@@ -50,6 +54,6 @@ func MergeEvent(graph *engine.Graph, policy *v1.NotificationPolicy, req Lifecycl
 		}
 		return branch
 	}
-	e := EventV1{ID: EventID(req.Repository, r.ID, v1.NotificationRequestMerged), Kind: v1.NotificationRequestMerged, Repository: req.Repository, Graph: req.Graph, Request: r, OccurredAt: req.MergedAt.UTC(), ObservedAt: observedAt.UTC(), SourceEnvironment: label(r.LogicalSource, r.Source), DestinationEnvironment: label(r.LogicalDestination, r.Destination), Snapshot: CommitSnapshot{CommitsUnavailable: true}}
+	e := EventV1{ID: EventID(req.Repository, r.ID, kind), Kind: kind, Repository: req.Repository, Graph: req.Graph, Request: r, OccurredAt: occurredAt.UTC(), ObservedAt: observedAt.UTC(), SourceEnvironment: label(r.LogicalSource, r.Source), DestinationEnvironment: label(r.LogicalDestination, r.Destination), Snapshot: CommitSnapshot{CommitsUnavailable: true}}
 	return e, true
 }

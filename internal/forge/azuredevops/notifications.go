@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/skaphos/oiax/internal/forge"
+	mk "github.com/skaphos/oiax/internal/forge/marker"
 	"github.com/skaphos/oiax/internal/notification"
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
@@ -191,6 +192,10 @@ func (p *Provider) GetLifecycleRequest(ctx context.Context, id forge.RequestID) 
 	if m.Type == "promotion" {
 		r.Request.LogicalSource = m.Source
 		r.Request.LogicalDestination = m.Destination
+	}
+	if origin, ok := mk.ParseNotificationOrigin(pr.Description); ok && mk.NotificationOriginMatches(origin, m) {
+		r.Origin = &origin
+		r.Request.LogicalSource, r.Request.LogicalDestination = origin.LogicalSource, origin.LogicalTarget
 	}
 	switch pr.Status {
 	case "active":

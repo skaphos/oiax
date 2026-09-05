@@ -55,8 +55,11 @@ conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.`,
 			}
 			writeStepSummary(cmd, plan)
 
+			if notificationErr := coord.PrepareNotifications(cmd.Context()); notificationErr != nil {
+				coord.Log.Warn("notification activation deferred", "reason", notificationErr)
+			}
 			res, applyErr := coord.Apply(cmd.Context(), plan)
-			if notificationErr := coord.FinalizeNotifications(cmd.Context()); notificationErr != nil {
+			if notificationErr := coord.FinalizeNotifications(cmd.Context(), res.NotificationOutcomes...); notificationErr != nil {
 				coord.Log.Warn("notification finalization deferred", "reason", notificationErr)
 			}
 			if applyErr != nil {
