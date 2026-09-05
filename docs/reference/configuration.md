@@ -105,6 +105,37 @@ generated [CLI reference](cli.md) for per-command flags):
 | `--config-ref` | see note | Ref the configuration is read from, via `git show <ref>:<path>`. Default: the repository default branch (`origin/HEAD`) for `plan`/`reconcile`, the working-tree file for `validate`/`graph`. When the default branch cannot be resolved (no `origin/HEAD`), `plan`/`reconcile` fall back to the working-tree file locally but refuse under CI (GitHub Actions or Azure Pipelines) — pin this flag to recover. |
 | `--output`, `-o` | `text` | Output format for plan-producing commands: `text` or `json`. |
 
+## Notification policy
+
+`spec.notifications` is optional. With no enabled destinations, Oiax omits the
+preview and performs no notification I/O. Configuration remains pinned declarative
+data, validated without resolving endpoint variables.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `destinations` | empty | Up to 20 independently named recipients. |
+| `environmentNames` | branch names | Display labels for declared branches, nonempty and at most 100 runes without controls. |
+| `templates` | built-in wording | Optional `title`, `body`, or pinned `bodyFile`; body and bodyFile are exclusive. |
+
+Each destination has:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `name` | required | Stable destination identity; renaming starts a fresh cutoff. |
+| `type` | required | `teams`, `slack`, or `webhook`; email is deferred. |
+| `endpointEnv` | required | Runtime variable name, never a literal address or credential. |
+| `enabled` | `true` | Explicit `false` disables this destination. |
+| `events` | `[request-merged]` | Select `request-created` and/or `request-merged`; explicit `[]` disables delivery. |
+| `requestTypes` | `[promotion, backflow]` | Explicit `[]` disables delivery. |
+| `allowPrivateNetwork` | `false` | Explicitly permit an internal HTTPS receiver; TLS remains required. |
+| `templates` | inherit per slot | Destination title/body overrides; explicit empty strings remain empty. |
+
+Omitted selections get defaults; empty selections do not. Secret-value rotation
+behind the same `endpointEnv` does not reset identity. Transport or variable-name
+changes do. Fully disabled invocations record nothing, so unchanged re-enable
+resumes the last durable epoch; per-destination retirement is recorded only while
+another destination keeps processing enabled. See the [setup and recovery guide](../guides/notifications.md).
+
 ## Environment variables
 
 | Variable | Default | Meaning |

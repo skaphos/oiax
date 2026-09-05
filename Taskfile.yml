@@ -52,6 +52,11 @@ tasks:
       - go build ./...
       - go test -timeout=3m ./cmd/oiax ./internal/actioncontract ./internal/cienv ./internal/config ./internal/engine ./internal/forge ./internal/forge/marker ./internal/tmpl ./pkg/api/...
 
+  test-race:
+    desc: Run the full repository suite with race detection and shuffled tests
+    cmds:
+      - go test -race -shuffle=on ./...
+
   notifications:verify:
     desc: Race/shuffle notification suites and enforce per-package 85% coverage
     cmds:

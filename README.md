@@ -158,6 +158,8 @@ artifacts). See
 - [Architecture](docs/architecture.md) — the design: promotion graph,
   equivalence ladder, backflow, execution model, security posture
 - [Configuration reference](docs/reference/configuration.md)
+- [Managed-request notifications](docs/guides/notifications.md) — Teams, Slack,
+  webhooks, read-only previews and delivery recovery.
 - [CLI reference](docs/reference/cli.md) (generated)
 - [Code map](docs/code-map.md) — package tour for contributors
 - [Architecture Decision Records](docs/adr/)

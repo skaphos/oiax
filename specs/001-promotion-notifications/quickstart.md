@@ -1,8 +1,9 @@
 # Notification validation guide
 
-This is an acceptance guide for the planned implementation. The notification
-config, previews, and new test suites are not implemented in the current binary.
-It is not a completed test report.
+The notification implementation and automated fixture suites are available on
+this feature branch. On 2026-09-05 the maintainer deferred live acceptance to
+post-release adoption; the live steps below are an operator playbook, not a
+pre-release gate or a completed test report. No live resources are used implicitly.
 
 ## Prerequisites
 
@@ -37,10 +38,11 @@ go -C tools tool task verify-generated
 reuse lint
 ```
 
-Implementation adds the named test suites and a task enforcing 85% statement
-coverage on new notification packages. An empty `-run` match is not evidence:
-verify suites execute. Add seeded fuzzing for ledger/origin/URL/template parsing.
-Supported OSes execute the same behavioral contracts.
+`go -C tools tool task notifications:verify` runs race/shuffle suites and enforces
+85% statement coverage independently for each production notification package.
+`go -C tools tool task notifications:fuzz` runs bounded seeded parser campaigns.
+Linux, macOS and Windows CI jobs use the same verification task. Live visibility,
+setup timing and tenant behavior remain adoption evidence, not inferred from CI.
 
 ## Configure and preview
 

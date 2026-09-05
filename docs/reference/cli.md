@@ -301,6 +301,10 @@ through the equivalence ladder, and prints the actions reconcile would
 apply — without applying anything. Plan is the dry run; there is no
 separate dry-run flag.
 
+With enabled notifications, the informational preview reads bounded forge/notes
+state without resolving endpoint secrets, sending, or writing remote refs.
+Notification-only backlog does not change detailed exit codes.
+
 Exit codes (the compatibility contract, following terraform plan):
   0  fully in sync (or, without --detailed-exitcode, any successful plan)
   1  error
@@ -350,6 +354,10 @@ Reconcile computes the same plan as oiax plan, then applies it: creating
 missing managed promotion requests, updating promotion baselines, and
 closing obsolete requests. It never merges, approves, force-pushes
 long-lived branches, or touches unmanaged requests.
+
+Enabled notifications announce managed creation/merge events after core apply.
+Delivery failures are reported separately and retried by later invocations;
+they never replace the core result or prove deployment or recipient visibility.
 
 Exit codes (the compatibility contract):
   0  converged (including "applied actions successfully")

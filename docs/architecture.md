@@ -356,9 +356,29 @@ workflow annotations for warnings/errors and a plan summary written to
   `refs/notes/oiax/`. Notes updates require an explicit expected tip and
   append-only commit ancestry, with no deletion or rewind; long-lived
   branches remain protected. [ADR 0015](adr/0015-oiax-owned-notes-namespace.md)
-  records this governance extension. The proposed notification writer is
-  narrower (`refs/notes/oiax/notifications/v1/<graph-key>`) and is not yet
-  implemented; this permission is not a claim of shipped notes support.
+  records this governance extension. The notification writer is narrower:
+  `refs/notes/oiax/notifications/v1/<graph-key>`, with exact expected-tip updates
+  and no deletion or rewind of notes history.
+
+## Optional notification loop
+
+Notifications are coordinated outside the pure branch engine. Pinned policy and
+validated templates select managed creation/merge events on either forge. Core
+apply retains actual create outcomes even on partial failure; a separate origin
+comment allows later recovery without changing the ownership marker. Observation
+captures immutable event facts and verified commit snapshots where available.
+
+A Git-notes ledger owns configuration ancestry, subscription cutoffs, event facts,
+saved destination wording, claims, retry timing and terminal receipts. Concurrent
+workers use expected-tip updates and fresh reduction. No provider or delivery I/O
+occurs inside `internal/engine`. A destination failure never replaces the core
+result. An uncertain HTTP acceptance cannot be claimed as exactly-once delivery.
+
+Enabled plans expose a renderer-owned read-only preview, not engine actions.
+Disabled policy bypasses all notification I/O. Adapters receive persisted payloads
+and append mandatory facts; they never execute templates or resolve secrets.
+The shared HTTPS client resolves/connects safely and returns bounded reason codes.
+See [notification setup, limits and recovery](guides/notifications.md).
 
 ## Roadmap
 

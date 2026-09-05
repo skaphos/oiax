@@ -14,6 +14,10 @@ missing managed promotion requests, updating promotion baselines, and
 closing obsolete requests. It never merges, approves, force-pushes
 long-lived branches, or touches unmanaged requests.
 
+Enabled notifications announce managed creation/merge events after core apply.
+Delivery failures are reported separately and retried by later invocations;
+they never replace the core result or prove deployment or recipient visibility.
+
 Exit codes (the compatibility contract):
   0  converged (including "applied actions successfully")
   1  error

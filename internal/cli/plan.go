@@ -17,6 +17,10 @@ through the equivalence ladder, and prints the actions reconcile would
 apply — without applying anything. Plan is the dry run; there is no
 separate dry-run flag.
 
+With enabled notifications, the informational preview reads bounded forge/notes
+state without resolving endpoint secrets, sending, or writing remote refs.
+Notification-only backlog does not change detailed exit codes.
+
 Exit codes (the compatibility contract, following terraform plan):
   0  fully in sync (or, without --detailed-exitcode, any successful plan)
   1  error

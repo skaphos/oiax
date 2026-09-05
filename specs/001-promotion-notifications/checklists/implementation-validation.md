@@ -1,6 +1,75 @@
 # Implementation validation evidence
 
-## Current increment — reproducible verification gates
+## Implementation handoff — 2026-09-05
+
+All 78 in-scope checklist tasks are complete. The maintainer explicitly instructed
+that live acceptance be skipped and performed through post-release adoption.
+T076/T077 (live harness and execution) remain unchecked and deferred, not passed.
+Recipient-visible latency, tenant-specific live behavior and under-ten-minute
+first-time setup have **not** been measured. The adoption playbook remains in
+[quickstart.md](../quickstart.md); this decision removes those pre-release gates
+for this implementation request, not the need for eventual adoption evidence.
+
+Delivered capabilities: managed promotion/backflow merge alerts; opt-in recovered
+creation alerts; GitHub/Azure lifecycle parity; Teams/Slack/webhooks; revision-
+ordered durable subscription state, immutable facts and saved presentation;
+bounded retries and independent destinations; custom pinned templates and labels;
+event-specific commit enrichment; read-only previews; safe recovery diagnostics
+and CI summaries. GitHub creation membership remains explicitly unavailable
+because the API does not establish an immutable first iteration; no moving-branch
+substitution is made. Global-disable zero-I/O and core exit/output compatibility
+remain tested. HTTP acceptance without a persisted receipt is never claimed as
+exactly-once delivery or recipient visibility.
+
+Final local commands and evidence:
+
+| Gate | Actual result |
+| --- | --- |
+| `go -C tools tool task test-race` | PASS, full repository; CLI 133.271 s, coordinator 157.452 s. Test-process-only Git signing/hook overrides. |
+| `go -C tools tool task notifications:verify` | PASS, race/shuffle and independent 85% floor; measured 92.53% model, 87.90% delivery, 86.70% store. |
+| `go -C tools tool task notifications:fuzz` | PASS, five bounded campaigns; execution counts recorded below. |
+| `go -C tools tool task lint staticcheck vuln build reuse` | PASS; zero lint issues, no vulnerability findings, stock binary built, REUSE compliant. |
+| `go -C tools tool task docs:cli-ref` then `verify-generated` | PASS; generated diff reviewed, only the intended notification help added. |
+| CLI docs and GitHub/Azure summary regression tests | PASS under race/shuffle. |
+| Final creation-preview precision regression | PASS with notification creation/preview tests; preview shares admission evidence without changing event timestamps. |
+| `git diff --check` | PASS. |
+| Linux/macOS/Windows CI and snapshot build | Wired to existing jobs; final push's remote runs remain authoritative, not inferred from this machine. |
+
+Requirement cross-check (the detailed task-to-requirement map remains in tasks):
+
+| Contract | Implementation / evidence |
+| --- | --- |
+| FR-001–003 | Pinned config, three adapters, independent default/empty subscriptions; config and routing matrices. |
+| FR-004–007 | Ownership, actual creation recovery, authoritative merges, promotion/backflow on both providers; shared lifecycle/create and compiled-CLI matrices. |
+| FR-008–012 | Fixed identity/completeness, stable IDs, terminal receipts, uncertain acceptance and cutoffs; adapter/reducer/concurrency tests. |
+| FR-013–017 | Destination isolation, nonfatal retry, safe outcomes, runtime-only secrets and inert text; client, fault, canary and binary exit matrices. |
+| FR-018–020 | Closed/pinned validation, no-policy bypass and read-only preview; parser, config, preview and compatibility tests. |
+| FR-021–022 | Shared provider lifecycle/snapshot fixtures and reconstructible notes/origin; real local bare-Git tests. Live tenant assumptions deferred. |
+| FR-023–026 | Slot inheritance, fixed facts, labels, bounded event snapshots and saved messages; template/fuzz/runtime and compiled-CLI tests. |
+| SC-002–005, SC-007–008 | Local identity, 1,000 unchanged evaluations, fault isolation, canaries, both-forge lifecycle and custom presentation evidence retained below. Live visibility portions deferred. |
+| SC-001, SC-006 | Deferred to adoption; no latency or setup-time claim. |
+
+Governance: ADR 0015 is accepted for the exact notes namespace and expected-tip,
+append-only rules. ADRs 0013/0014 remain proposed for normal maintainer review;
+their disposition was not silently rewritten. No engine/provider layering,
+long-lived-branch force-push, unmanaged-request or release-file authority was
+expanded. No live receiver send, merge, repository-setting change, release/tag
+operation or email implementation was performed. #75 remains the implementation
+tracking reference; #76 remains outside scope.
+
+Commits were cryptographically signed and DCO-signed-off, then pushed at unit
+boundaries to the existing [PR #77](https://github.com/skaphos/oiax/pull/77):
+`ffda3e9` templates/routing, `0865d7e` snapshots, `81b9137` previews/diagnostics,
+`088be22` quality gates, and `832bd50` creation-preview precision. The final
+documentation/handoff commit follows. Release remains automated after normal
+review and CI; no tags or release-managed files are edited by hand.
+
+Rollback: remove optional notification config with a reviewed descendant commit
+before downgrading to an older binary. Preserve notes, receipts and origin
+comments; never erase state to resolve an error. See the complete
+[operator recovery guide](../../../docs/guides/notifications.md).
+
+## Earlier increment — reproducible verification gates
 
 2026-09-05: `notifications:verify` passes locally. It runs the production
 notification packages with race/shuffle and atomic coverage, verifies the coverage
