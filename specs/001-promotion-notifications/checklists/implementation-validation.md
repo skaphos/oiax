@@ -1,6 +1,33 @@
 # Implementation validation evidence
 
-## Current increment — read-only preview and safe recovery
+## Current increment — reproducible verification gates
+
+2026-09-05: `notifications:verify` passes locally. It runs the production
+notification packages with race/shuffle and atomic coverage, verifies the coverage
+checker itself, gates every production notification package independently at 85%,
+and runs notification provider/marker/coordinator/compiled-CLI suites. The only
+excluded notification package is the explicitly test-only `notificationtest`.
+Missing/empty packages, duplicate/malformed coverage and an under-covered new
+production subpackage fail the checker. Existing Linux/macOS/Windows `Test` jobs
+now invoke this exact task without changing their names or repository permissions.
+
+Measured coverage: model 92.53% (471/509), delivery 87.90% (109/124), store 86.70%
+(176/203). The verification task's CLI suite passed in 116.942 seconds.
+
+`notifications:fuzz` passed five ten-second, two-worker campaigns: templates
+205,258 executions; ledger 674,188; endpoint parser 300,059; origin 406,071;
+combined config/origin/commit payload parser 47,667. The existing ledger codec
+fuzzer is reused rather than duplicated. No failing regression corpus or captured
+credentials resulted.
+
+The full repository `go test -race -shuffle=on ./...` passed (CLI 176.492 seconds;
+coordinator 203.108 seconds) with process-local test Git signing/hook overrides,
+not repository configuration changes. `task lint staticcheck vuln build reuse`
+passed: zero lint issues, no govulncheck findings, successful stock binary build,
+and REUSE compliance. Cross-OS execution is delegated to the existing CI matrix;
+this machine's results are not represented as Windows/Linux execution.
+
+## Earlier increment — read-only preview and safe recovery
 
 2026-09-05: enabled policy adds an optional renderer-owned `notifications` member
 to the single JSON v1 plan document. Engine fields/actions and detailed exit

@@ -93,6 +93,9 @@ jobs:
       - name: Run race test task
         if: matrix.os == 'ubuntu-24.04'
         run: go -C tools tool task test-race
+      - name: Verify notification race/shuffle and package coverage
+        if: matrix.os == 'ubuntu-24.04'
+        run: go -C tools tool task notifications:verify
       - name: Verify local CLI portability (build and unit tests)
         if: matrix.os != 'ubuntu-24.04'
         run: go -C tools tool task test-portability
