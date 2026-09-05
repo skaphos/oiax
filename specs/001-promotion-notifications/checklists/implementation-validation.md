@@ -44,6 +44,21 @@ not block already pending dispatch. A stale runtime stops before lifecycle,
 secret resolution, sender creation, or delivery once a descendant config is
 accepted; revision evidence remains inside each freshly reduced CAS transition.
 
+T034 completes the adversarial concurrency matrix. Simultaneous initialization
+converges, competing claims send once, and a forced conflict re-runs revision
+comparison against the newly committed config instead of reusing stale evidence.
+Equal-OID digest mismatch and divergent/unknown ancestry leave durable state
+unchanged. A descendant policy content revert creates a fresh generation without
+reviving retired work or changing event identity. After a suspended sender's
+claim expires, a replacement attempt can fail durably and the proven late
+acceptance still wins monotonically as the terminal two-attempt receipt.
+
+T037 confirms the compatibility bypass: no-policy, all-disabled, explicitly
+empty event selection and explicitly empty request-type selection produce the
+same text/JSON plan and reconcile output while notification capability traps
+remain untouched. The passing depguard lint retains `internal/engine`'s ban on
+notification/effect dependencies.
+
 T029 and T031–T033 now complete the bounded dispatcher slice: runtime mutations
 use caller-observed CAS revisions, messages persist before claims, claims renew
 against the current accepted config/generation, destination workers send in
@@ -70,12 +85,14 @@ Verification on this checkpoint:
 | `go test -race -shuffle=on -count=10 -timeout=60s ./internal/notification/delivery` | PASS |
 | `go test -race -shuffle=on -count=10 ./internal/notification ./internal/notification/delivery` | PASS |
 | `go test -race -shuffle=on -run 'TestNotification(Observe|Stale)' ./internal/reconcile` | PASS |
+| `go test -race -shuffle=on -count=25 -run 'TestNotification(Concurrent|Conflict|Activation|Descendant|Expired|DispatchCompeting)' ./internal/reconcile` | PASS |
+| `go test -race -shuffle=on -run TestNotificationDisabledPreservesLegacyOutput ./internal/cli` | PASS |
 | focused notification/reconcile race tests, repeated 10 times after concurrent dispatch | PASS |
 | `go -C tools tool task lint` | PASS, 0 issues |
 | `go -C tools tool task build` | PASS |
 | `go -C tools tool task verify-generated` | PASS |
-| `reuse lint` | PASS, all 287 files compliant |
-| `graphify update .` | PASS: 1,830 nodes, 5,120 edges, 114 communities |
+| `reuse lint` | PASS, all 288 files compliant |
+| `graphify update .` | PASS: 1,840 nodes, 5,167 edges, 112 communities |
 | `graphify diagnose multigraph --max-examples 1` | PASS: no missing/dangling endpoints, self-loops or collapsed edges; raw producer loss not measured |
 | `git diff --check` | PASS |
 
@@ -86,8 +103,8 @@ diagnostics remain later phases.
 
 Resume in this order:
 
-1. Complete T019 and T034 merge/concurrency integration, especially CAS conflict
-   re-reduction, suspended senders, late results and core exit isolation.
+1. Complete T019 merge integration, especially unmanaged/closed exclusion,
+   partial core failures and unchanged exit 0/1/3 isolation.
 2. Finish T030 and T034–T038: adversarial observation/config-order races,
    default presentation, built-binary merge scenarios, exact core exit evidence
    and the independent US1 matrix. Do not contact live receivers in unit tests.
