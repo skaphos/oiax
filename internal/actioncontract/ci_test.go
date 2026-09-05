@@ -65,6 +65,32 @@ func TestCIPlatformSupportTiers(t *testing.T) {
 	}
 }
 
+func TestLinuxTasksHaveExplicitPackageDeadlines(t *testing.T) {
+	t.Parallel()
+	var taskfile struct {
+		Tasks map[string]yaml.Node `yaml:"tasks"`
+	}
+	readRepoYAML(t, "Taskfile.yml", &taskfile)
+	for name, want := range map[string]string{
+		"test-cover": "go test -timeout=10m -coverprofile=coverage.out ./...",
+		"test-race":  "go test -timeout=10m -race -shuffle=on ./...",
+	} {
+		var task struct {
+			Cmds []string `yaml:"cmds"`
+		}
+		node, ok := taskfile.Tasks[name]
+		if !ok {
+			t.Fatalf("missing Linux test task: %s", name)
+		}
+		if err := node.Decode(&task); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(task.Cmds, []string{want}) {
+			t.Errorf("%s must preserve its full-suite gate and explicit ten-minute deadline: %v", name, task.Cmds)
+		}
+	}
+}
+
 func TestPortabilityTaskKeepsBoundedUnitSelection(t *testing.T) {
 	t.Parallel()
 	var taskfile struct {

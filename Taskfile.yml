@@ -37,7 +37,7 @@ tasks:
   test-cover:
     desc: Run tests with coverage output
     cmds:
-      - go test -coverprofile=coverage.out ./...
+      - go test -timeout=10m -coverprofile=coverage.out ./...
 
   test-race:
     desc: Run the full suite with race detection and shuffled tests (Linux CI)
