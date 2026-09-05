@@ -209,7 +209,45 @@ func (r *NotificationRuntime) Observe(ctx context.Context) error {
 }
 
 func (r *NotificationRuntime) recordObservation(ctx context.Context, requests []notification.LifecycleRequest, scan string, progress notification.ScanProgress, now time.Time) error {
-	_, err := r.commit(ctx, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
+	// Provider enrichment happens outside CAS callbacks. Conflicts re-reduce
+	// captured facts, never reread a moving remote inside a state transition.
+	snapshot, err := r.Store.Read(ctx)
+	if err != nil {
+		return err
+	}
+	if snapshot.Ledger == nil {
+		return notification.ErrAbsent
+	}
+	if snapshot.Ledger.PolicyRevision.ConfigOID != r.ConfigOID {
+		return notification.ErrStaleRevision
+	}
+	events := map[string]notification.EventV1{}
+	reader, canEnrich := r.Reader.(forge.SnapshotReader)
+	enrichmentCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	for _, request := range requests {
+		if !request.Repository.Same(r.Repository) || request.Graph != r.Graph {
+			continue
+		}
+		for _, normalize := range []func(*engine.Graph, *v1.NotificationPolicy, notification.LifecycleRequest, time.Time) (notification.EventV1, bool){notification.CreationEvent, notification.MergeEvent} {
+			event, eligible := normalize(r.Topology, r.Policy, request, now)
+			if !eligible {
+				continue
+			}
+			if existing, ok := snapshot.Ledger.Events[event.ID]; ok {
+				events[event.ID] = existing
+				continue
+			}
+			if canEnrich && enrichmentCtx.Err() == nil {
+				revision := forge.EventRevision{Kind: event.Kind, SourceOID: request.SourceOID, BaseOID: request.BaseOID, MergeResultOID: request.MergeResultOID}
+				if enriched, err := reader.GetCommitSnapshot(enrichmentCtx, request, revision); err == nil {
+					event.Snapshot = notification.BoundSnapshot(enriched)
+				}
+			}
+			events[event.ID] = event
+		}
+	}
+	_, err = r.commit(ctx, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
 		if l == nil {
 			return nil, notification.ErrAbsent
 		}
@@ -222,8 +260,8 @@ func (r *NotificationRuntime) recordObservation(ctx context.Context, requests []
 				continue
 			}
 			l.KnownRequests[request.Request.ID] = request
-			for _, normalize := range []func(*engine.Graph, *v1.NotificationPolicy, notification.LifecycleRequest, time.Time) (notification.EventV1, bool){notification.CreationEvent, notification.MergeEvent} {
-				if event, eligible := normalize(r.Topology, r.Policy, request, now); eligible {
+			for _, kind := range []v1.NotificationEvent{v1.NotificationRequestCreated, v1.NotificationRequestMerged} {
+				if event, eligible := events[notification.EventID(request.Repository, request.Request.ID, kind)]; eligible {
 					var err error
 					l, err = notification.AdmitEvent(l, r.ConfigOID, event)
 					if err != nil {

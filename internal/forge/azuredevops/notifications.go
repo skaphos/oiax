@@ -193,6 +193,7 @@ func (p *Provider) GetLifecycleRequest(ctx context.Context, id forge.RequestID) 
 		r.Request.LogicalSource = m.Source
 		r.Request.LogicalDestination = m.Destination
 	}
+	r.SourceOID, r.BaseOID, r.MergeResultOID = pr.LastMergeSourceCommit.CommitID, pr.LastMergeTargetCommit.CommitID, pr.LastMergeCommit.CommitID
 	if origin, ok := mk.ParseNotificationOrigin(pr.Description); ok && mk.NotificationOriginMatches(origin, m) {
 		r.Origin = &origin
 		r.Request.LogicalSource, r.Request.LogicalDestination = origin.LogicalSource, origin.LogicalTarget

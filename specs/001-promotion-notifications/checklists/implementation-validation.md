@@ -1,6 +1,39 @@
 # Implementation validation evidence
 
-## Current increment — routing and custom presentation
+## Current increment — immutable commit enrichment
+
+2026-09-05: snapshot enrichment is wired outside ledger CAS callbacks. First
+admission fixes bounded commit facts and environment labels; rereads and retries
+cannot replace them. Enrichment has a ten-second page budget and finalization a
+shared two-minute budget. Enrichment failure preserves the lifecycle event with
+explicit unavailable details.
+
+GitHub reads completed PR review membership with authoritative detail totals,
+bounded retrieval and revision rechecks. A failed membership read can fall back
+to an immutable compare only when a two-parent merge proves its pre-merge base
+and reviewed source head. No branch-name history fallback is used. GitHub's API
+does not establish the first creation iteration, so GitHub creation summaries
+remain explicitly unavailable, including when pre-POST hints match today's head.
+Azure uses server-owned first-iteration source/target OIDs for creation (overriding
+raced pre-POST hints), and completed last-merge source/target OIDs for merges.
+Its history query pins both versions as commits and bounds lookahead to 101;
+page counts are never presented as authoritative totals.
+
+Both paths cap admitted summaries at 100, subjects at 200 runes, strip controls
+and untrusted commit URLs, and preserve merge-result identity separately from
+reviewed source SHA. The source APIs are the [GitHub PR commit endpoint](https://docs.github.com/en/rest/pulls/pulls#list-commits-on-a-pull-request),
+[Azure first iteration](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-request-iterations/get?view=azure-devops-rest-7.1),
+and [Azure commit-version query](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/commits/get-commits?view=azure-devops-rest-7.1).
+
+Automated evidence: both-provider snapshot fixtures cover source advancement,
+deleted refs, squash/rebase identity, unavailable reads and over-100 bounds;
+immutable merge fallback has a dedicated proof fixture. Runtime tests prove
+event/label immutability and preservation after enrichment failure. A compiled
+CLI test on each provider delivers configured environment wording with the full
+fixed facts and no repeat send. The notification race/shuffle suite passed
+(CLI 75.832 seconds); these are local fixtures, not live adoption evidence.
+
+## Earlier increment — routing and custom presentation
 
 2026-09-05: the maintainer explicitly deferred live acceptance testing to adoption
 after release. T076/T077 are out of the current implementation scope, not passed

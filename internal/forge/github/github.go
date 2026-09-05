@@ -159,17 +159,19 @@ var _ forge.Forge = (*Provider)(nil)
 
 // ghPull is the subset of GitHub's pull-request JSON the provider reads.
 type ghPull struct {
-	Number    int       `json:"number"`
-	State     string    `json:"state"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	MergedAt  *string   `json:"merged_at"`
-	CreatedAt string    `json:"created_at"`
-	Mergeable *bool     `json:"mergeable"`
-	Head      ghRef     `json:"head"`
-	Base      ghRef     `json:"base"`
-	Labels    []ghLabel `json:"labels"`
-	User      ghUser    `json:"user"`
+	Commits        *int      `json:"commits"`
+	MergeCommitSHA string    `json:"merge_commit_sha"`
+	Number         int       `json:"number"`
+	State          string    `json:"state"`
+	Title          string    `json:"title"`
+	Body           string    `json:"body"`
+	MergedAt       *string   `json:"merged_at"`
+	CreatedAt      string    `json:"created_at"`
+	Mergeable      *bool     `json:"mergeable"`
+	Head           ghRef     `json:"head"`
+	Base           ghRef     `json:"base"`
+	Labels         []ghLabel `json:"labels"`
+	User           ghUser    `json:"user"`
 }
 
 type ghRef struct {

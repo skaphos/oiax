@@ -142,7 +142,7 @@ func (p *Provider) GetLifecycleRequest(ctx context.Context, id forge.RequestID) 
 	if err != nil {
 		return notification.LifecycleRequest{}, notification.ErrLifecycleUnavailable
 	}
-	r := notification.LifecycleRequest{Repository: repo, Graph: m.Graph, CreatedAt: created.UTC(), SourceOID: pr.Head.SHA, BaseOID: pr.Base.SHA,
+	r := notification.LifecycleRequest{Repository: repo, Graph: m.Graph, CreatedAt: created.UTC(), SourceOID: pr.Head.SHA, BaseOID: pr.Base.SHA, MergeResultOID: pr.MergeCommitSHA,
 		Request: notification.RequestV1{ID: strconv.Itoa(pr.Number), Type: v1.NotificationRequestType(m.Type), Source: pr.Head.Ref, Destination: pr.Base.Ref, URL: "https://" + gitRemoteHost + "/" + url.PathEscape(p.Owner) + "/" + url.PathEscape(p.Repo) + "/pull/" + strconv.Itoa(pr.Number)}}
 	if m.Type == "promotion" {
 		r.Request.LogicalSource = pr.Head.Ref

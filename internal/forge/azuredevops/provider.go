@@ -102,14 +102,17 @@ var _ forge.Forge = (*Provider)(nil)
 // In the list response the description is truncated to 400 characters; the
 // marker is written first in the description so it survives that truncation.
 type adoPull struct {
-	PullRequestID int    `json:"pullRequestId"`
-	Title         string `json:"title"`
-	Description   string `json:"description"`
-	SourceRefName string `json:"sourceRefName"`
-	TargetRefName string `json:"targetRefName"`
-	Status        string `json:"status"`
-	CreationDate  string `json:"creationDate"`
-	ClosedDate    string `json:"closedDate"`
+	LastMergeSourceCommit adoCommitRef `json:"lastMergeSourceCommit"`
+	LastMergeTargetCommit adoCommitRef `json:"lastMergeTargetCommit"`
+	LastMergeCommit       adoCommitRef `json:"lastMergeCommit"`
+	PullRequestID         int          `json:"pullRequestId"`
+	Title                 string       `json:"title"`
+	Description           string       `json:"description"`
+	SourceRefName         string       `json:"sourceRefName"`
+	TargetRefName         string       `json:"targetRefName"`
+	Status                string       `json:"status"`
+	CreationDate          string       `json:"creationDate"`
+	ClosedDate            string       `json:"closedDate"`
 	// ForkSource is populated only when the pull request's source branch lives
 	// in a fork. Oiax only ever opens requests branch-to-branch within the base
 	// repository, so a fork PR is never one of its own (the provenance guard the
