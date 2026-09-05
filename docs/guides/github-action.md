@@ -7,8 +7,10 @@ composite wrapper around the release binary — it downloads a
 checksum-verified `oiax`, prepares git refs, and runs it. No promotion
 logic lives in YAML.
 
-The composite Action supports Linux runners on x64 and ARM64. Use the
-standalone release binary when running Oiax on another operating system.
+The composite Action supports Linux runners on x64 and ARM64. Linux is the
+supported automation platform, including standalone `plan`/`reconcile` jobs.
+Other operating systems retain best-effort local CLI binaries; see
+[platform support and migration](../reference/platform-support.md).
 
 ## The complete workflow
 

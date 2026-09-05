@@ -86,6 +86,15 @@ force-update only the floating `vMAJOR` tags (for example `v1`).
 
 ## Governance
 
+The platform support change in [ADR 0016](docs/adr/0016-linux-automation-support.md)
+is a breaking support-policy change: production automation is supported on
+Linux only. macOS/Windows artifacts remain published for best-effort local
+use; retaining an artifact does not promise full integration support.
+The implementation PR must retain its conventional-commit `!` marker and
+`BREAKING CHANGE:` migration text when squash-merged so release-please
+selects a major release. No manual manifest, changelog, or tag edits are needed.
+See [the operator migration](docs/reference/platform-support.md#migration).
+
 Release workflows, `release-please-config.json`,
 `.release-please-manifest.json`, and this document are code-owner gated
 (see `.github/CODEOWNERS`). Exit codes, the JSON

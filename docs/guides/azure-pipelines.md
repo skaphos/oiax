@@ -23,6 +23,10 @@ release binary, prepares git refs, and runs it. No promotion logic lives
 in YAML. Linux agents only (x64 and ARM64); `ubuntu-24.04` satisfies
 Oiax's git ≥ 2.45 floor.
 
+Linux is also the supported OS for automation using the standalone CLI.
+macOS/Windows binaries are best-effort local tools, not a supported alternative
+automation agent; see [platform support](../reference/platform-support.md).
+
 > **Availability.** The Azure Pipelines template and the Azure Repos forge
 > provider ship in Oiax **1.1.0**. Pin the `oiax` repository resource and
 > the `version` parameter to `v1.1.0` or newer, as the examples below do —

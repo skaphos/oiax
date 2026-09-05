@@ -103,8 +103,10 @@ branches exist as refs).
 
 The initial execution model is a GitHub Action — a thin composite
 wrapper around the release binary. The Action supports Linux runners on
-x64 and ARM64; standalone release binaries remain available for the other
-published platforms.
+x64 and ARM64. Linux is the supported platform for production automation;
+macOS/Windows release binaries remain available for best-effort local CLI use,
+with build and unit portability checks rather than full integration coverage.
+See [platform support and migration](docs/reference/platform-support.md).
 
 ```yaml
 - uses: actions/checkout@v7
