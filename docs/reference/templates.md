@@ -1,4 +1,4 @@
-# Request-text templates
+# Request and notification text templates
 
 > Key-by-key reference for `spec.templates`. For the worked
 > change-management examples this feature exists for, see the
@@ -172,3 +172,51 @@ subjects accordingly:
   your org.
 - Never assume a subject is a single "word" — it can contain Markdown
   syntax, mentions, and up to 200 runes of anything printable.
+
+## Notification templates
+
+`spec.notifications.templates` and each notification destination's `templates`
+are independent of request-body templates. Optional `title`, `body` and
+`bodyFile` slots inherit independently from graph defaults and then built-ins.
+Body and bodyFile are mutually exclusive. Explicit `""` suppresses only the
+custom slot; required event facts remain on every transport. Files are read from
+the same pinned commit as configuration, with a 1 MiB source limit.
+
+The closed context is:
+
+| Fields | Captured meaning |
+| --- | --- |
+| `.Event`, `.RequestType` | `request-created`/`request-merged`, `promotion`/`backflow`. |
+| `.Repository`, `.Graph` | Repository display name and graph name. |
+| `.RequestID`, `.RequestURL`, `.EventID` | Explicit forge identifier, validated review link and stable event ID. |
+| `.SourceBranch`, `.DestinationBranch` | Actual PR head/base branch names. |
+| `.LogicalSourceBranch`, `.LogicalDestinationBranch` | Logical edge when known; otherwise empty. |
+| `.SourceEnvironment`, `.DestinationEnvironment` | Captured logical branch labels, with actual branch fallback. |
+| `.OccurredAt`, `.ObservedAt` | Original RFC3339 UTC strings, not clock objects. |
+| `.Commits` | Up to 100 `{SHA, ShortSHA, Subject, URL}` summaries. URLs are currently omitted; use `.RequestURL`. |
+| `.CommitCount`, `.CommitCountKnown` | Authoritative total when known; otherwise zero/false. |
+| `.CommitsTruncated`, `.CommitsUnavailable` | Explicit incomplete or unavailable details. |
+
+`trunc` and `shortSHA`, comparisons, `if`, `else`, `printf`, `len` and `index`
+are deterministic. `range .Commits` bounds iteration to captured summaries.
+Unknown fields are rejected even in inactive branches. Inclusion/definitions,
+method calls, variable assignment, `with` and integer ranges are not exposed.
+No environment, current time, randomness, process, file or network access exists.
+All four event/request combinations are sample-rendered before mutation.
+
+Titles become inert single lines capped at 256 runes; bodies are limited to
+12 KiB and transport payloads to 24 KiB. Controls and bidi formatting are removed.
+Non-request HTTP(S) addresses are redacted. Teams/Slack encode user text as inert
+text, not Markdown or mentions. Dynamic render failures defer notification
+delivery without replacing the core result.
+
+Commit facts and labels are fixed at first event admission. GitHub creation
+details are explicitly unavailable rather than guessed from pre-POST hints;
+Azure can use a verified first iteration. Squash/rebase source SHAs are review
+identities, not a promise of destination SHAs. Truncation and unknown totals are
+reported independently of custom wording.
+
+Each destination's rendered message is saved before its first attempt and reused
+after errors or uncertain acceptance. Template edits affect only not-yet-rendered
+deliveries. The complete fixed identity/completeness section is never templatable.
+See the [notification guide](../guides/notifications.md#customize-wording).

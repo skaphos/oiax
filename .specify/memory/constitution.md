@@ -1,56 +1,39 @@
 <!--
 SYNC IMPACT REPORT — Oiax Constitution
 ======================================
-Version change: (unfilled template) → 1.0.0
-Bump rationale: initial ratification. The prior file was the stock Spec Kit
-template with every placeholder unreplaced, so there is no prior governance to
-compare against; this is an addition, not a redefinition.
+Version change: 1.0.0 → 2.0.0
+Bump rationale: explicit expansion of Principle XI's permitted mutation boundary
+to refs/notes/oiax/, authorized by Shawn Stratton on 2026-09-04 and recorded in
+ADR 0015. This redefines a binding permission, so the repository's MAJOR rule
+applies. This is not a software release or configuration API version change.
 
 Derived from: skaphos-resources/standards/constitution.md v1.1.0 (ratified
-2026-07-23). Principles I–IX are the upstream principles specialized to Oiax and
-are numbered to match upstream one-for-one so re-syncs diff mechanically.
-Principles X–XII are Oiax-specific additions permitted by upstream Governance.
+2026-07-23). Upstream-derived Principles I–IX are unchanged. The amendment is
+limited to Oiax-specific Principle XI, retaining bounded effects and Git durability.
 
-Modified principles: none renamed or removed. Added, relative to the empty
-template:
-  - I. Explicit State Over Implicit Behavior
-  - II. Git Is the Durable Desired-State Boundary
-  - III. Deterministic, Reconstructible Operation
-  - IV. Control-Plane Conventions, Never Obscured (SCOPED DERIVATION — see below)
-  - V. Compose, Don't Trap
-  - VI. Explainable Reconciliation, Evidence-Grade Audit
-  - VII. Read-Only Degradation Over Blindness
-  - VIII. Topology Is Deployment State
-  - IX. Technical Precision, Honest Scope
-  - X. The Engine Is Pure (Oiax-specific)
-  - XI. Bounded Blast Radius (Oiax-specific)
-  - XII. Compatibility Contracts Are Explicit (Oiax-specific)
-
-Added sections: Engineering Constraints; Development Workflow and Quality Gates;
-Governance.
+Modified principles:
+  - XI. Bounded Blast Radius (Oiax-specific) — same title; permit
+    refs/heads/oiax/ and refs/notes/oiax/, with expected-tip, append-only notes
+    updates, no notes deletion/rewind, and unchanged long-lived-branch protection.
+Added sections: none.
 Removed sections: none.
 
-SCOPED DERIVATION — Principle IV. Upstream reads "Kubernetes-Native, Never
-Obscured" and requires direct integration with Kubernetes primitives. Oiax has no
-Kubernetes dependency and runs no controller (FACTS.md, "Relationship to
-Keleustes and the suite"). Restating the upstream text verbatim would assert
-behavior Oiax does not have, which Principle IX forbids. The binding content is
-therefore scoped, not weakened: the declarative-API conventions bind Oiax's
-config surface, and the "never obscure the substrate" clause binds Oiax's actual
-substrates — Git and the forge. Cluster integration is out of scope for this
-repository, stated plainly rather than silently dropped.
+SCOPED DERIVATION — Principle IV remains scoped to Oiax's Git/forge substrates;
+Oiax has no Kubernetes dependency. This amendment does not change that derivation.
 
-Templates requiring updates:
-  ✅ .specify/templates/plan-template.md — Constitution Check replaced with
-     concrete gates derived from these principles
-  ✅ .specify/templates/spec-template.md — added mandatory Out of Scope section
-     (Principle IX)
-  ✅ .specify/templates/tasks-template.md — tests are no longer marked OPTIONAL
-     (Principle X / Testing constraints)
-  ✅ .claude/skills/speckit-*/SKILL.md — reviewed; no agent-specific or outdated
-     references requiring change
-  ✅ AGENTS.md, README.md, CONTRIBUTING.md — reviewed; existing guidance is
-     consistent with these principles, no edits required
+Dependent artifacts:
+  ✅ .specify/templates/plan-template.md — version and XI gate updated.
+  ✅ .specify/templates/spec-template.md — reviewed; no namespace rule to change.
+  ✅ .specify/templates/tasks-template.md — reviewed; test/phase rules unchanged.
+  ✅ AGENTS.md, CONTRIBUTING.md, docs/architecture.md — owned ref families and
+     append-only notes restriction synchronized.
+  ✅ README.md — no conflicting namespace rule.
+  ✅ Codex command files — none installed in this checkout's .agents/.codex;
+     the separate integration PR is not changed by this amendment.
+  ✅ docs/adr/0015-oiax-owned-notes-namespace.md — maintainer decision recorded;
+     ADR 0004 only gains a partial-supersession status/link, decision body retained.
+  ✅ specs/001-promotion-notifications/ — C1/T001 authority evidence recorded;
+     proposed ADR 0014 updated without accepting its broader design.
 
 Follow-up TODOs — known compliance gaps in this repository, recorded here rather
 than weakening the principles they violate. Each needs its own change:
@@ -221,8 +204,17 @@ apply can disagree, and Principle III is unenforceable.*
 
 Oiax MUST NOT merge, approve, deploy, create long-lived branches, or mutate
 repository settings. It MUST NOT close, edit, or otherwise touch unmanaged pull
-requests. Force-push MUST be confined to the `oiax/` ref namespace; long-lived
-branches MUST NEVER be force-pushed under any circumstances. Branch names are
+requests. Force-push authority MUST be confined to Oiax-owned branches under
+`refs/heads/oiax/` and Git notes under `refs/notes/oiax/`; long-lived branches
+MUST NEVER be force-pushed under any circumstances. Notes updates MUST compare
+an explicit expected old object ID and preserve append-only commit ancestry:
+each replacement tip MUST have the expected tip as its sole parent. Initial
+creation MUST require an absent ref. Notes history MUST NOT be rewound or deleted,
+and notes belonging to other tools MUST NOT be mutated. The notification ledger
+is further restricted to `refs/notes/oiax/notifications/v1/<graph-key>`; namespace
+authority does not grant an arbitrary-ref writer or relax per-feature contracts.
+This extension is explicitly authorized by the maintainer in ADR 0015; it does
+not authorize branch or tag mutations through the notes capability. Branch names are
 untrusted data: they MUST be validated with `git check-ref-format`, passed after
 `--` separators, and never interpolated into a shell. Any new bulk or outward
 action MUST bound its blast radius and refuse to exceed it without explicit
@@ -328,4 +320,4 @@ alternative, or (b) a proposed amendment. Silent divergence is not an option.
 Known unmet requirements are recorded as follow-up TODOs in the Sync Impact
 Report above rather than by softening the requirement.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-26 | **Last Amended**: 2026-07-26
+**Version**: 2.0.0 | **Ratified**: 2026-07-26 | **Last Amended**: 2026-09-04

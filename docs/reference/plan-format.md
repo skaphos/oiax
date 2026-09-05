@@ -30,6 +30,7 @@ should treat this page as authoritative.
 | `graph` | string | always | The graph's `metadata.name` (see the [configuration reference](configuration.md)). |
 | `actions` | array of [`Action`](#action) | always | The ordered actions required to converge the graph. **Always a JSON array, never `null`** — including when the graph is fully in sync, in which case it is `[]`. |
 | `edges` | array of [`Edge`](#edge) | `omitempty` | Per-edge diagnostics: one summary per evaluated promotion edge, in graph declaration order — including edges fully in sync, which usually produce no action (the exception is `closeObsoleteRequest`). Additive within version 1; absent (never `null`) when no edges were evaluated. |
+| `notifications` | object | omitted without enabled policy | Read-only, renderer-owned notification preview; not an engine action. |
 
 Example, fully in sync (a one-edge graph):
 
@@ -48,6 +49,28 @@ Example, fully in sync (a one-edge graph):
   ]
 }
 ```
+
+## Notification preview
+
+The optional `notifications` member is additive within version 1 (ADR 0013).
+It is part of the same JSON document, never a second stdout result. Fields are
+`schemaVersion: 1`, `observation`, optional safe `reason`, and `items` (always an
+array). Observation is `complete`, `incomplete`, `unavailable` or `uninitialized`.
+Preview is bounded to a ten-second read budget, up to 100 known open requests,
+and two lifecycle pages per event kind. Incomplete does not mean no events exist.
+
+Each item contains `destination`, `event`, `requestType`, `decision`, `reason`,
+and, for existing events, `eventId` and `requestId`. Planned creations use
+`conditional-on-create` and omit both IDs. Decisions distinguish `pending`,
+`delivered`, `filtered`, `retry-not-due`, and `subscription-not-active`.
+Items have deterministic ordering. A stale, unordered or mismatched policy
+revision is reported without advancing accepted state.
+
+Planning never resolves endpoint variables, contacts receivers, writes notes or
+claims sends. It cannot prove credentials, receiver readiness or visible delivery.
+`reconcile` emits this pre-apply preview; later safe delivery outcomes go to logs
+and CI summaries. Core `actions`, `edges`, format version and exit codes retain
+their existing meaning. Notification-only backlog cannot produce detailed exit 2.
 
 ## `Action`
 

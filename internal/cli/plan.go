@@ -17,6 +17,10 @@ through the equivalence ladder, and prints the actions reconcile would
 apply — without applying anything. Plan is the dry run; there is no
 separate dry-run flag.
 
+With enabled notifications, the informational preview reads bounded forge/notes
+state without resolving endpoint secrets, sending, or writing remote refs.
+Notification-only backlog does not change detailed exit codes.
+
 Exit codes (the compatibility contract, following terraform plan):
   0  fully in sync (or, without --detailed-exitcode, any successful plan)
   1  error
@@ -45,11 +49,11 @@ exit 3 after a plan of 2 in that single case.`,
 			if err != nil {
 				return err
 			}
-			g, ts, err := loadGraph(cmd, opts, ref)
+			loaded, err := loadGraph(cmd, opts, ref)
 			if err != nil {
 				return err
 			}
-			coord, err := buildCoordinator(cmd, g, ts, runner)
+			coord, err := buildCoordinator(cmd, loaded, runner)
 			if err != nil {
 				return err
 			}
@@ -57,10 +61,11 @@ exit 3 after a plan of 2 in that single case.`,
 			if err != nil {
 				return err
 			}
-			if err := renderPlan(cmd, opts, plan); err != nil {
+			preview := coord.PreviewNotifications(cmd.Context(), plan)
+			if err := renderPlan(cmd, opts, plan, preview); err != nil {
 				return err
 			}
-			writeStepSummary(cmd, plan)
+			writeStepSummary(cmd, plan, preview)
 
 			// With --detailed-exitcode, return a status code that predicts
 			// reconcile's outcome for this state (see the command help): 3 for a

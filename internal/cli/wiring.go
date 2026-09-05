@@ -18,7 +18,6 @@ import (
 	"github.com/skaphos/oiax/internal/forge/github"
 	"github.com/skaphos/oiax/internal/git"
 	"github.com/skaphos/oiax/internal/reconcile"
-	"github.com/skaphos/oiax/internal/tmpl"
 )
 
 // forgeKind names a forge provider implementation the CLI can wire.
@@ -125,18 +124,21 @@ func requireGitFloor(cmd *cobra.Command) (*git.Runner, error) {
 // working directory, and the resolved template set. runner is the instance
 // requireGitFloor already asserted the version floor on, so the floor is
 // checked exactly once.
-func buildCoordinator(cmd *cobra.Command, g *engine.Graph, ts *tmpl.Set, runner *git.Runner) (*reconcile.Coordinator, error) {
+func buildCoordinator(cmd *cobra.Command, loaded *loadedConfig, runner *git.Runner) (*reconcile.Coordinator, error) {
 	logger := buildLogger(cmd)
 	f, err := newForge(cmd.Context(), logger)
 	if err != nil {
 		return nil, err
 	}
 	return &reconcile.Coordinator{
-		Git:       runner,
-		Forge:     f,
-		Graph:     g,
-		Log:       logger,
-		Templates: ts,
+		Git:                 runner,
+		Forge:               f,
+		Graph:               loaded.Graph,
+		Log:                 logger,
+		Templates:           loaded.Templates,
+		NotificationPolicy:  loaded.Notifications,
+		NotificationSources: loaded.NotificationSources,
+		ConfigOID:           loaded.ConfigOID,
 		// Under a detected CI host a shallow clone is a hard error, not a
 		// warning: the run is unattended and a spurious promotion PR would land
 		// before anyone reads the degraded-mode warning. Locally it stays a
@@ -168,11 +170,11 @@ func buildLogger(cmd *cobra.Command) *slog.Logger {
 }
 
 // renderPlan writes the plan to stdout in the selected output format.
-func renderPlan(cmd *cobra.Command, opts *options, plan engine.Plan) error {
+func renderPlan(cmd *cobra.Command, opts *options, plan engine.Plan, previews ...*reconcile.NotificationPreview) error {
 	if opts.output == "json" {
-		return reconcile.RenderJSON(cmd.OutOrStdout(), plan)
+		return reconcile.RenderJSON(cmd.OutOrStdout(), plan, previews...)
 	}
-	return reconcile.RenderText(cmd.OutOrStdout(), plan)
+	return reconcile.RenderText(cmd.OutOrStdout(), plan, previews...)
 }
 
 // writeStepSummary publishes a Markdown rendering of the plan to the CI
@@ -180,17 +182,17 @@ func renderPlan(cmd *cobra.Command, opts *options, plan engine.Plan) error {
 // (GitHub Actions), or written to a temp file announced with an
 // ##vso[task.uploadsummary] logging command under Azure Pipelines. A
 // summary-write failure is reported but never fails the command.
-func writeStepSummary(cmd *cobra.Command, plan engine.Plan) {
+func writeStepSummary(cmd *cobra.Command, plan engine.Plan, previews ...*reconcile.NotificationPreview) {
 	if path := os.Getenv("GITHUB_STEP_SUMMARY"); path != "" {
-		writeGitHubSummary(cmd, path, plan)
+		writeGitHubSummary(cmd, path, plan, previews...)
 		return
 	}
 	if cienv.Detect() == cienv.AzurePipelines {
-		writeAzureSummary(cmd, plan)
+		writeAzureSummary(cmd, plan, previews...)
 	}
 }
 
-func writeGitHubSummary(cmd *cobra.Command, path string, plan engine.Plan) {
+func writeGitHubSummary(cmd *cobra.Command, path string, plan engine.Plan, previews ...*reconcile.NotificationPreview) {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", err)
@@ -201,7 +203,7 @@ func writeGitHubSummary(cmd *cobra.Command, path string, plan engine.Plan) {
 			fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", cerr)
 		}
 	}()
-	if err := reconcile.RenderMarkdown(f, plan); err != nil {
+	if err := reconcile.RenderMarkdown(f, plan, previews...); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", err)
 	}
 }
@@ -213,13 +215,13 @@ func writeGitHubSummary(cmd *cobra.Command, path string, plan engine.Plan) {
 // temp dir when unset). The command goes to stderr with the annotations:
 // the agent scans every captured line for command syntax, and stdout must
 // stay a pure JSON plan for machine consumers.
-func writeAzureSummary(cmd *cobra.Command, plan engine.Plan) {
+func writeAzureSummary(cmd *cobra.Command, plan engine.Plan, previews ...*reconcile.NotificationPreview) {
 	f, err := os.CreateTemp(os.Getenv("AGENT_TEMPDIRECTORY"), "oiax-summary-*.md")
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", err)
 		return
 	}
-	renderErr := reconcile.RenderMarkdown(f, plan)
+	renderErr := reconcile.RenderMarkdown(f, plan, previews...)
 	if cerr := f.Close(); renderErr == nil {
 		renderErr = cerr
 	}

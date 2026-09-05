@@ -280,8 +280,8 @@ func TestCreateRequestWritesMarkerFirstAndProperties(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRequest: %v", err)
 	}
-	if cr.ID != "42" {
-		t.Errorf("id = %q, want 42", cr.ID)
+	if cr.Request.ID != "42" || cr.Disposition != forge.RequestCreated {
+		t.Errorf("created outcome = %+v, want created request 42", cr)
 	}
 	// Refs are fully qualified; the marker is first in the description.
 	if createBody["sourceRefName"] != "refs/heads/dev" || createBody["targetRefName"] != "refs/heads/staging" {
@@ -336,8 +336,8 @@ func TestCreateRequestAdoptsDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRequest should adopt the duplicate, got %v", err)
 	}
-	if cr.ID != "99" {
-		t.Errorf("adopted id = %q, want the surviving request 99", cr.ID)
+	if cr.Request.ID != "99" || cr.Disposition != forge.RequestAdopted {
+		t.Errorf("adopted outcome = %+v, want the surviving request 99", cr)
 	}
 }
 

@@ -370,6 +370,22 @@ func (r *Runner) ShowFile(ctx context.Context, ref, path string) ([]byte, error)
 	return out, nil
 }
 
+// ResolveConfigCommit captures one immutable configuration revision for every
+// subsequent configuration/template read, even if its ref moves during loading.
+func (r *Runner) ResolveConfigCommit(ctx context.Context, ref string) (string, error) {
+	if ref == "" || strings.HasPrefix(ref, "-") {
+		return "", errors.New("invalid configuration ref")
+	}
+	oid, err := r.run(ctx, "rev-parse", "--verify", "--end-of-options", ref+"^{commit}")
+	if err != nil {
+		return "", errors.New("cannot resolve configuration ref to a commit")
+	}
+	if !notesOIDPattern.MatchString(oid) {
+		return "", errors.New("invalid configuration commit")
+	}
+	return oid, nil
+}
+
 // DefaultBranchRef resolves the repository's default branch to its
 // remote-tracking ref (for example "origin/main"). It first reads
 // origin/HEAD, the symbolic ref git records locally for the remote's default

@@ -42,9 +42,10 @@ func TestCIPlatformSupportTiers(t *testing.T) {
 		t.Fatal("test job budgets no longer match the support policy")
 	}
 	want := map[string]string{
-		"go -C tools tool task test-cover":       "matrix.os == 'ubuntu-24.04'",
-		"go -C tools tool task test-race":        "matrix.os == 'ubuntu-24.04'",
-		"go -C tools tool task test-portability": "matrix.os != 'ubuntu-24.04'",
+		"go -C tools tool task test-cover":           "matrix.os == 'ubuntu-24.04'",
+		"go -C tools tool task test-race":            "matrix.os == 'ubuntu-24.04'",
+		"go -C tools tool task notifications:verify": "matrix.os == 'ubuntu-24.04'",
+		"go -C tools tool task test-portability":     "matrix.os != 'ubuntu-24.04'",
 	}
 	found := map[string]bool{}
 	for _, step := range job.Steps {
@@ -121,9 +122,36 @@ func TestPortabilityTaskKeepsBoundedUnitSelection(t *testing.T) {
 	// recursive globs; additions require an explicit support-tier review.
 	want := []string{"./cmd/oiax", "./internal/actioncontract", "./internal/cienv",
 		"./internal/config", "./internal/engine", "./internal/forge",
-		"./internal/forge/marker", "./internal/tmpl", "./pkg/api/..."}
+		"./internal/forge/marker", "./internal/notification/...", "./internal/tmpl", "./pkg/api/..."}
 	if !slices.Equal(args[3:], want) {
 		t.Fatalf("review changes to the portability unit selection: %v", args[3:])
+	}
+}
+
+func TestNotificationVerificationKeepsLinuxBudgetsAndCoverage(t *testing.T) {
+	t.Parallel()
+	var taskfile struct {
+		Tasks map[string]yaml.Node `yaml:"tasks"`
+	}
+	readRepoYAML(t, "Taskfile.yml", &taskfile)
+	node, ok := taskfile.Tasks["notifications:verify"]
+	if !ok {
+		t.Fatal("missing notification verification task")
+	}
+	var task struct {
+		Cmds []string `yaml:"cmds"`
+	}
+	if err := node.Decode(&task); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"go test -timeout=10m -race -shuffle=on -covermode=atomic -coverprofile=coverage-notifications.out ./internal/notification/...",
+		"go -C tools test -timeout=10m -race -shuffle=on ./checkcoverage",
+		"go -C tools run ./checkcoverage -profile ../coverage-notifications.out",
+		"go test -timeout=10m -race -shuffle=on ./internal/forge/github ./internal/forge/azuredevops ./internal/forge/marker ./internal/reconcile ./internal/cli -run Notification",
+	}
+	if !slices.Equal(task.Cmds, want) {
+		t.Fatalf("notification gate lost its budgets, package coverage or integration checks: %v", task.Cmds)
 	}
 }
 

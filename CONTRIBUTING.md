@@ -62,7 +62,8 @@ Linux is the supported automation platform. CI runs `test-cover` (including
 Git-backed CLI/reconcile scenarios) and `test-race` there. macOS and Windows
 run `test-portability`: a native build of every package and an explicit unit
 suite covering the entrypoint, wrapper contracts, configuration, engine,
-provider-neutral types/markers, and templates. Git-backed integration and
+provider-neutral types/markers, notification model/store/transport fixtures,
+and templates. Git-backed integration and
 provider subprocess fixtures are excluded from that task, not deleted.
 
 For a quick local check, run `go -C tools tool task test-portability`.
@@ -74,6 +75,11 @@ Portability jobs have ten minutes, with three-minute unit-package deadlines.
 All existing `Test (<runner>)` check names are preserved, avoiding a
 branch-protection migration. See [platform support](docs/reference/platform-support.md)
 and [ADR 0016](docs/adr/0016-linux-automation-support.md).
+
+Notification integration/race checks and per-package coverage thresholds run
+only on Linux through `notifications:verify`. The non-Linux unit selection
+includes `internal/notification/...` but not the Git-backed notification
+CLI/coordinator scenarios. Golden JSON files retain LF on every platform.
 
 ## Generated artifacts
 
@@ -88,7 +94,9 @@ Before touching the engine, read `docs/architecture.md`. In particular:
 - `internal/engine` is pure — no provider calls, no `internal/git` or
   `internal/forge` imports (depguard enforces this), deterministic plans.
 - Oiax never merges, never approves, never touches unmanaged requests,
-  never force-pushes outside the `oiax/` ref namespace.
+  and never force-pushes long-lived branches. Its owned ref families are
+  `refs/heads/oiax/` and `refs/notes/oiax/`; notes writes require explicit
+  expected-tip, append-only updates with no deletion or rewind (ADR 0015).
 - Exit codes and the JSON plan format are compatibility contracts;
   changes need an ADR.
 

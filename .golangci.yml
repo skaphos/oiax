@@ -31,6 +31,31 @@ linters:
             - pkg: "github.com/skaphos/oiax/internal/forge"
               desc: "engine must not call forge providers; requests are injected as observed state"
 
+        notification-purity:
+          list-mode: lax
+          files:
+            - "**/internal/notification/*.go"
+            - "!**/*_test.go"
+          deny:
+            - pkg: "github.com/skaphos/oiax/internal/git"
+              desc: "notification state is pure; inject Git observations"
+            - pkg: "github.com/skaphos/oiax/internal/forge"
+              desc: "notification state is pure; inject lifecycle facts"
+            - pkg: "github.com/skaphos/oiax/internal/notification/"
+              desc: "notification effects and fixtures must not enter the pure model"
+            - pkg: "net$"
+              desc: "network effects belong in notification/delivery"
+            - pkg: "net/http"
+              desc: "HTTP effects belong in notification/delivery; pure net/url parsing is allowed"
+            - pkg: "net/rpc"
+              desc: "network effects belong in notification/delivery"
+            - pkg: "net/smtp"
+              desc: "network effects belong in notification/delivery"
+            - pkg: "os"
+              desc: "inject configuration and operation IDs; no environment or process access"
+            - pkg: "syscall"
+              desc: "system effects belong outside the pure notification package"
+
 formatters:
   enable:
     - gofmt

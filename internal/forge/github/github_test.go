@@ -835,7 +835,7 @@ func TestCreateRequestSuccessAndLabels(t *testing.T) {
 	}
 	want := engine.ChangeRequest{ID: "7", Type: engine.RequestTypePromotion,
 		Source: "development", Target: "test", SourceHead: "aaa"}
-	if got != want {
+	if got.Request != want || got.Disposition != forge.RequestCreated {
 		t.Errorf("created request = %+v, want %+v", got, want)
 	}
 	// The body carries head/base and the marker.
@@ -923,7 +923,7 @@ func TestCreateRequestAdopts422Duplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRequest should adopt the duplicate, got error: %v", err)
 	}
-	if got.ID != "42" || got.SourceHead != "live-head" {
+	if got.Request.ID != "42" || got.Request.SourceHead != "live-head" || got.Disposition != forge.RequestAdopted {
 		t.Errorf("adopted request = %+v, want the matching PR 42 (development->test), not another open edge", got)
 	}
 }

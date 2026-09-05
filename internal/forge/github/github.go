@@ -48,6 +48,8 @@ import (
 
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/forge"
+	mk "github.com/skaphos/oiax/internal/forge/marker"
+	"github.com/skaphos/oiax/internal/notification"
 )
 
 const (
@@ -145,26 +147,31 @@ type Provider struct {
 	// Resilience tunables. Zero values use the production defaults above; they
 	// exist only so tests can shrink backoff and the response cap without a
 	// process-global. They are not part of the public contract.
-	retryMax     int
-	retryBackoff time.Duration
-	maxRespBytes int64
+	retryMax                  int
+	retryBackoff              time.Duration
+	maxRespBytes              int64
+	notificationIdentityOnce  sync.Once
+	notificationIdentityValue notification.RepositoryIdentity
+	notificationIdentityError error
 }
 
 var _ forge.Forge = (*Provider)(nil)
 
 // ghPull is the subset of GitHub's pull-request JSON the provider reads.
 type ghPull struct {
-	Number    int       `json:"number"`
-	State     string    `json:"state"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	MergedAt  *string   `json:"merged_at"`
-	CreatedAt string    `json:"created_at"`
-	Mergeable *bool     `json:"mergeable"`
-	Head      ghRef     `json:"head"`
-	Base      ghRef     `json:"base"`
-	Labels    []ghLabel `json:"labels"`
-	User      ghUser    `json:"user"`
+	Commits        *int      `json:"commits"`
+	MergeCommitSHA string    `json:"merge_commit_sha"`
+	Number         int       `json:"number"`
+	State          string    `json:"state"`
+	Title          string    `json:"title"`
+	Body           string    `json:"body"`
+	MergedAt       *string   `json:"merged_at"`
+	CreatedAt      string    `json:"created_at"`
+	Mergeable      *bool     `json:"mergeable"`
+	Head           ghRef     `json:"head"`
+	Base           ghRef     `json:"base"`
+	Labels         []ghLabel `json:"labels"`
+	User           ghUser    `json:"user"`
 }
 
 type ghRef struct {
@@ -324,7 +331,7 @@ func (p *Provider) sameOrigin(rawURL string) bool {
 // body and the default labels attached. An HTTP 422 (GitHub refusing a
 // duplicate head/base pair) is adopted as success: the provider re-lists
 // and returns the surviving request instead of erroring.
-func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (engine.ChangeRequest, error) {
+func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (forge.CreateOutcome, error) {
 	m := marker{
 		Version:     markerVersion,
 		Graph:       req.Graph,
@@ -336,9 +343,16 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 	// Reject a marker value that could forge marker lines or break out of the
 	// HTML comment before it is ever written to the forge (M14).
 	if err := validateMarker(m); err != nil {
-		return engine.ChangeRequest{}, fmt.Errorf("create request: %w", err)
+		return forge.CreateOutcome{}, fmt.Errorf("create request: %w", err)
 	}
 	body := req.Body + "\n\n" + serializeMarker(m)
+	if req.Origin != nil && (!mk.NotificationOriginMatches(*req.Origin, m) || req.Origin.SourceOID != req.SourceHead) {
+		return forge.CreateOutcome{}, fmt.Errorf("create request: %w", notification.ErrInvalidState)
+	}
+	body, err := mk.AppendNotificationOrigin(body, req.Origin)
+	if err != nil {
+		return forge.CreateOutcome{}, fmt.Errorf("create request: %w", err)
+	}
 
 	payload := map[string]string{
 		"title": req.Title,
@@ -352,7 +366,7 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 	// which the adopt path below turns into success — so a retry that races a
 	// first attempt that actually landed re-lists and adopts rather than
 	// double-opening.
-	_, err := p.send(ctx, http.MethodPost,
+	_, err = p.send(ctx, http.MethodPost,
 		p.url(fmt.Sprintf("/repos/%s/%s/pulls", url.PathEscape(p.Owner), url.PathEscape(p.Repo))),
 		payload, &created, true)
 	if err != nil {
@@ -360,17 +374,36 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 		if errors.As(err, &ae) && ae.StatusCode == http.StatusUnprocessableEntity {
 			adopted, aerr := p.adoptDuplicate(ctx, req)
 			if aerr != nil {
-				return engine.ChangeRequest{}, fmt.Errorf("create request: adopt duplicate: %w", errors.Join(err, aerr))
+				return forge.CreateOutcome{}, fmt.Errorf("create request: adopt duplicate: %w", errors.Join(err, aerr))
 			}
 			if adopted != nil {
-				return *adopted, nil
+				out := forge.CreateOutcome{Request: *adopted, Disposition: forge.RequestAdopted}
+				// Origin is recovered from the survivor, never from this losing
+				// operation. Failed enrichment does not turn core adoption into
+				// failure; lifecycle discovery can recover it independently.
+				if req.Origin != nil {
+					if actual, readErr := p.GetLifecycleRequest(ctx, forge.RequestID(adopted.ID)); readErr == nil {
+						out.Origin = actual.Origin
+					}
+				}
+				return out, nil
 			}
 		}
-		return engine.ChangeRequest{}, fmt.Errorf("create request: %w", err)
+		return forge.CreateOutcome{}, fmt.Errorf("create request: %w", err)
+	}
+	if created.Number <= 0 {
+		return forge.CreateOutcome{}, fmt.Errorf("create request: missing request ID")
+	}
+	out := forge.CreateOutcome{Request: engine.ChangeRequest{
+		ID: strconv.Itoa(created.Number), Type: req.Type, Source: req.Source, Target: req.Target, SourceHead: req.SourceHead,
+	}, Disposition: forge.RequestCreated}
+	if req.Origin != nil {
+		origin := *req.Origin
+		out.Origin = &origin
 	}
 
 	if err := p.addLabels(ctx, created.Number, LabelOiax, typeLabel(req.Type)); err != nil {
-		return engine.ChangeRequest{}, fmt.Errorf("create request: %w", err)
+		return out, fmt.Errorf("create request: %w", err)
 	}
 
 	// Observable degradation signal: a PR authored by the token bot will
@@ -380,13 +413,7 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 		p.warn(degradationWarning)
 	}
 
-	return engine.ChangeRequest{
-		ID:         strconv.Itoa(created.Number),
-		Type:       req.Type,
-		Source:     req.Source,
-		Target:     req.Target,
-		SourceHead: req.SourceHead,
-	}, nil
+	return out, nil
 }
 
 // UpdateRequest rewrites the recorded sourceHead in a managed request's

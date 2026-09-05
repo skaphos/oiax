@@ -32,6 +32,9 @@ Thumbs.db
 # Local junk
 .cache/
 
+# Spec Kit implementation plans are shared project documents.
+!/specs/**/plan.md
+
 # Graphify: outputs are committed; internal caches and temp files are not.
 .graphify_*
 

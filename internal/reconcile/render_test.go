@@ -280,8 +280,8 @@ func TestRenderersPropagateWriteError(t *testing.T) {
 		name string
 		fn   func(io.Writer, engine.Plan) error
 	}{
-		{"text", RenderText},
-		{"markdown", RenderMarkdown},
+		{"text", func(w io.Writer, p engine.Plan) error { return RenderText(w, p) }},
+		{"markdown", func(w io.Writer, p engine.Plan) error { return RenderMarkdown(w, p) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := tc.fn(failingWriter{}, samplePlan()); err == nil {

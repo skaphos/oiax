@@ -40,7 +40,7 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-Gates derived from `.specify/memory/constitution.md` v1.0.0. Answer each with
+Gates derived from `.specify/memory/constitution.md` v2.0.0. Answer each with
 evidence, not assertion. Any "no" is either justified in Complexity Tracking
 below (naming the principle) or the design changes.
 
@@ -56,7 +56,7 @@ below (naming the principle) or the design changes.
 | VIII | Topology facts are modeled and validated, not inferred from names or ordering | [PASS/FAIL/N-A] |
 | IX | Spec states what this does NOT do; no unverified claims; Skaphos glossary terms used correctly | [PASS/FAIL/N-A] |
 | X | `internal/engine` stays pure — no API calls, no `internal/git` or `internal/forge` imports | [PASS/FAIL/N-A] |
-| XI | No merge/approve/deploy/settings mutation; unmanaged requests untouched; force-push confined to `oiax/`; branch names validated and never shell-interpolated | [PASS/FAIL/N-A] |
+| XI | No merge/approve/deploy/settings mutation; unmanaged requests untouched; force-push confined to `refs/heads/oiax/` and `refs/notes/oiax/`; notes updates expected-tip and append-only, no deletion/rewind; long-lived branches never force-pushed; branch names validated and never shell-interpolated | [PASS/FAIL/N-A] |
 | XII | Changes to exit codes, JSON plan format, request metadata, config `apiVersion`, or `pkg/api` carry an ADR and a deprecation window | [PASS/FAIL/N-A] |
 
 Engineering gates: regression test for every bug fix; tests run `-race -shuffle=on`;

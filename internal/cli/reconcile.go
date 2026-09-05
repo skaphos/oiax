@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/skaphos/oiax/internal/reconcile"
 	"github.com/spf13/cobra"
 )
 
@@ -12,6 +13,10 @@ func newReconcileCommand(opts *options) *cobra.Command {
 missing managed promotion requests, updating promotion baselines, and
 closing obsolete requests. It never merges, approves, force-pushes
 long-lived branches, or touches unmanaged requests.
+
+Enabled notifications announce managed creation/merge events after core apply.
+Delivery failures are reported separately and retried by later invocations;
+they never replace the core result or prove deployment or recipient visibility.
 
 Exit codes (the compatibility contract):
   0  converged (including "applied actions successfully")
@@ -36,11 +41,11 @@ conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.`,
 			if err != nil {
 				return err
 			}
-			g, ts, err := loadGraph(cmd, opts, ref)
+			loaded, err := loadGraph(cmd, opts, ref)
 			if err != nil {
 				return err
 			}
-			coord, err := buildCoordinator(cmd, g, ts, runner)
+			coord, err := buildCoordinator(cmd, loaded, runner)
 			if err != nil {
 				return err
 			}
@@ -50,14 +55,29 @@ conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.`,
 			}
 			// Render the plan before applying so a failed apply is still
 			// explainable from the command's output.
-			if err := renderPlan(cmd, opts, plan); err != nil {
+			preview := coord.PreviewNotifications(cmd.Context(), plan)
+			if err := renderPlan(cmd, opts, plan, preview); err != nil {
 				return err
 			}
-			writeStepSummary(cmd, plan)
+			writeStepSummary(cmd, plan, preview)
 
-			res, err := coord.Apply(cmd.Context(), plan)
-			if err != nil {
-				return err
+			if notificationErr := coord.PrepareNotifications(cmd.Context()); notificationErr != nil {
+				coord.NotificationDiagnostics = append(coord.NotificationDiagnostics, reconcile.NotificationProblem(notificationErr))
+			}
+			res, applyErr := coord.Apply(cmd.Context(), plan)
+			if notificationErr := coord.FinalizeNotifications(cmd.Context(), res.NotificationOutcomes...); notificationErr != nil {
+				coord.NotificationDiagnostics = append(coord.NotificationDiagnostics, reconcile.NotificationProblem(notificationErr))
+			}
+			for _, d := range coord.NotificationDiagnostics {
+				if d.Reason == "delivered" {
+					coord.Log.Info("notification delivery", "scope", d.Scope(), "reason", d.Reason, "action", d.Action)
+				} else {
+					coord.Log.Warn("notification delivery", "scope", d.Scope(), "reason", d.Reason, "action", d.Action)
+				}
+			}
+			writeNotificationSummary(cmd, coord.NotificationDiagnostics)
+			if applyErr != nil {
+				return applyErr
 			}
 			if res.Divergence {
 				return exitCodeError{code: 3, msg: "converged with reported divergence"}

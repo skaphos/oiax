@@ -21,8 +21,11 @@ lives in the `skaphos-resources` repository under `tools/oiax/`.
 - `internal/engine` is pure: no provider API calls, no imports of
   `internal/git` or `internal/forge` (depguard-enforced), and identical
   inputs must produce equivalent plans.
-- Never force-push refs outside the `oiax/` namespace; never force-push
-  long-lived branches under any circumstances.
+- Force-push authority is limited to `refs/heads/oiax/` and
+  `refs/notes/oiax/`; never force-push long-lived branches. Notes updates
+  require an explicit expected tip and append-only commit ancestry; never
+  rewind or delete notes history. Notification writes are further limited
+  to `refs/notes/oiax/notifications/v1/<graph-key>` (ADR 0015).
 - Never close, edit, or otherwise touch unmanaged pull requests.
 - Branch names are data: validate with `git check-ref-format`, pass with
   `--` separators, never interpolate into shell.

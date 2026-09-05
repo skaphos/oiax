@@ -72,10 +72,19 @@ type Coordinator struct {
 	// conflict artifacts (SKA-54). A nil Templates uses the built-in
 	// defaults, mirroring Log's nil-safety.
 	Templates *tmpl.Set
+	// Optional notification inputs remain separate from engine.Graph. Effects
+	// are wired only by the notification coordinator, never by branch planning.
+	NotificationPolicy      *v1.NotificationPolicy
+	NotificationSources     map[string]string
+	NotificationDiagnostics []NotificationDiagnostic
+	ConfigOID               string
 }
 
 // Result carries what Apply did, for exit-code and summary decisions.
 type Result struct {
+	// NotificationOutcomes retains successful POST/adoption evidence even when
+	// follow-up metadata or a later action fails. Not part of the JSON plan.
+	NotificationOutcomes []forge.CreateOutcome
 	// Applied counts the create/update/close actions performed.
 	Applied int
 	// Superseded counts the stale managed backflow requests closed during
@@ -809,7 +818,7 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 			if err != nil {
 				return res, fmt.Errorf("apply create %s->%s: %w", a.From, a.To, err)
 			}
-			if _, err := c.Forge.CreateRequest(ctx, forge.CreateRequest{
+			outcome, createErr := c.Forge.CreateRequest(ctx, forge.CreateRequest{
 				Graph:      c.Graph.Name,
 				Type:       engine.RequestTypePromotion,
 				Source:     a.From,
@@ -817,8 +826,13 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 				SourceHead: head,
 				Title:      title,
 				Body:       body,
-			}); err != nil {
-				return res, fmt.Errorf("apply create %s->%s: %w", a.From, a.To, err)
+				Origin:     c.notificationOrigin(ctx, a.From, a.To, head),
+			})
+			if outcome.Origin != nil && outcome.Request.ID != "" {
+				res.NotificationOutcomes = append(res.NotificationOutcomes, outcome)
+			}
+			if createErr != nil {
+				return res, fmt.Errorf("apply create %s->%s: %w", a.From, a.To, createErr)
 			}
 			res.Applied++
 
@@ -1045,7 +1059,7 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 	if err != nil {
 		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
 	}
-	if _, err := c.Forge.CreateRequest(ctx, forge.CreateRequest{
+	outcome, createErr := c.Forge.CreateRequest(ctx, forge.CreateRequest{
 		Graph:      c.Graph.Name,
 		Type:       engine.RequestTypeBackflow,
 		Source:     branch,
@@ -1053,8 +1067,13 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 		SourceHead: head,
 		Title:      title,
 		Body:       body,
-	}); err != nil {
-		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+		Origin:     c.notificationOrigin(ctx, a.From, a.To, head),
+	})
+	if outcome.Origin != nil && outcome.Request.ID != "" {
+		res.NotificationOutcomes = append(res.NotificationOutcomes, outcome)
+	}
+	if createErr != nil {
+		return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, createErr)
 	}
 	res.Applied++
 

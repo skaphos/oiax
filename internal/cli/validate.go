@@ -21,10 +21,11 @@ edge evaluation and is not yet implemented.`,
 			if err := requireTextOutput("validate", opts); err != nil {
 				return err
 			}
-			g, _, err := loadGraph(cmd, opts, opts.configRef)
+			loaded, err := loadGraph(cmd, opts, opts.configRef)
 			if err != nil {
 				return err
 			}
+			g := loaded.Graph
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"Configuration valid: graph %q, %d branches, %d promotion edges, backflow %s.\n",
 				g.Name, len(g.Branches), len(g.Promotions), enabledWord(g.Backflow.Enabled))

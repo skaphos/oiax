@@ -17,6 +17,7 @@ import (
 	"github.com/skaphos/oiax/internal/config"
 	"github.com/skaphos/oiax/internal/engine"
 	"github.com/skaphos/oiax/internal/git"
+	"github.com/skaphos/oiax/internal/notification"
 	"github.com/skaphos/oiax/internal/tmpl"
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
@@ -133,6 +134,16 @@ func requireTextOutput(cmdName string, opts *options) error {
 	return nil
 }
 
+// loadedConfig keeps notification policy and resolved sources outside the pure
+// branch topology. ConfigOID is empty only for working-tree inspection.
+type loadedConfig struct {
+	Graph               *engine.Graph
+	Templates           *tmpl.Set
+	Notifications       *v1.NotificationPolicy
+	NotificationSources map[string]string
+	ConfigOID           string
+}
+
 // loadGraph loads, converts, and semantically validates the promotion
 // graph, reporting every violation at once, and resolves the configured
 // template set (SKA-54) alongside it. configRef selects the source: a
@@ -143,15 +154,19 @@ func requireTextOutput(cmdName string, opts *options) error {
 // request template content is never executed with privileged credentials
 // (ADR 0003), and a broken template fails here — in validate's round trip —
 // not deep inside an apply.
-func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Graph, *tmpl.Set, error) {
+func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*loadedConfig, error) {
 	var cfg *v1.PromotionGraph
 	var err error
 	runner := &git.Runner{}
 	if configRef != "" {
+		configRef, err = runner.ResolveConfigCommit(cmd.Context(), configRef)
+		if err != nil {
+			return nil, err
+		}
 		var data []byte
 		data, err = runner.ShowFile(cmd.Context(), configRef, opts.configPath)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		cfg, err = config.Parse(data)
 		if err != nil {
@@ -161,7 +176,7 @@ func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Gra
 		cfg, err = config.Load(opts.configPath)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if config.IsDeprecatedAPIVersion(cfg.APIVersion) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: apiVersion %q is deprecated; migrate to %q\n", v1.APIVersionV1Alpha1, v1.APIVersion)
@@ -174,7 +189,7 @@ func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Gra
 		for _, v := range violations {
 			fmt.Fprintf(cmd.ErrOrStderr(), "invalid: %v\n", v)
 		}
-		return nil, nil, fmt.Errorf("%s: %d validation errors", opts.configPath, len(violations))
+		return nil, fmt.Errorf("%s: %d validation errors", opts.configPath, len(violations))
 	}
 	ts, err := tmpl.Resolve(cfg, func(path string) ([]byte, error) {
 		if configRef != "" {
@@ -183,9 +198,46 @@ func loadGraph(cmd *cobra.Command, opts *options, configRef string) (*engine.Gra
 		return readWorkingTreeFile(path)
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", opts.configPath, err)
+		return nil, fmt.Errorf("%s: %w", opts.configPath, err)
 	}
-	return engine.FromConfig(cfg), ts, nil
+	sources := map[string]string{}
+	if p := cfg.Spec.Notifications; p != nil {
+		load := func(name string, slots *v1.NotificationTemplates) error {
+			if slots == nil || slots.BodyFile == "" {
+				return nil
+			}
+			var data []byte
+			var readErr error
+			if configRef != "" {
+				data, readErr = runner.ShowFile(cmd.Context(), configRef, slots.BodyFile)
+			} else {
+				data, readErr = readWorkingTreeFile(slots.BodyFile)
+			}
+			if readErr != nil {
+				return fmt.Errorf("spec.notifications.%s: cannot read bodyFile from the configuration source", name)
+			}
+			if len(data) > tmpl.MaxFileBytes {
+				return fmt.Errorf("spec.notifications.%s: bodyFile exceeds 1 MiB", name)
+			}
+			body := string(data)
+			sources[name] = body
+			slots.Body = &body
+			slots.BodyFile = ""
+			return nil
+		}
+		if err := load("templates", p.Templates); err != nil {
+			return nil, err
+		}
+		for i := range p.Destinations {
+			if err := load(fmt.Sprintf("destinations[%d].templates", i), p.Destinations[i].Templates); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if _, err := notification.ResolveTemplates(cfg.Spec.Notifications); err != nil {
+		return nil, err
+	}
+	return &loadedConfig{Graph: engine.FromConfig(cfg), Templates: ts, Notifications: cfg.Spec.Notifications, NotificationSources: sources, ConfigOID: configRef}, nil
 }
 
 // readWorkingTreeFile reads a repository-relative template file from the

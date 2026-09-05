@@ -15,6 +15,7 @@ import (
 	"errors"
 
 	"github.com/skaphos/oiax/internal/engine"
+	"github.com/skaphos/oiax/internal/notification"
 )
 
 // ErrNotImplemented marks provider capabilities that are declared but
@@ -60,6 +61,9 @@ type CreateRequest struct {
 	SourceHead string
 	Title      string
 	Body       string
+	// Origin is optional immutable creation evidence, written in the initial
+	// POST body, never into the existing v1 ownership marker or an adopted PR.
+	Origin *notification.NotificationOriginV1
 }
 
 // UpdateRequest describes an update to a managed request's metadata.
@@ -126,7 +130,7 @@ type BranchPush struct {
 // deterministic.
 type Forge interface {
 	ListManagedRequests(ctx context.Context, filter RequestFilter) ([]engine.ChangeRequest, error)
-	CreateRequest(ctx context.Context, req CreateRequest) (engine.ChangeRequest, error)
+	CreateRequest(ctx context.Context, req CreateRequest) (CreateOutcome, error)
 	UpdateRequest(ctx context.Context, req UpdateRequest) error
 	CloseRequest(ctx context.Context, id RequestID, reason Reason) error
 	PushBranch(ctx context.Context, push BranchPush) error

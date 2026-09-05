@@ -23,11 +23,11 @@ planned.`,
 			if err := requireTextOutput("graph", opts); err != nil {
 				return err
 			}
-			g, _, err := loadGraph(cmd, opts, opts.configRef)
+			loaded, err := loadGraph(cmd, opts, opts.configRef)
 			if err != nil {
 				return err
 			}
-			printGraph(cmd, g)
+			printGraph(cmd, loaded.Graph)
 			return nil
 		},
 	}

@@ -159,7 +159,7 @@ func mustCreate(t *testing.T, f forge.Forge, graph string, typ engine.RequestTyp
 	if err != nil {
 		t.Fatalf("CreateRequest(%s %s→%s): %v", graph, source, target, err)
 	}
-	return cr
+	return cr.Request
 }
 
 func mustList(t *testing.T, f forge.Forge, graph string, typ engine.RequestType) []engine.ChangeRequest {

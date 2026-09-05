@@ -63,6 +63,32 @@ backflow replay and lifecycle, merge-method warnings, plan rendering,
 CI annotations (GitHub Actions and Azure Pipelines dialects), and
 step-summary output.
 
+It also coordinates pre-apply notification activation, incremental create-outcome
+recovery, lifecycle/snapshot observation, bounded delivery, read-only preview and
+safe diagnostics. These are not engine actions and never alter core exit semantics.
+
+## `internal/notification`
+
+Pure event identity, policy generations/cutoffs, immutable creation provenance,
+commit bounds, closed presentation templates, fixed facts, scheduling and monotone
+state transitions. Clocks and ancestry evidence are explicit inputs. No environment,
+Git or provider I/O. `notificationtest` is test-only support and is explicitly
+excluded from production coverage gates.
+
+## `internal/notification/store`
+
+Bounded strict JSON codec and expected-tip Git-notes persistence. Rejects malformed
+or newer-version state, checks append-only facts and receipts, and re-reduces fresh
+snapshots after conflicts. Authentication stays forge-owned; notes subprocess and
+object mechanics live in `internal/git`.
+
+## `internal/notification/delivery`
+
+Teams, Slack and generic webhook encoders over saved payloads, plus the shared
+HTTPS client. Owns inert encoding, fixed identity/completeness envelopes,
+connection-time DNS/address checks, TLS, redirect refusal and safe result codes.
+It does not read policy, templates, ledger state or environment variables.
+
 ## `internal/tmpl`
 
 Renders the human-facing text Oiax authors (request titles/bodies, the
