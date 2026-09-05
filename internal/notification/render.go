@@ -3,6 +3,7 @@ package notification
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -10,6 +11,20 @@ import (
 
 	v1 "github.com/skaphos/oiax/pkg/api/v1"
 )
+
+var presentationURL = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
+
+// SafeDisplayText removes secret-bearing addresses from free-form presentation.
+// The separately verified request link is the only permitted URL.
+func SafeDisplayText(s string, multiline bool, requestURL string) string {
+	s = presentationURL.ReplaceAllStringFunc(s, func(value string) string {
+		if requestURL != "" && value == requestURL {
+			return value
+		}
+		return "[redacted URL]"
+	})
+	return CleanText(s, multiline)
+}
 
 // CleanText removes terminal controls and bidi format controls. Newlines remain
 // useful in bodies; adapters encode all user text as inert content, never markup.
@@ -120,5 +135,5 @@ func RenderBuiltin(e EventV1) (RenderedMessageV1, error) {
 	if e.Snapshot.CommitsUnavailable {
 		body += "\n\nCommit details unavailable; see the request."
 	}
-	return RenderedMessageV1{Title: CleanText(title, false), Body: CleanText(body, true)}, nil
+	return RenderedMessageV1{Title: SafeDisplayText(title, false, e.Request.URL), Body: SafeDisplayText(body, true, e.Request.URL)}, nil
 }

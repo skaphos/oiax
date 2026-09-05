@@ -29,7 +29,8 @@ type TemplateSet struct {
 	destinations map[string]templatePair
 }
 
-var errTemplate = errors.New("notification-template-invalid: check documented fields, helpers and output limits")
+var ErrTemplateInvalid = errors.New("notification-template-invalid: check documented fields, helpers and output limits")
+var errTemplate = ErrTemplateInvalid
 
 // ResolveTemplates accepts already loaded pinned body files. Diagnostics never
 // include source text or template execution errors, which can contain secrets.
@@ -178,7 +179,7 @@ func renderTemplatePair(p templatePair, c TemplateContext, m RenderedMessageV1) 
 		if err := slot.t.Execute(&b, c); err != nil {
 			return RenderedMessageV1{}, errTemplate
 		}
-		*slot.out = CleanText(b.String(), slot.multiline)
+		*slot.out = SafeDisplayText(b.String(), slot.multiline, c.RequestURL)
 		if slot.multiline && len(*slot.out) > 12<<10 {
 			return RenderedMessageV1{}, errTemplate
 		}

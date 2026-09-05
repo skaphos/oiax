@@ -74,9 +74,10 @@ type Coordinator struct {
 	Templates *tmpl.Set
 	// Optional notification inputs remain separate from engine.Graph. Effects
 	// are wired only by the notification coordinator, never by branch planning.
-	NotificationPolicy  *v1.NotificationPolicy
-	NotificationSources map[string]string
-	ConfigOID           string
+	NotificationPolicy      *v1.NotificationPolicy
+	NotificationSources     map[string]string
+	NotificationDiagnostics []NotificationDiagnostic
+	ConfigOID               string
 }
 
 // Result carries what Apply did, for exit-code and summary decisions.

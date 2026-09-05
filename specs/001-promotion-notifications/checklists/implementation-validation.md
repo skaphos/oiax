@@ -1,6 +1,40 @@
 # Implementation validation evidence
 
-## Current increment — immutable commit enrichment
+## Current increment — read-only preview and safe recovery
+
+2026-09-05: enabled policy adds an optional renderer-owned `notifications` member
+to the single JSON v1 plan document. Engine fields/actions and detailed exit
+calculation are unchanged. Text and CI summaries include equivalent decisions.
+Preview reads notes and bounded lifecycle pages, uses no endpoint lookup, does
+not write/claim/accept policy, and reports uninitialized/unavailable/incomplete/
+complete observations. New creations are conditional and have no fabricated IDs.
+Delivered, pending, filtered, inactive and retry-not-due are distinct. Revision
+ancestry checks report stale/unordered/mismatched policy without advancing state.
+
+Delivery diagnostics now contain safe destination/reason/action fields, including
+persisted success versus uncertain acceptance. Unknown errors are never rendered.
+Missing notes warns about the new cutoff and restoring prior receipts; corrupt
+or unavailable notes suspend sends. Retrying preserves persisted wording/facts.
+Free-form presentation and commit subjects redact non-request HTTP(S) addresses;
+the independently validated request link remains available. Runtime rendering
+overflow retains the event and does not starve other destinations.
+
+Evidence: `go test -race -shuffle=on ./internal/reconcile ./internal/cli
+./internal/notification/... -run 'TestNotification|TestRender|TestTemplate'`
+passed (CLI 94.087 seconds). The expanded compiled CLI fault matrix covers both
+forges with missing credentials, corrupt/newer-version ledger, unavailable notes,
+incomplete discovery and lost notes; plans perform no remote writes or sends.
+Prior mixed-receiver/core-exit 0/1/3 and concurrency/uncertain-receipt suites remain
+passing. Canary checks cover CLI output, remote ledger and received payloads;
+safe display-address and transport-code tests pass. Store tests cover capacity,
+CAS conflict, malformed state and monotonic receipts. Lint passed with zero issues.
+
+Coverage measured before CI wiring: notification 92.5%, delivery 87.9%, store
+86.7%. These are separate package figures, not an aggregate masking a weak package.
+The final fault-only binary rerun also passed (23.491 seconds), adding runtime
+template overflow alongside a healthy destination on both forges.
+
+## Earlier increment — immutable commit enrichment
 
 2026-09-05: snapshot enrichment is wired outside ledger CAS callbacks. First
 admission fixes bounded commit facts and environment labels; rereads and retries

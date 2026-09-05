@@ -50,7 +50,7 @@ func eventForRequest(graph *engine.Graph, policy *v1.NotificationPolicy, req Lif
 			branch = actual
 		}
 		if policy != nil && policy.EnvironmentNames[branch] != "" {
-			return policy.EnvironmentNames[branch]
+			return SafeDisplayText(policy.EnvironmentNames[branch], false, "")
 		}
 		return branch
 	}

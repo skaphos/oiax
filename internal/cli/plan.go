@@ -57,10 +57,11 @@ exit 3 after a plan of 2 in that single case.`,
 			if err != nil {
 				return err
 			}
-			if err := renderPlan(cmd, opts, plan); err != nil {
+			preview := coord.PreviewNotifications(cmd.Context(), plan)
+			if err := renderPlan(cmd, opts, plan, preview); err != nil {
 				return err
 			}
-			writeStepSummary(cmd, plan)
+			writeStepSummary(cmd, plan, preview)
 
 			// With --detailed-exitcode, return a status code that predicts
 			// reconcile's outcome for this state (see the command help): 3 for a

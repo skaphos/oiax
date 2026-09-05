@@ -12,10 +12,17 @@ import (
 // RenderJSON writes the plan as indented JSON. The engine.Plan is already
 // tagged (planFormatVersion:1); this is the compatibility-contract machine
 // output, so the encode error is returned rather than dropped.
-func RenderJSON(w io.Writer, plan engine.Plan) error {
+func RenderJSON(w io.Writer, plan engine.Plan, previews ...*NotificationPreview) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(plan); err != nil {
+	var document any = plan
+	if len(previews) > 0 && previews[0] != nil {
+		document = struct {
+			engine.Plan
+			Notifications *NotificationPreview `json:"notifications"`
+		}{plan, previews[0]}
+	}
+	if err := enc.Encode(document); err != nil {
 		return fmt.Errorf("encode plan: %w", err)
 	}
 	return nil
@@ -26,7 +33,7 @@ func RenderJSON(w io.Writer, plan engine.Plan) error {
 // then one line per action (verb, edge, commit count, reason). An empty plan
 // renders "In sync, no actions." A write failure (closed pipe, full disk) is
 // returned so callers fail predictably rather than emitting a partial plan.
-func RenderText(w io.Writer, plan engine.Plan) error {
+func RenderText(w io.Writer, plan engine.Plan, previews ...*NotificationPreview) error {
 	ew := &errWriter{w: w}
 	fmt.Fprintf(ew, "Promotion graph: %s\n", plan.Graph)
 	for _, e := range plan.Edges {
@@ -34,11 +41,17 @@ func RenderText(w io.Writer, plan engine.Plan) error {
 	}
 	if len(plan.Actions) == 0 {
 		fmt.Fprintln(ew, "In sync, no actions.")
+		if len(previews) > 0 && ew.err == nil {
+			return renderNotificationPreview(ew, previews[0])
+		}
 		return ew.err
 	}
 	for _, a := range plan.Actions {
 		fmt.Fprintf(ew, "  %-8s %s -> %s (%d): %s\n",
 			actionVerb(a.Type), a.From, a.To, a.Unpromoted, a.Reason)
+	}
+	if len(previews) > 0 && ew.err == nil {
+		return renderNotificationPreview(ew, previews[0])
 	}
 	return ew.err
 }
@@ -114,7 +127,7 @@ func exclusionCounts(excluded []engine.BackflowExclusion) string {
 // RenderMarkdown writes a Markdown rendering of the plan, used for the
 // GitHub Actions step summary. Write errors are returned so a failed
 // summary write cannot silently produce a truncated table.
-func RenderMarkdown(w io.Writer, plan engine.Plan) error {
+func RenderMarkdown(w io.Writer, plan engine.Plan, previews ...*NotificationPreview) error {
 	ew := &errWriter{w: w}
 	fmt.Fprintf(ew, "## Oiax plan: %s\n\n", plan.Graph)
 	if len(plan.Edges) > 0 {
@@ -144,6 +157,9 @@ func RenderMarkdown(w io.Writer, plan engine.Plan) error {
 	}
 	if len(plan.Actions) == 0 {
 		fmt.Fprintln(ew, "In sync, no actions.")
+		if len(previews) > 0 && ew.err == nil {
+			return renderNotificationPreview(ew, previews[0])
+		}
 		return ew.err
 	}
 	fmt.Fprintln(ew, "| Action | From | To | Commits | Reason |")
@@ -151,6 +167,9 @@ func RenderMarkdown(w io.Writer, plan engine.Plan) error {
 	for _, a := range plan.Actions {
 		fmt.Fprintf(ew, "| %s | %s | %s | %d | %s |\n",
 			mdCell(actionVerb(a.Type)), mdCell(a.From), mdCell(a.To), a.Unpromoted, mdCell(a.Reason))
+	}
+	if len(previews) > 0 && ew.err == nil {
+		return renderNotificationPreview(ew, previews[0])
 	}
 	return ew.err
 }

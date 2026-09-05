@@ -65,8 +65,9 @@ func (r *NotificationRuntime) Dispatch(ctx context.Context) error {
 		groups[destination.Name] = append(groups[destination.Name], task{index: index, key: key, destination: destination})
 	}
 	type taskResult struct {
-		index int
-		err   error
+		index       int
+		err         error
+		destination string
 	}
 	results := make(chan taskResult, len(keys))
 	var workers sync.WaitGroup
@@ -77,7 +78,7 @@ func (r *NotificationRuntime) Dispatch(ctx context.Context) error {
 			defer workers.Done()
 			for _, current := range tasks {
 				if err := stageCtx.Err(); err != nil {
-					results <- taskResult{index: current.index, err: err}
+					results <- taskResult{index: current.index, err: err, destination: current.destination.Name}
 					return
 				}
 				attemptID := notification.Digest("attempt-v1", operationID, current.key)
@@ -88,7 +89,7 @@ func (r *NotificationRuntime) Dispatch(ctx context.Context) error {
 				if err != nil {
 					err = fmt.Errorf("notification destination %s: %w", current.destination.Name, err)
 				}
-				results <- taskResult{index: current.index, err: err}
+				results <- taskResult{index: current.index, err: err, destination: current.destination.Name}
 			}
 		}()
 	}
@@ -101,6 +102,11 @@ func (r *NotificationRuntime) Dispatch(ctx context.Context) error {
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].index < ordered[j].index })
 	problems := make([]error, 0, len(ordered))
 	for _, result := range ordered {
+		if r.Report != nil {
+			d := NotificationProblem(result.err)
+			d.Destination = result.destination
+			r.Report(d)
+		}
 		if result.err != nil {
 			problems = append(problems, result.err)
 		}

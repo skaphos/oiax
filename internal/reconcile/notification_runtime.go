@@ -90,6 +90,7 @@ func (c *Coordinator) withNotificationRuntime(ctx context.Context, run func(*Not
 		Topology:    c.Graph,
 		ConfigOID:   c.ConfigOID,
 		Policy:      c.NotificationPolicy,
+		Report:      func(d NotificationDiagnostic) { c.NotificationDiagnostics = append(c.NotificationDiagnostics, d) },
 		Now:         func() time.Time { return time.Now().UTC() },
 		OperationID: newNotificationOperationID,
 		LookupEnv:   os.LookupEnv,

@@ -32,6 +32,7 @@ type NotificationRuntime struct {
 	VerifyRevision func(context.Context, string, string) (notification.RevisionRelation, error)
 	Wait           func(context.Context, time.Duration) error
 	Close          func() error
+	Report         func(NotificationDiagnostic)
 }
 
 func (r *NotificationRuntime) now() time.Time {
@@ -89,6 +90,7 @@ func (r *NotificationRuntime) Activate(ctx context.Context) error {
 		return notification.ErrInvalidState
 	}
 	revision := notification.PolicyRevisionV1{ConfigOID: r.ConfigOID, PolicyDigest: policyDigest(r.Policy)}
+	_, initialErr := r.Store.Read(ctx)
 	now := r.now()
 	_, err := r.commit(ctx, func(ctx context.Context, current *notification.LedgerV1) (*notification.LedgerV1, error) {
 		if current == nil {
@@ -104,6 +106,9 @@ func (r *NotificationRuntime) Activate(ctx context.Context) error {
 		}
 		return notification.AcceptPolicy(current, revision, r.Policy, now, evidence)
 	})
+	if err == nil && errors.Is(initialErr, notification.ErrAbsent) && r.Report != nil {
+		r.Report(NotificationDiagnostic{Reason: "notification-ledger-initialized", Action: "Established a current cutoff without historical backfill. If prior notes were lost, review and restore their receipts before further runs."})
+	}
 	return err
 }
 

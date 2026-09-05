@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/skaphos/oiax/internal/reconcile"
 	"github.com/spf13/cobra"
 )
 
@@ -50,18 +51,27 @@ conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.`,
 			}
 			// Render the plan before applying so a failed apply is still
 			// explainable from the command's output.
-			if err := renderPlan(cmd, opts, plan); err != nil {
+			preview := coord.PreviewNotifications(cmd.Context(), plan)
+			if err := renderPlan(cmd, opts, plan, preview); err != nil {
 				return err
 			}
-			writeStepSummary(cmd, plan)
+			writeStepSummary(cmd, plan, preview)
 
 			if notificationErr := coord.PrepareNotifications(cmd.Context()); notificationErr != nil {
-				coord.Log.Warn("notification activation deferred", "reason", notificationErr)
+				coord.NotificationDiagnostics = append(coord.NotificationDiagnostics, reconcile.NotificationProblem(notificationErr))
 			}
 			res, applyErr := coord.Apply(cmd.Context(), plan)
 			if notificationErr := coord.FinalizeNotifications(cmd.Context(), res.NotificationOutcomes...); notificationErr != nil {
-				coord.Log.Warn("notification finalization deferred", "reason", notificationErr)
+				coord.NotificationDiagnostics = append(coord.NotificationDiagnostics, reconcile.NotificationProblem(notificationErr))
 			}
+			for _, d := range coord.NotificationDiagnostics {
+				if d.Reason == "delivered" {
+					coord.Log.Info("notification delivery", "destination", d.Destination, "reason", d.Reason, "action", d.Action)
+				} else {
+					coord.Log.Warn("notification delivery", "destination", d.Destination, "reason", d.Reason, "action", d.Action)
+				}
+			}
+			writeNotificationSummary(cmd, coord.NotificationDiagnostics)
 			if applyErr != nil {
 				return applyErr
 			}

@@ -26,7 +26,7 @@ func BoundSnapshot(s CommitSnapshot) CommitSnapshot {
 		}
 		seen[c.SHA] = true
 		subject, _, _ := strings.Cut(c.Subject, "\n")
-		runes := []rune(CleanText(subject, false))
+		runes := []rune(SafeDisplayText(subject, false, ""))
 		if len(runes) > 200 {
 			runes = append(runes[:199], '…')
 			s.CommitsTruncated = true

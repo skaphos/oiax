@@ -113,6 +113,7 @@ type notificationBinaryFixture struct {
 	bodies                   map[int]string
 	received                 []notificationReceived
 	failDelivery             bool
+	missingEndpoint          bool
 	failMetadata             bool
 	failDiscovery            bool
 	failDetails              bool
@@ -160,6 +161,9 @@ func (f *notificationBinaryFixture) run(want int, args ...string) (string, strin
 		"OIAX_FIXTURE_RECEIVER="+f.server.Listener.Addr().String(),
 		"OIAX_FIXTURE_ENDPOINT=https://example.com/receiver/endpoint-canary",
 		"OIAX_FIXTURE_AUDIT=https://example.com/receiver/healthy-canary")
+	if f.missingEndpoint {
+		cmd.Env = append(cmd.Env, "OIAX_FIXTURE_ENDPOINT=")
+	}
 	var out, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &stderr
 	err := cmd.Run()
@@ -470,7 +474,7 @@ func TestNotificationMergeBinary(t *testing.T) {
 				f.setSeeds(old, promotion, backflow, f.seed(44, "promotion", "closed-unmerged", at, true), f.seed(45, "promotion", "merged", at, false))
 				before := gittest.Run(t, f.remote, "for-each-ref", "refs/notes/")
 				out, _ := f.run(0, "plan", "--detailed-exitcode")
-				if out != baseline || before != gittest.Run(t, f.remote, "for-each-ref", "refs/notes/") || len(f.messages()) != 0 {
+				if notificationCorePlan(t, out) != notificationCorePlan(t, baseline) || before != gittest.Run(t, f.remote, "for-each-ref", "refs/notes/") || len(f.messages()) != 0 {
 					t.Fatal("pending notifications changed the read-only plan, exit, remote notes, or receiver")
 				}
 				f.run(0, "reconcile")
@@ -517,6 +521,20 @@ func TestNotificationMergeBinary(t *testing.T) {
 			})
 		}
 	}
+}
+
+func notificationCorePlan(t *testing.T, document string) string {
+	t.Helper()
+	var value map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(document), &value); err != nil {
+		t.Fatal(err)
+	}
+	delete(value, "notifications")
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func checkNotificationCoreExit(t *testing.T, binary, provider string, coreExit int) {
