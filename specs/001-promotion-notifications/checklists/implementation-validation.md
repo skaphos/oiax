@@ -1,6 +1,78 @@
 # Implementation validation evidence
 
-## Current checkpoint — lifecycle completeness and bounded delivery
+## Current checkpoint — basic merge-alert integration
+
+2026-09-05: T019, T036 and T038 complete the local US1 merge-alert milestone.
+The remaining US1 integration work now has executable local evidence.
+The full notification feature is still **not merge-ready or deployable**:
+creation provenance, custom presentation, event-time commit enrichment,
+preview/diagnostics, operator documentation and live release acceptance follow.
+
+`internal/cli/notification_merge_test.go` builds `cmd/oiax` with a narrowly scoped
+Go build overlay. It substitutes fixture-only forge construction and notification
+connection setup; no production source on disk or stock-binary configuration
+surface is changed. Real GitHub/Azure provider parsers, pinned configuration,
+planning/apply, observation, rendering, adapters, scheduling, notes CAS and exit
+handling execute in fresh subprocesses against local HTTPS and bare Git. TLS
+hostname verification remains enabled using a fixture CA. See the fixture
+[boundary README](../../../internal/cli/testdata/notification-binary/README.md).
+
+The independent US1 matrix is:
+
+| Scenario | GitHub | Azure DevOps | Evidence |
+|---|---|---|---|
+| Promotion and backflow merges through Teams, Slack and generic webhook | PASS | PASS | Six subprocess cases, two accepted messages each; stable webhook ID/header and durable saved messages/receipts |
+| First activation excludes historical merges | PASS | PASS | No deliveries before a post-activation merge |
+| Short-lived requests discovered between invocations; deleted backflow source ref | PASS | PASS | Provider detail reads and default request-type routing in subprocess cases |
+| Closed-unmerged and unmanaged requests excluded | PASS | PASS | Exactly the two eligible merge deliveries; unexpected forge mutations fail the fixture |
+| Repeat evaluation after accepted delivery | PASS | PASS | Three fresh CLI processes per transport retain byte-equivalent terminal receipts and never resend |
+| 1,000 unchanged repeat evaluations per request type | PASS | PASS | Four runtime cases rebuild the coordinator runtime against the same store; one accepted send each, also excluding historical backfill |
+| Core exits 0/1/3 survive failed delivery | PASS | PASS | Six subprocess fault cases, one retryable receiver and one independently accepted receiver |
+| Partial core progress survives a later create failure | PASS | PASS | First PR POST succeeds; second fails; original apply error/exit 1 retained while notification finalization proceeds |
+| Plan detailed exits 0/2/3 and JSON compatibility | PASS | PASS | Exact core plan JSON retained; read-only invocation sends nothing and does not advance notes, including pending merges |
+| Retry not yet due after process restart | PASS | PASS | Persisted retry timestamp/attempt and terminal success remain unchanged |
+| Checkout and remote branch/tag preservation | PASS | PASS | Clean checkout and identical remote branch/tag refs before/after delivery |
+| Credential isolation | PASS | PASS | No forge Authorization header at receiver; endpoint/forge canaries absent from stdout, stderr and decoded ledger, including failed receiver response text |
+
+The 1,000-repeat cases use the runtime's memory-store fixture; the subprocess
+cases separately prove real bare-remote persistence. This does not claim 1,000
+HTTP or live-provider invocations. Existing lifecycle conformance additionally
+covers old open requests merging after activation, and existing concurrency and
+failure tests cover cancellation, competing workers and uncertain receipts.
+
+Verification for this increment:
+
+| Check | Result |
+|---|---|
+| `go test ./internal/cli -run '^TestNotificationMergeBinary$' -count=1 -v` | PASS, all 12 subprocess scenarios |
+| `go test -race -shuffle=on ./internal/cli ./internal/reconcile ./internal/notification/... ./internal/forge/github ./internal/forge/azuredevops ./internal/forge/forgetest` | PASS |
+| `go test -race -shuffle=on ./...` with the process-local Git settings below | PASS |
+| `go test -race -shuffle=on ./internal/reconcile -run '^TestNotificationMergeDeliveryAndRepeat$' -count=3 -v` | PASS, all four 1,000-repeat scenarios on each of three runs |
+| `go -C tools tool task lint` | PASS, 0 issues |
+| `go -C tools tool task build` | PASS, stock binary (without fixture overlay) |
+| `go -C tools tool task verify-generated` | PASS, CLI reference unchanged |
+| `reuse lint` | PASS, all 292 files compliant |
+| `git diff --check` | PASS |
+
+Commands used `GOCACHE=/private/tmp/oiax-notification-go-cache` and approved local
+fixture networking. Full-suite Git signing/hooks overrides are the same
+process-local settings documented below. Initial sandbox attempts failed because
+the default cache was inaccessible and local listeners were denied; those are
+not passing test results. No host trust store or Git configuration was changed.
+
+Live Teams/Slack visibility, real-forge notes permissions/CAS, Linux/Windows
+execution of the new subprocess harness, delivery latency sampling and timed
+operator setup were **not run**. HTTP acceptance is not recipient visibility.
+No external receiver, remote PR, external notes ref or repository setting was
+mutated in this increment. Validation was performed locally before commit.
+
+Next: implement optional PR-created notifications, starting with immutable
+creation-origin parsing and explicit created/adopted outcomes, then provider
+recovery and incremental apply capture. Custom templates/commit snapshots and
+read-only notification diagnostics follow; the original full feature's live
+release gates remain separate.
+
+## Earlier checkpoint — lifecycle completeness and bounded delivery
 
 2026-09-05: work-in-progress implementation checkpoint for PR #77,
 branch `spec/promotion-notifications`. The PR is marked ready for review, but the

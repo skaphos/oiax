@@ -41,32 +41,63 @@ func mergeEvent(repo notification.RepositoryIdentity, id string, now time.Time) 
 
 func TestNotificationMergeDeliveryAndRepeat(t *testing.T) {
 	t.Parallel()
-	now := time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC)
-	policy := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "ops", Type: "webhook", EndpointEnv: "AUDIT"}}}
-	store := &notificationtest.MemoryStore{}
-	sender := &notificationtest.Recorder{Result: notification.AttemptResult{Code: notification.OutcomeAccepted}}
-	runtime := mergeRuntime(func() time.Time { return now }, store, policy)
-	runtime.Sender = func(v1.NotificationDestination) notification.Sender { return sender }
-	if err := runtime.Activate(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	e := mergeEvent(runtime.Repository, "42", now)
-	if err := runtime.Admit(context.Background(), []notification.EventV1{e}); err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.Dispatch(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	for range 1000 {
-		if err := runtime.Admit(context.Background(), []notification.EventV1{e}); err != nil {
-			t.Fatal(err)
+	for _, provider := range []string{"github", "azuredevops"} {
+		for _, kind := range []v1.NotificationRequestType{v1.NotificationPromotion, v1.NotificationBackflow} {
+			t.Run(provider+"/"+string(kind), func(t *testing.T) {
+				t.Parallel()
+				now := time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC)
+				policy := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "ops", Type: "webhook", EndpointEnv: "AUDIT"}}}
+				store := &notificationtest.MemoryStore{}
+				sender := &notificationtest.Recorder{Result: notification.AttemptResult{Code: notification.OutcomeAccepted}}
+				newRun := func() *NotificationRuntime {
+					runtime := mergeRuntime(func() time.Time { return now }, store, policy)
+					if provider == "azuredevops" {
+						runtime.Repository = notification.RepositoryIdentity{Provider: provider, Host: "dev.azure.com", ID: "repo-id", OrganizationID: "org-id", ProjectID: "project-id", Name: "org/project/repo"}
+					}
+					runtime.Sender = func(v1.NotificationDestination) notification.Sender { return sender }
+					return runtime
+				}
+				runtime := newRun()
+				if err := runtime.Activate(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				e := mergeEvent(runtime.Repository, "42", now)
+				e.Request.Type = kind
+				if provider == "azuredevops" {
+					e.Request.URL = "https://dev.azure.com/org/project/_git/repo/pullrequest/42"
+				}
+				if kind == v1.NotificationBackflow {
+					e.Request.Source, e.Request.Destination = "oiax/backflow/main-to-dev/abcdef0", "dev"
+				}
+				// The event predating activation is recorded without backfilling.
+				historical := e
+				historical.Request.ID = "41"
+				historical.Request.URL = strings.TrimSuffix(e.Request.URL, "/42") + "/41"
+				historical.ID = notification.EventID(runtime.Repository, "41", historical.Kind)
+				historical.OccurredAt = now.Add(-time.Hour)
+				if err := runtime.Admit(context.Background(), []notification.EventV1{historical}); err != nil {
+					t.Fatal(err)
+				}
+				if err := runtime.Dispatch(context.Background()); err != nil || len(sender.Payloads()) != 0 {
+					t.Fatal("activation backfilled a historical merge", err)
+				}
+				for range 1001 { // one initial delivery plus 1,000 repeat evaluations
+					runtime = newRun() // only the durable store survives each run
+					if err := runtime.Activate(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+					if err := runtime.Admit(context.Background(), []notification.EventV1{e}); err != nil {
+						t.Fatal(err)
+					}
+					if err := runtime.Dispatch(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if len(sender.Payloads()) != 1 {
+					t.Fatal("durable success resent", len(sender.Payloads()))
+				}
+			})
 		}
-		if err := runtime.Dispatch(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if len(sender.Payloads()) != 1 {
-		t.Fatal("durable success resent", len(sender.Payloads()))
 	}
 }
 
