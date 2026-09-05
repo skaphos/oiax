@@ -186,8 +186,8 @@
     "semantic_hash": "8fe034edf8986c6a6112f9aa7bc2aa13"
   },
   "docs/reference/cli.md": {
-    "mtime": 1788610466.3243277,
-    "seen": 1788611016.042872,
+    "mtime": 1788611029.9686306,
+    "seen": 1788611503.747264,
     "ast_hash": "7b6013c867461629fc6688dbf003447b",
     "semantic_hash": "7b6013c867461629fc6688dbf003447b"
   },
@@ -954,9 +954,9 @@
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/checklists/implementation-validation.md": {
-    "mtime": 1788611010.1928866,
-    "seen": 1788611016.0428748,
-    "ast_hash": "e1cdeb883beb3b898eea3d77594e8511",
+    "mtime": 1788611496.272955,
+    "seen": 1788611503.7472692,
+    "ast_hash": "c29982de05de0ce5a28e2ac5f3911c6e",
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/checklists/remediation.md": {
@@ -1026,9 +1026,9 @@
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/tasks.md": {
-    "mtime": 1788611010.1106157,
-    "seen": 1788611016.0428832,
-    "ast_hash": "d003a583b03a503f4380594e603527ca",
+    "mtime": 1788611496.187446,
+    "seen": 1788611503.747277,
+    "ast_hash": "adc4c33dba9bfd0a8b0add283eb64e82",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/notification_test.go": {
@@ -1179,6 +1179,12 @@
     "mtime": 1788610908.3160825,
     "seen": 1788611016.042828,
     "ast_hash": "c5a531770083df2a72a0a7f47d8bbf49",
+    "semantic_hash": ""
+  },
+  "internal/reconcile/notification_observe_test.go": {
+    "mtime": 1788611454.9856803,
+    "seen": 1788611503.7472188,
+    "ast_hash": "8e1596bf1769bf5e25c70940ddbeeb5e",
     "semantic_hash": ""
   }
 }

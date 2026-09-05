@@ -35,6 +35,15 @@ never claim deployment. Required facts reject control text, oversized identity,
 cross-repository/query/fragment links, preserve explicit unavailable/truncated/
 unknown commit state, and include Azure organization/project/repository IDs.
 
+T030 completes independent lifecycle observation. Activation is durable before
+eligibility; known-open direct reads and creation/merge catch-up scans remain
+independent. Partial records/events and opaque cursors commit without advancing
+an incomplete watermark, failed direct refresh retains known-open state, and the
+combined provider work remains below the 100-page bound. Discovery failure does
+not block already pending dispatch. A stale runtime stops before lifecycle,
+secret resolution, sender creation, or delivery once a descendant config is
+accepted; revision evidence remains inside each freshly reduced CAS transition.
+
 T029 and T031–T033 now complete the bounded dispatcher slice: runtime mutations
 use caller-observed CAS revisions, messages persist before claims, claims renew
 against the current accepted config/generation, destination workers send in
@@ -60,12 +69,13 @@ Verification on this checkpoint:
 | `go test -race -shuffle=on ./internal/forge/github ./internal/forge/azuredevops ./internal/forge/forgetest` | PASS |
 | `go test -race -shuffle=on -count=10 -timeout=60s ./internal/notification/delivery` | PASS |
 | `go test -race -shuffle=on -count=10 ./internal/notification ./internal/notification/delivery` | PASS |
+| `go test -race -shuffle=on -run 'TestNotification(Observe|Stale)' ./internal/reconcile` | PASS |
 | focused notification/reconcile race tests, repeated 10 times after concurrent dispatch | PASS |
 | `go -C tools tool task lint` | PASS, 0 issues |
 | `go -C tools tool task build` | PASS |
 | `go -C tools tool task verify-generated` | PASS |
-| `reuse lint` | PASS, all 286 files compliant |
-| `graphify update .` | PASS: 1,819 nodes, 5,078 edges, 107 communities |
+| `reuse lint` | PASS, all 287 files compliant |
+| `graphify update .` | PASS: 1,830 nodes, 5,120 edges, 114 communities |
 | `graphify diagnose multigraph --max-examples 1` | PASS: no missing/dangling endpoints, self-loops or collapsed edges; raw producer loss not measured |
 | `git diff --check` | PASS |
 
@@ -76,8 +86,8 @@ diagnostics remain later phases.
 
 Resume in this order:
 
-1. Complete T019 and T030 merge/observation integration, especially first
-   activation, incomplete discovery, competing runs and core exit isolation.
+1. Complete T019 and T034 merge/concurrency integration, especially CAS conflict
+   re-reduction, suspended senders, late results and core exit isolation.
 2. Finish T030 and T034–T038: adversarial observation/config-order races,
    default presentation, built-binary merge scenarios, exact core exit evidence
    and the independent US1 matrix. Do not contact live receivers in unit tests.
