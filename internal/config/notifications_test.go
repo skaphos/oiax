@@ -47,6 +47,8 @@ func TestNotificationParseErrorsDoNotEchoSecrets(t *testing.T) {
 		"  notifications:\n    destinations: [{enabled: '" + secret + "'}]\n",
 		"  notifications:\n    destinations: '" + secret + "'\n",
 		"  notifications:\n    environmentNames: {test: ['" + secret + "']}\n",
+		"  notifications: {'" + secret + "': true}\n",
+		"  notifications:\n    templates: {'" + secret + "': true}\n",
 	} {
 		_, err := Parse([]byte(notificationConfigPrefix + extra))
 		if err == nil {
@@ -54,6 +56,20 @@ func TestNotificationParseErrorsDoNotEchoSecrets(t *testing.T) {
 		}
 		if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "https://") {
 			t.Fatalf("parse error leaked rejected value: %v", err)
+		}
+	}
+}
+
+func TestNotificationParseErrorsIdentifySafeUnknownFields(t *testing.T) {
+	t.Parallel()
+	for _, extra := range []string{
+		"  notifications: {unknown: true}\n",
+		"  notifications:\n    destinations: [{unknown: true}]\n",
+		"  notifications:\n    templates: {unknown: true}\n",
+	} {
+		_, err := Parse([]byte(notificationConfigPrefix + extra))
+		if err == nil || !strings.Contains(err.Error(), "field unknown not found") {
+			t.Fatalf("missing safe field diagnostic: %v", err)
 		}
 	}
 }

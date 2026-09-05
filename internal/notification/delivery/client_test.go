@@ -166,6 +166,48 @@ func TestNotificationClientFailureBoundaries(t *testing.T) {
 	}
 }
 
+func TestNotificationClientEncodingFailureOutcomes(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []v1.NotificationTransport{v1.NotificationTeams, v1.NotificationSlack, v1.NotificationWebhook} {
+		for _, tc := range []struct {
+			name   string
+			change func(*notification.DeliveryPayloadV1)
+			want   notification.OutcomeCode
+		}{
+			{"schema", func(p *notification.DeliveryPayloadV1) { p.SchemaVersion = 99 }, notification.OutcomeConfiguration},
+			{"facts", func(p *notification.DeliveryPayloadV1) { p.Event.Request.URL = "" }, notification.OutcomeConfiguration},
+			{"capacity", func(p *notification.DeliveryPayloadV1) { p.Message.Body = strings.Repeat("x", 24<<10) }, notification.OutcomePayloadTooLarge},
+		} {
+			t.Run(string(kind)+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
+				c := newClient(kind, false, func(context.Context, string, string) ([]netip.Addr, error) {
+					t.Error("invalid payload reached DNS")
+					return nil, errors.New("must not resolve")
+				}, nil)
+				p := adapterPayload()
+				tc.change(&p)
+				if got := c.Send(context.Background(), "https://receiver.example/hook", p); got.Code != tc.want {
+					t.Fatalf("got %s, want %s", got.Code, tc.want)
+				}
+			})
+		}
+	}
+}
+
+func TestNotificationClientDisablesEnvironmentProxies(t *testing.T) {
+	// Environment changes intentionally run outside parallel tests.
+	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
+		t.Setenv(name, "http://proxy.invalid:8080")
+	}
+	for _, kind := range []v1.NotificationTransport{v1.NotificationTeams, v1.NotificationSlack, v1.NotificationWebhook} {
+		c := NewClient(kind, false)
+		transport, ok := c.http.Transport.(*http.Transport)
+		if !ok || transport.Proxy != nil {
+			t.Fatalf("%s allows a proxy to bypass direct destination validation", kind)
+		}
+	}
+}
+
 func TestNotificationClientHonorsCallerDeadline(t *testing.T) {
 	t.Parallel()
 	started := make(chan struct{})

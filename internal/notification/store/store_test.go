@@ -114,6 +114,39 @@ func TestNotificationStoreRefreshesRevisionAfterConflict(t *testing.T) {
 	}
 }
 
+func TestNotificationStoreReducesFreshStateWhenCallerTipIsStale(t *testing.T) {
+	t.Parallel()
+	l := codecLedger(t)
+	data, err := Encode(l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := &conflictNotes{snapshot: git.NoteSnapshot{Tip: strings.Repeat("c", 40), AnchorOID: l.AnchorOID, Data: data}}
+	s := New(notes, l.Repository, l.Graph)
+	got, err := s.Commit(context.Background(), strings.Repeat("a", 40), func(_ context.Context, latest *notification.LedgerV1) (*notification.LedgerV1, error) {
+		if latest == nil || latest.PolicyRevision != l.PolicyRevision {
+			t.Fatal("transition did not receive current durable state")
+		}
+		latest.Scans["created"] = notification.ScanProgress{Version: 1, Complete: true}
+		return latest, nil
+	})
+	// The fake Notes writer rejects anything but its exact current tip. Success
+	// proves fresh reduction uses that tip, never the stale caller's replacement.
+	if err != nil || notes.writes != 1 || !got.Ledger.Scans["created"].Complete {
+		t.Fatalf("fresh transition failed: %+v, %v, writes=%d", got, err, notes.writes)
+	}
+	s.VerifyRevision = func(context.Context, string, string) (notification.RevisionRelation, error) {
+		return notification.RevisionAncestor, nil
+	}
+	_, err = s.Commit(context.Background(), strings.Repeat("a", 40), func(_ context.Context, latest *notification.LedgerV1) (*notification.LedgerV1, error) {
+		latest.PolicyRevision.ConfigOID = strings.Repeat("0", 40)
+		return latest, nil
+	})
+	if !errors.Is(err, notification.ErrStaleRevision) || notes.writes != 1 {
+		t.Fatalf("stale policy wrote through fresh reduction: %v, writes=%d", err, notes.writes)
+	}
+}
+
 func TestNotificationStoreDenialAndCorruption(t *testing.T) {
 	t.Parallel()
 	l := codecLedger(t)

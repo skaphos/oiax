@@ -62,6 +62,10 @@ func (p *Provider) ListLifecyclePage(ctx context.Context, q forge.LifecycleQuery
 	if q.Graph == "" || q.Through.IsZero() || q.Limit < 0 || q.Limit > 100 {
 		return result, notification.ErrDiscoveryIncomplete
 	}
+	limit := q.Limit
+	if limit == 0 {
+		limit = 100
+	}
 	kind := q.Kind
 	if kind == "" {
 		kind = v1.NotificationRequestCreated
@@ -88,7 +92,7 @@ func (p *Provider) ListLifecyclePage(ctx context.Context, q forge.LifecycleQuery
 	if kind == v1.NotificationRequestMerged {
 		status, timeKind = "completed", "closed"
 	}
-	endpoint := p.gitPath("/pullrequests") + "?searchCriteria.status=" + status + "&searchCriteria.queryTimeRangeType=" + timeKind + "&searchCriteria.minTime=" + url.QueryEscape(interval.From.UTC().Format(time.RFC3339Nano)) + "&searchCriteria.maxTime=" + url.QueryEscape(interval.Through.UTC().Format(time.RFC3339Nano)) + "&$top=100&$skip=0"
+	endpoint := p.gitPath("/pullrequests") + "?searchCriteria.status=" + status + "&searchCriteria.queryTimeRangeType=" + timeKind + "&searchCriteria.minTime=" + url.QueryEscape(interval.From.UTC().Format(time.RFC3339Nano)) + "&searchCriteria.maxTime=" + url.QueryEscape(interval.Through.UTC().Format(time.RFC3339Nano)) + "&$top=" + strconv.Itoa(limit) + "&$skip=0"
 	list := func() ([]adoPull, error) {
 		var result adoPullList
 		_, err := p.do(ctx, http.MethodGet, endpoint, "", nil, &result)
@@ -96,11 +100,11 @@ func (p *Provider) ListLifecyclePage(ctx context.Context, q forge.LifecycleQuery
 	}
 	first, err := list()
 	result.Pages++
-	if err != nil || len(first) > 100 {
+	if err != nil || len(first) > limit {
 		save()
 		return result, notification.ErrDiscoveryIncomplete
 	}
-	if len(first) == 100 {
+	if len(first) == limit {
 		if interval.Through.Sub(interval.From) <= time.Millisecond || len(cursor.Pending) >= 64 {
 			save()
 			return result, notification.ErrDiscoveryIncomplete

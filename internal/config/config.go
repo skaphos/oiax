@@ -18,7 +18,6 @@ import (
 	"io"
 	"os"
 	"regexp"
-	"strings"
 
 	"go.yaml.in/yaml/v3"
 
@@ -106,7 +105,8 @@ func Parse(data []byte) (*v1.PromotionGraph, error) {
 }
 
 // yaml.TypeError can include excerpts of rejected scalar values (including
-// secret URLs). Preserve only safe legacy field-name diagnostics, never values.
+// secret URLs). Preserve only restricted identifier diagnostics, never values
+// or arbitrary field names (which can themselves contain secret URLs).
 func safeParseError(err error) error {
 	var typeErr *yaml.TypeError
 	if !errors.As(err, &typeErr) {
@@ -116,7 +116,7 @@ func safeParseError(err error) error {
 	field := regexp.MustCompile(`^line [0-9]+: field [A-Za-z_][A-Za-z0-9_]* not found in type [A-Za-z0-9_.]+$`)
 	line := regexp.MustCompile(`^line [0-9]+:`)
 	for _, message := range typeErr.Errors {
-		if field.MatchString(message) && !strings.Contains(message, "Notification") {
+		if field.MatchString(message) {
 			messages = append(messages, errors.New(message))
 			continue
 		}

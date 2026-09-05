@@ -130,6 +130,27 @@ func TestNotificationLedgerFullStateValidation(t *testing.T) {
 		change func(*notification.LedgerV1)
 	}{
 		{"identity", func(l *notification.LedgerV1) { l.Repository.ID = "" }},
+		{"repository name", func(l *notification.LedgerV1) { l.Repository.Name = "" }},
+		{"event repository name", func(l *notification.LedgerV1) {
+			e := l.Events[eventID]
+			e.Repository.Name = ""
+			l.Events[eventID] = e
+		}},
+		{"event request URL", func(l *notification.LedgerV1) {
+			e := l.Events[eventID]
+			e.Request.URL = ""
+			l.Events[eventID] = e
+		}},
+		{"known repository name", func(l *notification.LedgerV1) {
+			r := l.KnownRequests["42"]
+			r.Repository.Name = ""
+			l.KnownRequests["42"] = r
+		}},
+		{"known request URL", func(l *notification.LedgerV1) {
+			r := l.KnownRequests["42"]
+			r.Request.URL = ""
+			l.KnownRequests["42"] = r
+		}},
 		{"provider", func(l *notification.LedgerV1) { l.Repository.Provider = "other" }},
 		{"azure ids", func(l *notification.LedgerV1) { l.Repository.Provider = "azuredevops" }},
 		{"nil map", func(l *notification.LedgerV1) { l.Destinations = nil }},
@@ -227,6 +248,14 @@ func TestNotificationLedgerFullStateValidation(t *testing.T) {
 			tc.change(l)
 			if _, err := Encode(l); err == nil {
 				t.Fatal("invalid state accepted")
+			}
+			// Bypass Encode's validation to exercise the persisted decode boundary.
+			raw, err := json.Marshal(l)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Decode(bytes.NewReader(raw)); err == nil {
+				t.Fatal("invalid persisted state accepted")
 			}
 		})
 	}

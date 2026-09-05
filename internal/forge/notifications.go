@@ -12,14 +12,17 @@ import (
 
 // LifecycleQuery is independent of the branch engine's baseline lookback.
 // Cursor is provider-owned bounded data; a frozen interval never advances until
-// all pages and required request details are durably admitted.
+// all pages and required request details are durably admitted. Keep the query
+// (including Limit) unchanged when continuing a cursor.
 type LifecycleQuery struct {
 	Graph   string
 	Cursor  string
 	From    time.Time
 	Through time.Time
-	Limit   int
-	Kind    v1.NotificationEvent
+	// Limit bounds each provider list response (0 defaults to 100). Overlap and
+	// verification can require multiple responses per LifecyclePage.
+	Limit int
+	Kind  v1.NotificationEvent
 }
 
 type LifecyclePage struct {

@@ -193,9 +193,12 @@ func (g *PromotionGraph) ValidateNotifications() []error {
 		if slots.BodyFile != "" && (validateTemplatePath(slots.BodyFile) != nil || strings.Contains(slots.BodyFile, ":")) {
 			report(path+".bodyFile", "use a clean repository-relative file path")
 		}
-		for _, value := range []*string{slots.Title, slots.Body} {
-			if value != nil && (len(*value) > 1<<20 || !utf8.ValidString(*value)) {
-				report(path, "use valid UTF-8 template sources of at most 1 MiB")
+		for _, slot := range []struct {
+			name  string
+			value *string
+		}{{"title", slots.Title}, {"body", slots.Body}} {
+			if slot.value != nil && (len(*slot.value) > 1<<20 || !utf8.ValidString(*slot.value)) {
+				report(path+"."+slot.name, "use valid UTF-8 template sources of at most 1 MiB")
 			}
 		}
 	}

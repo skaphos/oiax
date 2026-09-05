@@ -118,7 +118,7 @@ func requestKind(k v1.NotificationRequestType) bool {
 }
 
 func validRepository(r notification.RepositoryIdentity) bool {
-	if r.ID == "" || r.Host == "" || !safeText(r.ID, 256) || !safeText(r.Name, 1024) || !safeText(r.Host, 256) {
+	if r.ID == "" || r.Host == "" || r.Name == "" || !safeText(r.ID, 256) || !safeText(r.Name, 1024) || !safeText(r.Host, 256) {
 		return false
 	}
 	switch r.Provider {
@@ -132,7 +132,7 @@ func validRepository(r notification.RepositoryIdentity) bool {
 }
 
 func validRequest(r notification.RequestV1) bool {
-	return r.ID != "" && r.Source != "" && r.Destination != "" && requestKind(r.Type) && safeText(r.ID, 256) && safeText(r.Source, 1024) && safeText(r.Destination, 1024) && safeText(r.LogicalSource, 1024) && safeText(r.LogicalDestination, 1024) && safeText(r.URL, 4096)
+	return r.ID != "" && r.Source != "" && r.Destination != "" && r.URL != "" && requestKind(r.Type) && safeText(r.ID, 256) && safeText(r.Source, 1024) && safeText(r.Destination, 1024) && safeText(r.LogicalSource, 1024) && safeText(r.LogicalDestination, 1024) && safeText(r.URL, 4096)
 }
 
 func validEvent(e notification.EventV1, l *notification.LedgerV1) bool {
@@ -226,7 +226,7 @@ func Validate(l *notification.LedgerV1) error {
 		}
 	}
 	for id, r := range l.KnownRequests {
-		if id != r.Request.ID || !validRequest(r.Request) || !r.Repository.Same(l.Repository) || r.Graph != l.Graph || r.CreatedAt.IsZero() {
+		if id != r.Request.ID || !validRequest(r.Request) || !validRepository(r.Repository) || !r.Repository.Same(l.Repository) || r.Graph != l.Graph || r.CreatedAt.IsZero() {
 			return bad
 		}
 		switch r.State {

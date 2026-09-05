@@ -34,6 +34,8 @@ type lookupNetIPFunc func(context.Context, string, string) ([]netip.Addr, error)
 type dialContextFunc func(context.Context, string, string) (net.Conn, error)
 
 func newClient(kind v1.NotificationTransport, allowPrivate bool, lookup lookupNetIPFunc, dial dialContextFunc) *Client {
+	// A fresh transport's nil Proxy disables proxies. Do not clone
+	// http.DefaultTransport: its environment proxy bypasses our direct dial policy.
 	transport := &http.Transport{MaxConnsPerHost: 1, IdleConnTimeout: 10 * time.Second, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
@@ -113,7 +115,10 @@ func (c *Client) Send(ctx context.Context, endpoint string, payload notification
 	}
 	body, err := encode(c.kind, payload)
 	if err != nil {
-		return result(notification.OutcomePayloadTooLarge)
+		if errors.Is(err, notification.ErrCapacity) {
+			return result(notification.OutcomePayloadTooLarge)
+		}
+		return result(notification.OutcomeConfiguration)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
 	if err != nil {

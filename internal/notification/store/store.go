@@ -62,7 +62,7 @@ func (s *Store) Commit(ctx context.Context, expected string, transition notifica
 		}
 		// Always reduce current state, including when another worker advanced
 		// beyond the caller's expected tip before the first read.
-		expected = current.Revision
+		writeExpected := current.Revision
 		var input *notification.LedgerV1
 		if current.Ledger != nil {
 			input = current.Ledger.Clone()
@@ -98,7 +98,7 @@ func (s *Store) Commit(ctx context.Context, expected string, transition notifica
 		if err != nil {
 			return notification.Snapshot{}, err
 		}
-		tip, err := s.notes.Write(ctx, expected, next.AnchorOID, data)
+		tip, err := s.notes.Write(ctx, writeExpected, next.AnchorOID, data)
 		if errors.Is(err, git.ErrNotesConflict) {
 			continue
 		}

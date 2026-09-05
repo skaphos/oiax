@@ -9,6 +9,14 @@ import (
 
 type NotificationDiagnostic struct{ Destination, Reason, Action string }
 
+// Scope labels global failures without inventing a configured destination.
+func (d NotificationDiagnostic) Scope() string {
+	if d.Destination == "" {
+		return "all destinations"
+	}
+	return d.Destination
+}
+
 // NotificationProblem never formats the supplied error. Unknown providers and
 // transports may embed endpoint credentials in their errors.
 func NotificationProblem(err error) NotificationDiagnostic {

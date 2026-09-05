@@ -70,9 +70,9 @@ conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.`,
 			}
 			for _, d := range coord.NotificationDiagnostics {
 				if d.Reason == "delivered" {
-					coord.Log.Info("notification delivery", "destination", d.Destination, "reason", d.Reason, "action", d.Action)
+					coord.Log.Info("notification delivery", "scope", d.Scope(), "reason", d.Reason, "action", d.Action)
 				} else {
-					coord.Log.Warn("notification delivery", "destination", d.Destination, "reason", d.Reason, "action", d.Action)
+					coord.Log.Warn("notification delivery", "scope", d.Scope(), "reason", d.Reason, "action", d.Action)
 				}
 			}
 			writeNotificationSummary(cmd, coord.NotificationDiagnostics)

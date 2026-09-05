@@ -188,3 +188,63 @@ func TestNotificationLifecycleRejectsCrossOriginContinuation(t *testing.T) {
 		t.Fatalf("cross-origin continuation = (%+v, %v)", page.Progress, err)
 	}
 }
+
+func TestNotificationLifecycleHonorsPageLimit(t *testing.T) {
+	t.Parallel()
+	for _, oversized := range []bool{false, true} {
+		t.Run(strconv.FormatBool(oversized), func(t *testing.T) {
+			t.Parallel()
+			now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/repos/example/repo":
+					serveNotificationIdentity(w)
+				case "/repos/example/repo/pulls":
+					if r.URL.Query().Get("per_page") != "2" {
+						t.Error("ignored caller page limit")
+					}
+					page := []ghPull{{Number: 2}, {Number: 10}}
+					if oversized {
+						page = append(page, ghPull{Number: 11})
+					}
+					if r.URL.Query().Get("page") == "1" {
+						w.Header().Set("Link", "<"+server.URL+"/repos/example/repo/pulls?page=2>; rel=\"next\"")
+					} else {
+						page = []ghPull{{Number: 11}}
+					}
+					_ = json.NewEncoder(w).Encode(page)
+				default:
+					if oversized {
+						t.Error("oversized page reached detail reads")
+					}
+					id, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/repos/example/repo/pulls/"))
+					_ = json.NewEncoder(w).Encode(notificationPull(id, now.Add(-time.Hour)))
+				}
+			}))
+			t.Cleanup(server.Close)
+			p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+			query := forge.LifecycleQuery{Graph: "graph", Through: now, Limit: 2}
+			first, err := p.ListLifecyclePage(context.Background(), query)
+			if oversized {
+				if !errors.Is(err, notification.ErrDiscoveryIncomplete) || first.Progress.Cursor != "1" || first.Progress.Complete {
+					t.Fatalf("oversized page accepted: %+v, %v", first, err)
+				}
+				return
+			}
+			if err != nil || first.Progress.Cursor != "2" || len(first.Requests) != 2 {
+				t.Fatalf("first page: %+v, %v", first, err)
+			}
+			// IDs are opaque strings; lexical ordering is deterministic even for
+			// numeric-looking IDs. Pagination itself uses provider creation order.
+			if first.Requests[0].Request.ID != "10" || first.Requests[1].Request.ID != "2" {
+				t.Fatal("unstable ID ordering")
+			}
+			query.Cursor = first.Progress.Cursor
+			second, err := p.ListLifecyclePage(context.Background(), query)
+			if err != nil || !second.Progress.Complete || second.Pages != 2 || len(second.Requests) != 3 {
+				t.Fatalf("bounded overlapping continuation: %+v, %v", second, err)
+			}
+		})
+	}
+}

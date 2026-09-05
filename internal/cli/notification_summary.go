@@ -32,7 +32,7 @@ func writeNotificationSummary(cmd *cobra.Command, diagnostics []reconcile.Notifi
 	_, writeErr := fmt.Fprint(f, "\n## Notification delivery\n\n")
 	for _, d := range diagnostics {
 		if writeErr == nil {
-			_, writeErr = fmt.Fprintf(f, "- %s: %s. %s\n", d.Destination, d.Reason, d.Action)
+			_, writeErr = fmt.Fprintf(f, "- %s: %s. %s\n", d.Scope(), d.Reason, d.Action)
 		}
 	}
 	closeErr := f.Close()

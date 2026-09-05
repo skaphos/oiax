@@ -157,3 +157,31 @@ func TestNotificationPolicyEnabled(t *testing.T) {
 		t.Fatal("explicit false enabled")
 	}
 }
+
+func TestNotificationTemplateSourceDiagnosticPaths(t *testing.T) {
+	t.Parallel()
+	for _, group := range []string{"templates", "destinations[0].templates"} {
+		for _, field := range []string{"title", "body"} {
+			for _, invalid := range []string{strings.Repeat("x", (1<<20)+1), string([]byte{0xff})} {
+				g := validGraph()
+				g.Spec.Notifications = notificationPolicy()
+				slots := &NotificationTemplates{}
+				if field == "title" {
+					slots.Title = &invalid
+				} else {
+					slots.Body = &invalid
+				}
+				if group == "templates" {
+					g.Spec.Notifications.Templates = slots
+				} else {
+					g.Spec.Notifications.Destinations[0].Templates = slots
+				}
+				errs := g.Validate()
+				want := "spec.notifications." + group + "." + field
+				if len(errs) != 1 || !strings.Contains(errs[0].Error(), want+":") {
+					t.Fatalf("got %v, want exact field %s", errs, want)
+				}
+			}
+		}
+	}
+}

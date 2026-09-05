@@ -100,6 +100,7 @@ func TestRenderingRejectsUnsafeIdentityAndCleansDisplayText(t *testing.T) {
 		"http://github.com/example/repo/pull/42",
 		"https://github.com/attacker/repo/pull/42",
 		"https://github.com/example/repo/pull/42?token=secret",
+		"https://github.com/example/repo/pull/42?",
 		"https://github.com/example/repo/pull/42#fragment",
 	} {
 		event := renderFixture(v1.NotificationRequestMerged, v1.NotificationPromotion)

@@ -27,6 +27,9 @@ type Transition func(context.Context, *LedgerV1) (*LedgerV1, error)
 
 type LedgerStore interface {
 	Read(context.Context) (Snapshot, error)
+	// Commit takes the caller's observed revision as a hint, not a precondition:
+	// it re-reduces fresh state and fences each write against that exact read tip.
+	// Transitions must enforce their own policy/claim preconditions on that state.
 	Commit(context.Context, string, Transition) (Snapshot, error)
 }
 

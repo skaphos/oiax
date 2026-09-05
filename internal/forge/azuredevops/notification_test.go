@@ -119,9 +119,12 @@ func TestNotificationLifecyclePartitionsFrozenIntervals(t *testing.T) {
 		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/pullrequests"):
+			if r.URL.Query().Get("$top") != "2" {
+				t.Error("ignored caller page limit")
+			}
 			var listed []adoPull
 			if r.URL.Query().Get("searchCriteria.minTime") == fullMin && r.URL.Query().Get("searchCriteria.maxTime") == fullMax {
-				for id := 1; id <= 100; id++ {
+				for id := 1; id <= 2; id++ {
 					listed = append(listed, adoPull{PullRequestID: id})
 				}
 			} else {
@@ -138,7 +141,7 @@ func TestNotificationLifecyclePartitionsFrozenIntervals(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	p := &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client()}
-	query := forge.LifecycleQuery{Graph: "graph", Kind: "request-created", From: from, Through: through, Limit: 100}
+	query := forge.LifecycleQuery{Graph: "graph", Kind: "request-created", From: from, Through: through, Limit: 2}
 	first, err := p.ListLifecyclePage(context.Background(), query)
 	if err != nil || first.Progress.Complete || first.Progress.Cursor == "" || first.Pages != 1 || len(first.Requests) != 0 {
 		t.Fatalf("partition start = (%+v, %d, %v)", first.Progress, len(first.Requests), err)

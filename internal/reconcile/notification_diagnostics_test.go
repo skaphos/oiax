@@ -20,6 +20,18 @@ func TestNotificationDiagnosticsAreSafe(t *testing.T) {
 	}
 }
 
+func TestNotificationDiagnosticScope(t *testing.T) {
+	t.Parallel()
+	d := NotificationProblem(notification.ErrInvalidState)
+	if d.Destination != "" || d.Scope() != "all destinations" {
+		t.Fatalf("global problem invented a recipient or omitted its scope: %+v", d)
+	}
+	d.Destination = "ops"
+	if d.Scope() != "ops" {
+		t.Fatal("destination-specific scope lost")
+	}
+}
+
 func TestNotificationPresentationRedactsAddresses(t *testing.T) {
 	canary := "https://receiver.invalid/credential-canary?token=value"
 	if got := notification.SafeDisplayText("subject "+canary, true, ""); strings.Contains(got, "credential-canary") || !strings.Contains(got, "[redacted URL]") {

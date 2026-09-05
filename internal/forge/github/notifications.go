@@ -59,13 +59,17 @@ func (p *Provider) ListLifecyclePage(ctx context.Context, query forge.LifecycleQ
 	if query.Through.IsZero() || query.Graph == "" || query.Limit < 0 || query.Limit > 100 {
 		return result, notification.ErrDiscoveryIncomplete
 	}
+	limit := query.Limit
+	if limit == 0 {
+		limit = 100
+	}
 	seen := map[string]bool{}
 	for number := max(1, page-1); number <= page; number++ {
 		var pulls []ghPull
-		endpoint := p.url(fmt.Sprintf("/repos/%s/%s/pulls?state=all&sort=created&direction=asc&per_page=100&page=%d", url.PathEscape(p.Owner), url.PathEscape(p.Repo), number))
+		endpoint := p.url(fmt.Sprintf("/repos/%s/%s/pulls?state=all&sort=created&direction=asc&per_page=%d&page=%d", url.PathEscape(p.Owner), url.PathEscape(p.Repo), limit, number))
 		headers, err := p.do(ctx, http.MethodGet, endpoint, nil, &pulls)
 		result.Pages++
-		if err != nil || len(pulls) > 100 {
+		if err != nil || len(pulls) > limit {
 			result.Progress.Cursor = strconv.Itoa(page)
 			return result, notification.ErrDiscoveryIncomplete
 		}

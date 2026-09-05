@@ -42,7 +42,7 @@ func CleanText(s string, multiline bool) string {
 
 func SafeRequestURL(e EventV1) bool {
 	u, err := url.Parse(e.Request.URL)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.Hostname() == "" || !strings.EqualFold(u.Hostname(), e.Repository.Host) || u.Port() != "" {
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.ForceQuery || u.Hostname() == "" || !strings.EqualFold(u.Hostname(), e.Repository.Host) || u.Port() != "" {
 		return false
 	}
 	if e.Request.ID == "" {
