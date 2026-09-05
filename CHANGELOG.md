@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.0.0](https://github.com/skaphos/oiax/compare/v1.3.0...v2.0.0) (2026-09-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* **platform:** support production automation on Linux only
+
+### Features
+
+* **notifications:** checkpoint notification delivery implementation ([#77](https://github.com/skaphos/oiax/issues/77)) ([d2ba384](https://github.com/skaphos/oiax/commit/d2ba384e316d2b74a61b78311eb0ffe316de64c9))
+* **platform:** support production automation on Linux only ([ec43b8e](https://github.com/skaphos/oiax/commit/ec43b8ec87ab3d92a62ab6f2cba1be0ac9f06429))
+
+
+### Migration Notes
+
+* move standalone macOS/Windows automation to Linux; native binaries remain best-effort local tools ([ec43b8e](https://github.com/skaphos/oiax/commit/ec43b8ec87ab3d92a62ab6f2cba1be0ac9f06429))
+
 ## [1.3.0](https://github.com/skaphos/oiax/compare/v1.2.0...v1.3.0) (2026-07-29)
 
 
