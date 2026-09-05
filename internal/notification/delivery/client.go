@@ -27,13 +27,20 @@ type Client struct {
 
 func NewClient(kind v1.NotificationTransport, allowPrivate bool) *Client {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	return newClient(kind, allowPrivate, net.DefaultResolver.LookupNetIP, dialer.DialContext)
+}
+
+type lookupNetIPFunc func(context.Context, string, string) ([]netip.Addr, error)
+type dialContextFunc func(context.Context, string, string) (net.Conn, error)
+
+func newClient(kind v1.NotificationTransport, allowPrivate bool, lookup lookupNetIPFunc, dial dialContextFunc) *Client {
 	transport := &http.Transport{MaxConnsPerHost: 1, IdleConnTimeout: 10 * time.Second, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
 			return nil, errors.New("invalid destination address")
 		}
-		addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		addresses, err := lookup(ctx, "ip", host)
 		if err != nil || len(addresses) == 0 {
 			return nil, errors.New("destination lookup failed")
 		}
@@ -45,7 +52,7 @@ func NewClient(kind v1.NotificationTransport, allowPrivate bool) *Client {
 			}
 		}
 		for _, ip := range addresses {
-			conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			conn, err := dial(ctx, network, net.JoinHostPort(ip.String(), port))
 			if err == nil {
 				return conn, nil
 			}
@@ -79,7 +86,7 @@ func allowedAddress(ip netip.Addr, allowPrivate bool) bool {
 	}
 	// Shared-address, documentation, benchmarking, reserved, transition and
 	// metadata ranges are not public receivers (even with private opt-in).
-	for _, cidr := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "2001::/23", "2001:db8::/32", "2002::/16"} {
+	for _, cidr := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "100:0:0:1::/64", "2001::/23", "2001:db8::/32", "2002::/16", "3fff::/20", "5f00::/16", "fec0::/10"} {
 		if netip.MustParsePrefix(cidr).Contains(ip) {
 			return false
 		}

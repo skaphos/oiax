@@ -2,6 +2,9 @@ package delivery
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -57,6 +60,58 @@ func TestNotificationAdapterPersistedMessagesAndFacts(t *testing.T) {
 				t.Fatal("empty template erased identity", err)
 			}
 		})
+	}
+}
+
+func TestNotificationAdapterGoldens(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []v1.NotificationTransport{"teams", "slack", "webhook"} {
+		kind := kind
+		t.Run(string(kind), func(t *testing.T) {
+			t.Parallel()
+			got, err := encode(kind, adapterPayload())
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := os.ReadFile(filepath.Join("testdata", string(kind)+".golden.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != strings.TrimSuffix(string(want), "\n") {
+				t.Fatalf("%s payload changed\ngot:  %s\nwant: %s", kind, got, want)
+			}
+		})
+	}
+}
+
+func TestNotificationAdaptersRejectUnsafeLinksAndOversizedPayloads(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []v1.NotificationTransport{"teams", "slack", "webhook"} {
+		unsafe := adapterPayload()
+		unsafe.Event.Request.URL = "https://attacker.invalid/pull/42"
+		if _, err := encode(kind, unsafe); !errors.Is(err, notification.ErrInvalidState) {
+			t.Fatalf("%s accepted unsafe request link: %v", kind, err)
+		}
+		oversized := adapterPayload()
+		oversized.Message.Body = strings.Repeat("x", 24<<10)
+		if _, err := encode(kind, oversized); !errors.Is(err, notification.ErrCapacity) {
+			t.Fatalf("%s accepted oversized payload: %v", kind, err)
+		}
+	}
+}
+
+func TestNotificationAdaptersLabelBackflow(t *testing.T) {
+	t.Parallel()
+	payload := adapterPayload()
+	payload.Event.Request.Type = v1.NotificationBackflow
+	payload.Event.Request.Source = "oiax/backflow/test/abcdef0"
+	payload.Event.Request.Destination = "development"
+	payload.Event.ID = notification.EventID(payload.Event.Repository, payload.Event.Request.ID, payload.Event.Kind)
+	for _, kind := range []v1.NotificationTransport{"teams", "slack", "webhook"} {
+		data, err := encode(kind, payload)
+		if err != nil || !strings.Contains(string(data), "backflow") || !strings.Contains(string(data), "oiax/backflow/test/abcdef0") {
+			t.Fatalf("%s omitted backflow identity: %v %s", kind, err, data)
+		}
 	}
 }
 

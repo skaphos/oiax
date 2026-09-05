@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -17,7 +18,7 @@ import (
 
 func TestNotificationEndpointPolicy(t *testing.T) {
 	t.Parallel()
-	for _, raw := range []string{"", "http://example.com/token", "https://user:password@example.com/token", "https://example.com/token#fragment", "file:///etc/passwd", "https://", "https://example.com:bad/token"} {
+	for _, raw := range []string{"", "http://example.com/token", "https://user:password@example.com/token", "https://example.com/token#fragment", "file:///etc/passwd", "https://", "https://example.com:bad/token", "https://example.com/token\r\nInjected: yes"} {
 		if _, err := validateEndpoint(raw); err == nil {
 			t.Fatal("invalid endpoint accepted")
 		}
@@ -25,7 +26,11 @@ func TestNotificationEndpointPolicy(t *testing.T) {
 	if _, err := validateEndpoint("https://example.com/callback?secret=value"); err != nil {
 		t.Fatal("callback query rejected")
 	}
-	for _, address := range []string{"127.0.0.1", "::1", "169.254.169.254", "fe80::1", "224.0.0.1", "ff02::1", "0.0.0.0", "::", "::ffff:127.0.0.1", "100.100.100.200"} {
+	for _, address := range []string{
+		"0.0.0.0", "127.0.0.1", "169.254.169.254", "224.0.0.1", "100.100.100.200",
+		"192.0.0.1", "192.0.2.1", "192.88.99.1", "198.18.0.1", "198.51.100.1", "203.0.113.1", "240.0.0.1",
+		"::", "::1", "::ffff:127.0.0.1", "fe80::1", "ff02::1", "64:ff9b::1", "64:ff9b:1::1", "100::1", "100:0:0:1::1", "2001::1", "2001:db8::1", "2002::1", "3fff::1", "5f00::1", "fec0::1",
+	} {
 		for _, allow := range []bool{false, true} {
 			if allowedAddress(netip.MustParseAddr(address), allow) {
 				t.Fatalf("forbidden destination %s accepted", address)
@@ -40,6 +45,74 @@ func TestNotificationEndpointPolicy(t *testing.T) {
 	}
 	if !allowedAddress(netip.MustParseAddr("8.8.8.8"), false) || !allowedAddress(netip.MustParseAddr("2606:4700:4700::1111"), false) {
 		t.Fatal("public unicast rejected")
+	}
+}
+
+func TestNotificationClientChecksEveryDNSAnswerAtConnectionTime(t *testing.T) {
+	t.Parallel()
+	lookups := 0
+	dials := 0
+	lookup := func(context.Context, string, string) ([]netip.Addr, error) {
+		lookups++
+		if lookups == 1 {
+			return []netip.Addr{netip.MustParseAddr("8.8.8.8")}, nil
+		}
+		// A rebinding/mixed response is rejected in full; the client never
+		// chooses the apparently safe answer and ignores the loopback answer.
+		return []netip.Addr{netip.MustParseAddr("8.8.8.8"), netip.MustParseAddr("127.0.0.1")}, nil
+	}
+	dial := func(context.Context, string, string) (net.Conn, error) {
+		dials++
+		return nil, errors.New("fixture connection refused")
+	}
+	c := newClient(v1.NotificationWebhook, false, lookup, dial)
+	for range 2 {
+		if got := c.Send(context.Background(), "https://receiver.example/hook", adapterPayload()); got.Code != notification.OutcomeNetwork {
+			t.Fatalf("unexpected safe failure: %+v", got)
+		}
+	}
+	if lookups != 2 || dials != 1 {
+		t.Fatalf("connection-time checks: lookups=%d dials=%d", lookups, dials)
+	}
+}
+
+func TestNotificationClientPreservesOriginalHostForTLS(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	if len(server.Certificate().DNSNames) == 0 {
+		t.Fatal("httptest certificate has no DNS identity")
+	}
+	validHost := server.Certificate().DNSNames[0]
+	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup := func(context.Context, string, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("8.8.8.8")}, nil
+	}
+	dialer := &net.Dialer{}
+	dial := func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	client := func() *Client {
+		c := newClient(v1.NotificationWebhook, false, lookup, dial)
+		transport := c.http.Transport.(*http.Transport)
+		transport.TLSClientConfig = server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+		return c
+	}
+	if got := client().Send(context.Background(), "https://not-"+validHost+":"+port+"/hook", adapterPayload()); got.Code != notification.OutcomeNetwork {
+		t.Fatalf("mismatched TLS identity accepted: %+v", got)
+	}
+	if got := client().Send(context.Background(), "https://"+validHost+":"+port+"/hook", adapterPayload()); got.Code != notification.OutcomeAccepted {
+		t.Fatalf("matching TLS identity rejected: %+v", got)
+	}
+	if calls != 1 {
+		t.Fatalf("TLS mismatch reached receiver: calls=%d", calls)
 	}
 }
 
@@ -63,7 +136,14 @@ func TestNotificationClientFailureBoundaries(t *testing.T) {
 	if c.http.Timeout != 10*time.Second {
 		t.Fatal("wrong HTTP deadline")
 	}
-	if c.Send(context.Background(), "", payload).Code != notification.OutcomeMissingSecret {
+	lookupCalled := false
+	c = newClient(v1.NotificationWebhook, false, func(context.Context, string, string) ([]netip.Addr, error) {
+		lookupCalled = true
+		return nil, errors.New("must not resolve")
+	}, func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("must not dial")
+	})
+	if c.Send(context.Background(), "", payload).Code != notification.OutcomeMissingSecret || lookupCalled {
 		t.Fatal("missing secret not distinguished")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -73,6 +153,45 @@ func TestNotificationClientFailureBoundaries(t *testing.T) {
 	}
 	if NewClient(v1.NotificationSlack, true).Send(context.Background(), "https://receiver.invalid/secret", payload).Code != notification.OutcomeInvalidEndpoint {
 		t.Fatal("private opt-in allowed for Slack")
+	}
+	privateDialed := false
+	privateWebhook := newClient(v1.NotificationWebhook, true, func(context.Context, string, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("10.0.0.1")}, nil
+	}, func(context.Context, string, string) (net.Conn, error) {
+		privateDialed = true
+		return nil, errors.New("fixture connection refused")
+	})
+	if got := privateWebhook.Send(context.Background(), "https://internal.example/hook", payload); got.Code != notification.OutcomeNetwork || !privateDialed {
+		t.Fatalf("generic private opt-in did not reach its approved address: %+v", got)
+	}
+}
+
+func TestNotificationClientHonorsCallerDeadline(t *testing.T) {
+	t.Parallel()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		close(started)
+		<-release
+	}))
+	// Release the intentionally blocked fixture handler before server cleanup.
+	t.Cleanup(func() {
+		close(release)
+		server.CloseClientConnections()
+		server.Close()
+	})
+	c := NewClient(v1.NotificationWebhook, false)
+	c.http.Transport = server.Client().Transport
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	result := c.Send(ctx, server.URL+"/hook", adapterPayload())
+	if result.Code != notification.OutcomeCanceled {
+		t.Fatalf("deadline result = %+v", result)
+	}
+	select {
+	case <-started:
+	default:
+		t.Fatal("deadline fixture never received request")
 	}
 }
 
@@ -99,6 +218,7 @@ func TestNotificationClientAcknowledgmentsAndBounds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			calls := 0
+			payload := adapterPayload()
 			s := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
 				if r.Header.Get("Authorization") != "" {
@@ -106,6 +226,9 @@ func TestNotificationClientAcknowledgmentsAndBounds(t *testing.T) {
 				}
 				if r.Header.Get("Content-Type") != "application/json" {
 					t.Error("missing JSON content type")
+				}
+				if tc.kind == v1.NotificationWebhook && r.Header.Get("X-Oiax-Event-ID") != payload.Event.ID {
+					t.Error("missing generic webhook event identity header")
 				}
 				_, _ = io.Copy(io.Discard, r.Body)
 				w.Header().Set("Retry-After", "120")
@@ -116,7 +239,7 @@ func TestNotificationClientAcknowledgmentsAndBounds(t *testing.T) {
 			t.Cleanup(s.Close)
 			c := NewClient(tc.kind, false)
 			c.http.Transport = s.Client().Transport // test-only trusted local TLS
-			result := c.Send(context.Background(), s.URL+"/secret", adapterPayload())
+			result := c.Send(context.Background(), s.URL+"/secret", payload)
 			if result.Code != tc.want || calls != 1 {
 				t.Fatalf("got %+v calls %d", result, calls)
 			}

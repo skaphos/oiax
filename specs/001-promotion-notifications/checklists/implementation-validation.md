@@ -14,6 +14,17 @@ repeated ID-set verification all fail closed: deleted/denied details, unstable
 enumeration, cross-origin continuation, and dense same-timestamp intervals keep
 partial progress explicitly incomplete.
 
+T017–T018 and T025–T028 complete the constrained HTTP and v1 adapter slice.
+Connection-time resolution rejects every mixed DNS answer when any address is
+unsafe, dials only validated numeric addresses, and retains the original URL
+hostname for TLS verification. Private unicast remains a generic-webhook-only
+opt-in; redirects, oversized responses, oversized outbound payloads, missing
+secrets, unsafe request links, and raw transport details reduce to bounded safe
+outcomes. Deterministic checked-in JSON goldens cover Teams Adaptive Card 1.2,
+Slack plain-text blocks, and the flat generic schema, including every FR-008
+fact, explicit request ID/observed time, commit unavailability, inert hostile
+text, fixed safe links, generic event-ID header, and transport-specific acks.
+
 T029 and T031–T033 now complete the bounded dispatcher slice: runtime mutations
 use caller-observed CAS revisions, messages persist before claims, claims renew
 against the current accepted config/generation, destination workers send in
@@ -37,24 +48,26 @@ Verification on this checkpoint:
 |---|---|
 | `go test -race -shuffle=on ./...` with the documented process-local Git settings | PASS |
 | `go test -race -shuffle=on ./internal/forge/github ./internal/forge/azuredevops ./internal/forge/forgetest` | PASS |
+| `go test -race -shuffle=on -count=10 -timeout=60s ./internal/notification/delivery` | PASS |
 | focused notification/reconcile race tests, repeated 10 times after concurrent dispatch | PASS |
 | `go -C tools tool task lint` | PASS, 0 issues |
 | `go -C tools tool task build` | PASS |
 | `go -C tools tool task verify-generated` | PASS |
-| `graphify update .` | PASS: 1,797 nodes, 4,992 edges, 101 communities |
+| `reuse lint` | PASS, all 284 files compliant |
+| `graphify update .` | PASS: 1,806 nodes, 5,026 edges, 113 communities |
 | `graphify diagnose multigraph --max-examples 1` | PASS: no missing/dangling endpoints, self-loops or collapsed edges; raw producer loss not measured |
 | `git diff --check` | PASS |
 
-US1 remains incomplete: safe-client and adapter goldens, the rest of merge
-integration and default-presentation matrices, built-binary
+US1 remains incomplete: the rest of merge integration and default-presentation
+matrices, built-binary
 notification scenarios and independent acceptance evidence are still unchecked.
 Creation provenance, custom templates, immutable commit enrichment, preview and
 diagnostics remain later phases.
 
 Resume in this order:
 
-1. Complete T017–T019 and T023–T028 client/presentation conformance, especially
-   redirect/TLS/DNS defenses, both request types and exact adapter goldens.
+1. Complete T019 and T023–T024 merge integration/normalization/presentation,
+   especially both request types and default rendering matrices.
 2. Finish T030 and T034–T038: adversarial observation/config-order races,
    default presentation, built-binary merge scenarios, exact core exit evidence
    and the independent US1 matrix. Do not contact live receivers in unit tests.

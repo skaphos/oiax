@@ -954,9 +954,9 @@
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/checklists/implementation-validation.md": {
-    "mtime": 1788609701.053828,
-    "seen": 1788609712.447764,
-    "ast_hash": "d3136729a989d09fdbdefe8c70f6ee36",
+    "mtime": 1788610423.0319705,
+    "seen": 1788610436.2445319,
+    "ast_hash": "f4dd0eb6ff1414fab79ca71c5bd135a6",
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/checklists/remediation.md": {
@@ -1026,9 +1026,9 @@
     "semantic_hash": ""
   },
   "specs/001-promotion-notifications/tasks.md": {
-    "mtime": 1788609700.9693506,
-    "seen": 1788609712.4477708,
-    "ast_hash": "7f93f9f0ffcec15c999fecb457aa28a8",
+    "mtime": 1788610422.9595222,
+    "seen": 1788610436.2445388,
+    "ast_hash": "1cfc7a0307699f0a4df60050d3a9575e",
     "semantic_hash": ""
   },
   "internal/forge/azuredevops/notification_test.go": {
@@ -1062,21 +1062,21 @@
     "semantic_hash": ""
   },
   "internal/notification/delivery/adapters_test.go": {
-    "mtime": 1788579280.317311,
-    "seen": 1788581296.214019,
-    "ast_hash": "474a0797cbcdfa81e2c73e1f3209886a",
+    "mtime": 1788610306.6523209,
+    "seen": 1788610436.244477,
+    "ast_hash": "5e76ce5140b6be597a80cdeeafb9016f",
     "semantic_hash": ""
   },
   "internal/notification/delivery/client.go": {
-    "mtime": 1788579280.3210022,
-    "seen": 1788581296.214019,
-    "ast_hash": "d10838a81a9ce91cb1b631489e704912",
+    "mtime": 1788610136.8596141,
+    "seen": 1788610436.244479,
+    "ast_hash": "9896dfc2e5a4f4821c8a69a10ebc89d7",
     "semantic_hash": ""
   },
   "internal/notification/delivery/client_test.go": {
-    "mtime": 1788579280.325193,
-    "seen": 1788581296.21402,
-    "ast_hash": "74cad8dbdf8ae6967c7972d81f3243f8",
+    "mtime": 1788610371.7833927,
+    "seen": 1788610436.244479,
+    "ast_hash": "2fc9a88145c619e6d66774d487a3100f",
     "semantic_hash": ""
   },
   "internal/notification/delivery/slack.go": {
@@ -1149,6 +1149,24 @@
     "mtime": 1788580847.694271,
     "seen": 1788581296.214032,
     "ast_hash": "dd6be754163acdf93ca22ac2ea1de326",
+    "semantic_hash": ""
+  },
+  "internal/notification/delivery/testdata/slack.golden.json": {
+    "mtime": 1788610274.6957972,
+    "seen": 1788610436.244481,
+    "ast_hash": "6da4cc1eefbe06c2a5a4e3e775872dc8",
+    "semantic_hash": ""
+  },
+  "internal/notification/delivery/testdata/teams.golden.json": {
+    "mtime": 1788610274.6242535,
+    "seen": 1788610436.244482,
+    "ast_hash": "ae30055e5ce0837c15233a0ccf078313",
+    "semantic_hash": ""
+  },
+  "internal/notification/delivery/testdata/webhook.golden.json": {
+    "mtime": 1788610274.7648718,
+    "seen": 1788610436.244483,
+    "ast_hash": "8905b67acc29f9a5b9bcd5759b31ac2c",
     "semantic_hash": ""
   }
 }
