@@ -47,25 +47,46 @@ func NotificationProblem(err error) NotificationDiagnostic {
 	}
 	// Compare complete leaf codes, never interpolate an arbitrary error string.
 	if d.Reason == "notification-deferred" {
-		for current := err; current != nil; current = errors.Unwrap(current) {
-			code := notification.OutcomeCode(current.Error())
-			if notification.ValidOutcome(code) {
-				d.Reason = string(code)
-				switch code {
-				case notification.OutcomeMissingSecret:
-					d.Action = "Set the named runtime endpoint variable, then retry."
-				case notification.OutcomeConfiguration, notification.OutcomeInvalidEndpoint, notification.OutcomeRedirect:
-					d.Action = "Review endpoint HTTPS, TLS, DNS and private-network policy, then retry."
-				case notification.OutcomePayloadTooLarge, notification.OutcomeResponseTooLarge:
-					d.Action = "Reduce custom presentation or receiver response size, then retry."
-				case notification.OutcomeRetired:
-					d.Action = "This subscription was deliberately retired; no retry is scheduled."
-				default:
-					d.Action = "Retry when the saved backoff expires; the event ID and attempted payload remain unchanged."
-				}
-				break
+		if code := notificationOutcome(err); code != "" {
+			d.Reason = string(code)
+			switch code {
+			case notification.OutcomeMissingSecret:
+				d.Action = "Set the named runtime endpoint variable, then retry."
+			case notification.OutcomeConfiguration, notification.OutcomeInvalidEndpoint, notification.OutcomeRedirect:
+				d.Action = "Review endpoint HTTPS, TLS, DNS and private-network policy, then retry."
+			case notification.OutcomePayloadTooLarge, notification.OutcomeResponseTooLarge:
+				d.Action = "Reduce custom presentation or receiver response size, then retry."
+			case notification.OutcomeRetired:
+				d.Action = "This subscription was deliberately retired; no retry is scheduled."
+			default:
+				d.Action = "Retry when the saved backoff expires; the event ID and attempted payload remain unchanged."
 			}
 		}
 	}
 	return d
+}
+
+// notificationOutcome walks wrapped and joined errors depth-first, left-to-right.
+// A summary selects the first recognized leaf; per-destination diagnostics are
+// still reported separately. Never classify a wrapper's combined error text.
+func notificationOutcome(err error) notification.OutcomeCode {
+	if err == nil {
+		return ""
+	}
+	switch current := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, child := range current.Unwrap() {
+			if code := notificationOutcome(child); code != "" {
+				return code
+			}
+		}
+	case interface{ Unwrap() error }:
+		return notificationOutcome(current.Unwrap())
+	default:
+		code := notification.OutcomeCode(err.Error())
+		if notification.ValidOutcome(code) {
+			return code
+		}
+	}
+	return ""
 }
