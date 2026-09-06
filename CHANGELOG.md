@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/skaphos/oiax/compare/v2.0.0...v2.0.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* **build:** carry the /v2 major-version suffix in the Go module path ([#82](https://github.com/skaphos/oiax/issues/82)) ([874d555](https://github.com/skaphos/oiax/commit/874d555f02073f89fc5b7a015ed58c93296c6d06))
+
 ## [2.0.0](https://github.com/skaphos/oiax/compare/v1.3.0...v2.0.0) (2026-09-05)
 
 
