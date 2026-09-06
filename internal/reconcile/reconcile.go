@@ -299,15 +299,9 @@ func (c *Coordinator) observe(ctx context.Context, from, to string, open, merged
 	// managed request for this edge: any candidate reachable from it was
 	// promoted even if the merge rewrote SHAs.
 	if mr := matchRequest(merged, from, to); mr != nil && mr.SourceHead != "" {
-		promoted := make(map[string]struct{})
-		for _, cm := range candidates {
-			anc, err := c.Git.IsAncestor(ctx, cm.SHA, mr.SourceHead)
-			if err != nil {
-				return engine.EdgeObservation{}, wrap(err)
-			}
-			if anc {
-				promoted[cm.SHA] = struct{}{}
-			}
+		promoted, err := c.baselinePromoted(ctx, from, to, mr, candidates)
+		if err != nil {
+			return engine.EdgeObservation{}, wrap(err)
 		}
 		obs.PromotedByBaseline = promoted
 	}
@@ -364,6 +358,49 @@ func (c *Coordinator) observe(ctx context.Context, from, to string, open, merged
 	}
 
 	return obs, nil
+}
+
+// baselinePromoted returns the candidates reachable from the recorded source
+// head of a merged managed request — the baseline rung's contribution.
+//
+// The recorded head is forge state, and it can outlive the object it names:
+// rewriting history on the promotion source strands it, and the record is
+// immutable once the request has merged, so the reference never heals. Resolve
+// it before use and switch the rung off when the object is gone (nil set)
+// rather than failing the edge. Absent provenance is not an error — it is the
+// position a shallow clone already leaves this rung in. The ladder then falls
+// through to its remaining rungs, so the cost is a promotion request for
+// content that may already be promoted: a report a human can close, against an
+// alternative where reconcile cannot run on the edge at all.
+func (c *Coordinator) baselinePromoted(
+	ctx context.Context,
+	from, to string,
+	mr *engine.ChangeRequest,
+	candidates []git.Commit,
+) (map[string]struct{}, error) {
+	exists, err := c.Git.CommitExists(ctx, mr.SourceHead)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		c.log().Warn("baseline rung unavailable: the merged managed request's recorded source head "+
+			"no longer exists, so already-promoted content can be reported unpromoted; expected when "+
+			"the promotion source's history was rewritten",
+			"from", from, "to", to, "request", mr.ID, "sourceHead", mr.SourceHead)
+		return nil, nil
+	}
+
+	promoted := make(map[string]struct{})
+	for _, cm := range candidates {
+		anc, err := c.Git.IsAncestor(ctx, cm.SHA, mr.SourceHead)
+		if err != nil {
+			return nil, err
+		}
+		if anc {
+			promoted[cm.SHA] = struct{}{}
+		}
+	}
+	return promoted, nil
 }
 
 // observeDownstreamReport filters the raw downstream-only range (from..to) of
