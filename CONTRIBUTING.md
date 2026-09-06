@@ -39,6 +39,24 @@ governance standard; the short version is below.
   migrate: what the operator must do about it
   END_COMMIT_OVERRIDE
   ```
+
+  Two ways this fails silently, both of which have cost a release entry:
+
+  - **Put the block in the PR description, never in a branch commit
+    message.** Squash-merge composes the commit from the description, so a
+    block written in a commit message is discarded with the rest of the
+    branch history.
+  - **Write the opening marker exactly once, and only as the block itself.**
+    release-please matches its *first* occurrence, so naming the marker in
+    the surrounding prose — backticks do not protect it — makes it extract
+    that prose instead. Say "the commit-override block" when you need to
+    discuss the mechanism inside a description.
+
+  Neither mistake fails the build. An unparseable override logs
+  `commit could not be parsed` in the Release Please run and drops the
+  commit from the release: no changelog entry, no `migrate:` note, green
+  run. After merging a PR that carried an override, confirm the release PR
+  actually gained the entries you expected.
 - Sign commits cryptographically and include a DCO sign-off
   (`git commit -S --signoff`). CI rejects commits without a
   `Signed-off-by:` trailer.
