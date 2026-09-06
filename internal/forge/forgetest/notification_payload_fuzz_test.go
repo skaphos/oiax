@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/config"
-	"github.com/skaphos/oiax/internal/forge/marker"
-	"github.com/skaphos/oiax/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/config"
+	"github.com/skaphos/oiax/v2/internal/forge/marker"
+	"github.com/skaphos/oiax/v2/internal/notification"
 )
 
 func FuzzNotificationPayload(f *testing.F) {

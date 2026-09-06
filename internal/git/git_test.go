@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/git"
-	"github.com/skaphos/oiax/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/git"
+	"github.com/skaphos/oiax/v2/internal/gittest"
 )
 
 // requireGit skips the test when the system git executable is unavailable.

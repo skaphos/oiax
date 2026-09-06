@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/engine"
 )
 
 // Scenario tests (SKA-602) strengthen the determinism-as-concurrency and

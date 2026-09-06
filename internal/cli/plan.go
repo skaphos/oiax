@@ -3,7 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/skaphos/oiax/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/engine"
 )
 
 func newPlanCommand(opts *options) *cobra.Command {

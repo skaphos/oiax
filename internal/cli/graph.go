@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/skaphos/oiax/internal/engine"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 func newGraphCommand(opts *options) *cobra.Command {

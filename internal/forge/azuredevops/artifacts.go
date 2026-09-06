@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/skaphos/oiax/internal/forge"
-	mk "github.com/skaphos/oiax/internal/forge/marker"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	mk "github.com/skaphos/oiax/v2/internal/forge/marker"
 )
 
 // workItem is the subset of an Azure Boards work item the provider reads. Fields

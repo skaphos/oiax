@@ -3,7 +3,7 @@ package forge_test
 import (
 	"testing"
 
-	"github.com/skaphos/oiax/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/forge"
 )
 
 func TestMergeMethodsAllows(t *testing.T) {

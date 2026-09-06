@@ -21,7 +21,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 // DefaultPath is the default repository-local configuration path.

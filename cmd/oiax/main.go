@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/skaphos/oiax/internal/cli"
+	"github.com/skaphos/oiax/v2/internal/cli"
 )
 
 func main() {

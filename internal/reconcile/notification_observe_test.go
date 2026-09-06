@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/notification"
-	"github.com/skaphos/oiax/internal/notification/notificationtest"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/notification/notificationtest"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 type observationReader struct {

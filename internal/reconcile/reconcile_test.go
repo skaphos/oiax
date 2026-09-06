@@ -15,12 +15,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/git"
-	"github.com/skaphos/oiax/internal/gittest"
-	"github.com/skaphos/oiax/internal/tmpl"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/git"
+	"github.com/skaphos/oiax/v2/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/tmpl"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 // oidHex matches a full git object id, for asserting a pushed commit SHA.

@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-const prefix = "github.com/skaphos/oiax/internal/notification"
+const prefix = "github.com/skaphos/oiax/v2/internal/notification"
 
 type totals struct{ statements, covered int64 }
 

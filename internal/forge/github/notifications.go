@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/skaphos/oiax/internal/forge"
-	mk "github.com/skaphos/oiax/internal/forge/marker"
-	"github.com/skaphos/oiax/internal/notification"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	mk "github.com/skaphos/oiax/v2/internal/forge/marker"
+	"github.com/skaphos/oiax/v2/internal/notification"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 func (p *Provider) RepositoryIdentity(ctx context.Context) (notification.RepositoryIdentity, error) {

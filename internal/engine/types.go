@@ -1,6 +1,6 @@
 package engine
 
-import v1 "github.com/skaphos/oiax/pkg/api/v1"
+import v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 
 // Equivalence names the rung of the equivalence ladder that settled
 // whether source content is represented in a destination. Detection is

@@ -84,7 +84,7 @@ spec:
 Then:
 
 ```bash
-go install github.com/skaphos/oiax/cmd/oiax@latest
+go install github.com/skaphos/oiax/v2/cmd/oiax@latest
 
 oiax validate    # semantic validation of the graph
 oiax graph       # display the promotion topology

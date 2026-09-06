@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/forge/forgetest"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/forge/forgetest"
 )
 
 // TestAzureDevOpsConformance runs the shared forge conformance battery against

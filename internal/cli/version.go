@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/skaphos/oiax/internal/version"
+	"github.com/skaphos/oiax/v2/internal/version"
 )
 
 // versionInfo is the JSON shape of `oiax version -o json` / `oiax --version

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/git"
+	"github.com/skaphos/oiax/v2/internal/git"
 )
 
 func TestResolveRev(t *testing.T) {

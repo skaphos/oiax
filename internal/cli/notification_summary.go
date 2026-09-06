@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/skaphos/oiax/internal/cienv"
-	"github.com/skaphos/oiax/internal/reconcile"
+	"github.com/skaphos/oiax/v2/internal/cienv"
+	"github.com/skaphos/oiax/v2/internal/reconcile"
 	"github.com/spf13/cobra"
 )
 

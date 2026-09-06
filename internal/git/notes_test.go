@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/git"
+	"github.com/skaphos/oiax/v2/internal/git"
 )
 
 func TestNotificationNotesExpectedTip(t *testing.T) {

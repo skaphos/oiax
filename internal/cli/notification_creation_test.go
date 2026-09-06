@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	mk "github.com/skaphos/oiax/internal/forge/marker"
-	"github.com/skaphos/oiax/internal/gittest"
-	"github.com/skaphos/oiax/internal/notification"
+	mk "github.com/skaphos/oiax/v2/internal/forge/marker"
+	"github.com/skaphos/oiax/v2/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/notification"
 )
 
 func TestNotificationCreationBinary(t *testing.T) {

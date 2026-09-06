@@ -8,11 +8,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/notification"
-	"github.com/skaphos/oiax/internal/notification/delivery"
-	notificationstore "github.com/skaphos/oiax/internal/notification/store"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/notification/delivery"
+	notificationstore "github.com/skaphos/oiax/v2/internal/notification/store"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 // PrepareNotifications establishes durable activation cutoffs before any PR

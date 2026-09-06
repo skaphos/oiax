@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/gittest"
 )
 
 // run executes the command tree with args and returns stdout+stderr and

@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 var presentationURL = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)

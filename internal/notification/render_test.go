@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode"
 
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 func renderFixture(event v1.NotificationEvent, kind v1.NotificationRequestType) EventV1 {

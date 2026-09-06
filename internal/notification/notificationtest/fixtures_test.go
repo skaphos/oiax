@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skaphos/oiax/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/notification"
 )
 
 func TestFixturesOwnSnapshots(t *testing.T) {

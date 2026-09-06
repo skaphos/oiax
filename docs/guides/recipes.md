@@ -57,7 +57,7 @@ jobs:
         run: |
           git fetch --no-tags --prune origin "+refs/heads/*:refs/remotes/origin/*"
           git remote set-head origin --auto
-      - run: go install github.com/skaphos/oiax/cmd/oiax@latest
+      - run: go install github.com/skaphos/oiax/v2/cmd/oiax@latest
       - env:
           GITHUB_TOKEN: ${{ secrets.OIAX_TOKEN }}
         run: oiax plan --detailed-exitcode   # non-zero → job fails → you get alerted

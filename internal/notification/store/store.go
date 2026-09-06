@@ -6,8 +6,8 @@ import (
 	"errors"
 	"reflect"
 
-	"github.com/skaphos/oiax/internal/git"
-	"github.com/skaphos/oiax/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/git"
+	"github.com/skaphos/oiax/v2/internal/notification"
 )
 
 // Notes is the narrow effect boundary; the production implementation cannot

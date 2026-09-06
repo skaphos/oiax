@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skaphos/oiax/internal/engine"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 func notificationGraph() *engine.Graph {

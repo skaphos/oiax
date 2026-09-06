@@ -31,8 +31,8 @@ import (
 	"sync"
 	"text/template"
 
-	mk "github.com/skaphos/oiax/internal/forge/marker"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	mk "github.com/skaphos/oiax/v2/internal/forge/marker"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 const (

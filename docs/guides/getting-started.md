@@ -22,11 +22,18 @@ pin changes, Linux support boundary, and optional notification rollout.
 Requires **Go 1.27 or newer**:
 
 ```bash
-go install github.com/skaphos/oiax/cmd/oiax@latest
+go install github.com/skaphos/oiax/v2/cmd/oiax@latest
 ```
 
 This builds the CLI from `main` and drops the `oiax` binary in
 `$(go env GOPATH)/bin`. Make sure that directory is on your `PATH`.
+
+The `/v2` is required: Go resolves a module released at v2 or later only when
+its path carries the major version. It also dates the route. v2.0.0 was
+published before the module path was corrected
+([ADR 0017](../adr/0017-go-module-major-version-suffix.md)), so the proxy
+cannot serve it, and `go install` reaches 2.x only from the first release cut
+afterwards. For exactly 2.0.0, use a prebuilt archive instead.
 
 Confirm it runs:
 
