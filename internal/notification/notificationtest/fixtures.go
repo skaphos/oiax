@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/notification"
 )
 
 type Clock struct {

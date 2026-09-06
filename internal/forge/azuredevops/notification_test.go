@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/forge/forgetest"
-	mk "github.com/skaphos/oiax/internal/forge/marker"
-	"github.com/skaphos/oiax/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/forge/forgetest"
+	mk "github.com/skaphos/oiax/v2/internal/forge/marker"
+	"github.com/skaphos/oiax/v2/internal/notification"
 )
 
 func notificationAzurePull(id int, created time.Time) adoPull {

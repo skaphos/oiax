@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/gittest"
 )
 
 const testToken = "super-secret-token-value"

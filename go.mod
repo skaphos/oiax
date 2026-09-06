@@ -1,4 +1,4 @@
-module github.com/skaphos/oiax
+module github.com/skaphos/oiax/v2
 
 go 1.27.1
 

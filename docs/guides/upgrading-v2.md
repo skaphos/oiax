@@ -87,6 +87,15 @@ release's `checksums.txt`. Confirm `oiax version` reports `2.0.0` before adding
 notification policy. Production jobs must use the Linux archive for their
 architecture.
 
+Do not reach for `go install` to get 2.0.0. That release was published while
+the module path still lacked its major-version suffix, so the proxy ignores
+the tag and `go install github.com/skaphos/oiax/cmd/oiax@latest` resolves
+**v1.3.0** — a downgrade with no error. The path is corrected to
+`github.com/skaphos/oiax/v2` from the next release
+([ADR 0017](../adr/0017-go-module-major-version-suffix.md)); until then the
+archive is the only route to a 2.x binary. Whatever you install, confirm it
+with `oiax version` rather than assuming.
+
 ## 3. Enable notifications separately
 
 After upgrading every job that reads the graph, follow the

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/notification"
-	"github.com/skaphos/oiax/internal/reconcile"
+	"github.com/skaphos/oiax/v2/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/reconcile"
 	"github.com/spf13/cobra"
 )
 

@@ -3,8 +3,8 @@ package azuredevops
 import (
 	"context"
 
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/git"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/git"
 )
 
 func (p *Provider) OpenNotificationNotes(ctx context.Context, graphKey string) (*git.NotificationNotes, error) {

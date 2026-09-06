@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/forge/forgetest"
-	"github.com/skaphos/oiax/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/forge/forgetest"
+	"github.com/skaphos/oiax/v2/internal/notification"
 )
 
 func notificationPull(id int, created time.Time) ghPull {

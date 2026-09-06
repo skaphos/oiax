@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/forge"
-	mk "github.com/skaphos/oiax/internal/forge/marker"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	mk "github.com/skaphos/oiax/v2/internal/forge/marker"
 )
 
 // workItemJSON renders a work item with a conflict marker in its HTML

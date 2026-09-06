@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/gittest"
 )
 
 func TestExitCodeErrorMessage(t *testing.T) {

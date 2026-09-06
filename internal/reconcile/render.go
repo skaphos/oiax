@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/skaphos/oiax/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/engine"
 )
 
 // RenderJSON writes the plan as indented JSON. The engine.Plan is already

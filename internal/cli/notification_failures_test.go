@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skaphos/oiax/internal/gittest"
-	"github.com/skaphos/oiax/internal/notification"
-	"github.com/skaphos/oiax/internal/reconcile"
+	"github.com/skaphos/oiax/v2/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/reconcile"
 )
 
 func TestNotificationFailuresBinary(t *testing.T) {

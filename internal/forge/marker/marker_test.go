@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/internal/forge/marker"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/forge/marker"
 )
 
 // full is a marker with every field populated, used wherever a test needs a

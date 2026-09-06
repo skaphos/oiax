@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/internal/git"
-	"github.com/skaphos/oiax/internal/notification"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/git"
+	"github.com/skaphos/oiax/v2/internal/notification"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 // LifecycleQuery is independent of the branch engine's baseline lookback.

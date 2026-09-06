@@ -1,6 +1,6 @@
 package delivery
 
-import "github.com/skaphos/oiax/internal/notification"
+import "github.com/skaphos/oiax/v2/internal/notification"
 
 func teams(p notification.DeliveryPayloadV1, facts string) any {
 	block := func(text string) any {

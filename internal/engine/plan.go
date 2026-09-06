@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 // BuildPlan derives the actions required to converge the observed edge

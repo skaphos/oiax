@@ -15,7 +15,7 @@ package engine
 import (
 	"slices"
 
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 // Graph is the engine's view of a promotion graph.

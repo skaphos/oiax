@@ -3,8 +3,8 @@ package delivery
 import (
 	"encoding/json"
 
-	"github.com/skaphos/oiax/internal/notification"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	"github.com/skaphos/oiax/v2/internal/notification"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 func encode(kind v1.NotificationTransport, p notification.DeliveryPayloadV1) ([]byte, error) {

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/skaphos/oiax/internal/notification"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	"github.com/skaphos/oiax/v2/internal/notification"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 const notificationSendTimeout = 10 * time.Second

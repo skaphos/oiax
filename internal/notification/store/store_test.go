@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/git"
-	"github.com/skaphos/oiax/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/git"
+	"github.com/skaphos/oiax/v2/internal/notification"
 )
 
 type conflictNotes struct {

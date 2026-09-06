@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 // validGraph returns the canonical five-branch example the plan tests

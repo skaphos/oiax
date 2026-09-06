@@ -21,11 +21,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skaphos/oiax/internal/forge/forgetest"
-	mk "github.com/skaphos/oiax/internal/forge/marker"
-	"github.com/skaphos/oiax/internal/gittest"
-	"github.com/skaphos/oiax/internal/notification"
-	notificationstore "github.com/skaphos/oiax/internal/notification/store"
+	"github.com/skaphos/oiax/v2/internal/forge/forgetest"
+	mk "github.com/skaphos/oiax/v2/internal/forge/marker"
+	"github.com/skaphos/oiax/v2/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/notification"
+	notificationstore "github.com/skaphos/oiax/v2/internal/notification/store"
 )
 
 // Build the real entrypoint with fixture-only connection setup. See testdata's

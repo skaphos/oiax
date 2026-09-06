@@ -14,9 +14,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/forge/azuredevops"
-	"github.com/skaphos/oiax/internal/forge/github"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/forge/azuredevops"
+	"github.com/skaphos/oiax/v2/internal/forge/github"
 )
 
 func init() {

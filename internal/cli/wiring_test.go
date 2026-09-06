@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/forge/azuredevops"
-	"github.com/skaphos/oiax/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/forge/azuredevops"
+	"github.com/skaphos/oiax/v2/internal/gittest"
 )
 
 // TestParseRemoteURL covers the remote URL variants resolveRepo's fallback

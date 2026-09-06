@@ -11,13 +11,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/skaphos/oiax/internal/cienv"
-	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/forge/azuredevops"
-	"github.com/skaphos/oiax/internal/forge/github"
-	"github.com/skaphos/oiax/internal/git"
-	"github.com/skaphos/oiax/internal/reconcile"
+	"github.com/skaphos/oiax/v2/internal/cienv"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/forge/azuredevops"
+	"github.com/skaphos/oiax/v2/internal/forge/github"
+	"github.com/skaphos/oiax/v2/internal/git"
+	"github.com/skaphos/oiax/v2/internal/reconcile"
 )
 
 // forgeKind names a forge provider implementation the CLI can wire.

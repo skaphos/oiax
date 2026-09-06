@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/skaphos/oiax/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/engine"
 )
 
 // Managed requests carry these labels: LabelOiax on every one, plus exactly

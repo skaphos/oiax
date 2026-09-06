@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/gittest"
 )
 
 // fakeForge is an in-memory forge for exercising plan/reconcile wiring.

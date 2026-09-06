@@ -1,7 +1,7 @@
 package github
 
 import (
-	mk "github.com/skaphos/oiax/internal/forge/marker"
+	mk "github.com/skaphos/oiax/v2/internal/forge/marker"
 )
 
 // The managed-request marker and its forge-neutral labels live in the shared

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/skaphos/oiax/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/notification"
 )
 
 type NotificationDiagnostic struct{ Destination, Reason, Action string }

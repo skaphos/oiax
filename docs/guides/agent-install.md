@@ -75,7 +75,7 @@ gh auth status                           # gh CLI authenticated (you'll use it t
   binary. Prefer a released binary for production; to build the current
   source, use **Go 1.27+**:
   ```bash
-  go install github.com/skaphos/oiax/cmd/oiax@latest
+  go install github.com/skaphos/oiax/v2/cmd/oiax@latest
   oiax version
   ```
   If you cannot install it, you can still write the config and rely on

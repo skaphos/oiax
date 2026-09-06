@@ -13,13 +13,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/skaphos/oiax/internal/cienv"
-	"github.com/skaphos/oiax/internal/config"
-	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/internal/git"
-	"github.com/skaphos/oiax/internal/notification"
-	"github.com/skaphos/oiax/internal/tmpl"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	"github.com/skaphos/oiax/v2/internal/cienv"
+	"github.com/skaphos/oiax/v2/internal/config"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/git"
+	"github.com/skaphos/oiax/v2/internal/notification"
+	"github.com/skaphos/oiax/v2/internal/tmpl"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 // exitCodeError lets a command request a specific process exit code

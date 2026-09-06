@@ -17,9 +17,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/skaphos/oiax/internal/version.Version={{.Version}}
-      - -X github.com/skaphos/oiax/internal/version.Commit={{.Commit}}
-      - -X github.com/skaphos/oiax/internal/version.Date={{.Date}}
+      - -X github.com/skaphos/oiax/v2/internal/version.Version={{.Version}}
+      - -X github.com/skaphos/oiax/v2/internal/version.Commit={{.Commit}}
+      - -X github.com/skaphos/oiax/v2/internal/version.Date={{.Date}}
 
 archives:
   - id: default

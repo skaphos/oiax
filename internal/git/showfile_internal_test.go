@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/gittest"
 )
 
 // TestShowFileRejectsOversizedBlob proves ShowFile caps the bytes it

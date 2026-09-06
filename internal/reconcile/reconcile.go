@@ -28,11 +28,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/internal/forge"
-	"github.com/skaphos/oiax/internal/git"
-	"github.com/skaphos/oiax/internal/tmpl"
-	v1 "github.com/skaphos/oiax/pkg/api/v1"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/git"
+	"github.com/skaphos/oiax/v2/internal/tmpl"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 // cherryPickedFromRE captures the source object id recorded by

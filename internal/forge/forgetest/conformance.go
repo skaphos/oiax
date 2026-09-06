@@ -21,8 +21,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/skaphos/oiax/internal/engine"
-	"github.com/skaphos/oiax/internal/forge"
+	"github.com/skaphos/oiax/v2/internal/engine"
+	"github.com/skaphos/oiax/v2/internal/forge"
 )
 
 // Run executes the conformance battery against providers produced by newSubject.

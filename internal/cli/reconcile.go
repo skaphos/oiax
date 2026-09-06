@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"github.com/skaphos/oiax/internal/reconcile"
+	"github.com/skaphos/oiax/v2/internal/reconcile"
 	"github.com/spf13/cobra"
 )
 
