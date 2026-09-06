@@ -27,6 +27,18 @@ import (
 // never masquerade as a revision or vice versa.
 var oidPattern = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 
+// ValidOID reports whether s is shaped like a git object id, using the same
+// pattern the Runner guards its own arguments with.
+//
+// It exists for callers holding an object id that came from outside git —
+// notably a managed request's recorded sourceHead, which is parsed verbatim
+// out of a request body a human can edit. Such a caller needs to tell a value
+// that is merely absent from one that can never resolve, and the lookup
+// methods report both as an error. Checking the shape first keeps that
+// decision at the boundary where the untrusted value enters, and leaves the
+// error from a lookup meaning what it should: the lookup itself failed.
+func ValidOID(s string) bool { return oidPattern.MatchString(s) }
+
 // ErrBranchNotFound reports that a branch name resolved to neither a local
 // head nor an origin-tracking ref. It is a sentinel so callers that know why
 // the branch was expected to exist can say so: the reconcile layer wraps it

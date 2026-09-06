@@ -87,6 +87,22 @@ git fetch --no-tags origin '+refs/pull/*/head:refs/remotes/origin/pr/*'
 If the rewrite was not intended, find what force-pushed the source branch
 and restore it from a reflog or from a clone that predates the rewrite.
 
+### The same warning, naming an invalid object id
+
+```
+baseline rung unavailable: the merged managed request records a source head that is not a valid object id, so already-promoted content can be reported unpromoted; the marker block of the request was most likely edited by hand
+```
+
+Same consequence, different cause. Here the recorded value cannot name a
+commit at all: `sourceHead` is read verbatim out of the request body, so an
+edit to the marker block — the one thing the block asks you not to do —
+leaves a value that will never resolve.
+
+Repair it by restoring the `sourceHead` line to the full object id the
+request promoted; the `logMessage` of the merge commit, or the request's own
+commit list on the forge, will tell you which one it was. The warning names
+the offending value and the request it came from.
+
 ## `git 2.45 or newer is required`
 
 **Symptom.** `plan` or `reconcile` fails immediately with:

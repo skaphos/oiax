@@ -1311,3 +1311,41 @@ func TestMergeWithMessage(t *testing.T) {
 		t.Errorf("repeated merge with message = %q, want deterministic %q", head2, head)
 	}
 }
+
+// ValidOID guards object ids that reach oiax as data rather than from git —
+// chiefly a managed request's recorded sourceHead, which is parsed verbatim
+// from an editable request body. The lookup methods report a malformed
+// argument as an error, so a caller that needs to tell "cannot ever resolve"
+// from "the lookup failed" has to check the shape itself.
+func TestValidOID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"full sha", "cae397d8a91a040678eccd7de9909720cd3516da", true},
+		{"shortest accepted abbreviation", "cae397d", true},
+		{"sha256 length", strings.Repeat("a", 64), true},
+		{"empty", "", false},
+		{"too short", "cae397", false},
+		{"too long", strings.Repeat("a", 65), false},
+		{"uppercase hex", "CAE397D8A91A040678ECCD7DE9909720CD3516DA", false},
+		{"not hex", "not-a-sha", false},
+		{"branch name", "development", false},
+		{"leading space", " cae397d8a91a040678eccd7de9909720cd3516da", false},
+		{"trailing newline", "cae397d8a91a040678eccd7de9909720cd3516da\n", false},
+		{"revision expression", "HEAD~1", false},
+		{"shell metacharacters", "cae397d;rm -rf /", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := git.ValidOID(tc.in); got != tc.want {
+				t.Errorf("ValidOID(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}

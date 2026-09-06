@@ -372,18 +372,40 @@ func (c *Coordinator) observe(ctx context.Context, from, to string, open, merged
 // through to its remaining rungs, so the cost is a promotion request for
 // content that may already be promoted: a report a human can close, against an
 // alternative where reconcile cannot run on the edge at all.
+//
+// Two distinct conditions strand the rung, and both are permanent, so both
+// switch it off: the recorded head does not resolve, and the recorded head
+// cannot resolve because it is not shaped like an object id. The second is
+// reachable because the marker parser takes sourceHead verbatim out of a
+// request body a human can edit, and the lookup reports a malformed argument
+// as an error rather than as a definitive absence. Checking the shape first
+// separates that permanent data fault from an operational one.
+//
+// Operational failures are still returned. A cancelled context or a broken git
+// invocation says nothing about provenance, and silently treating it as
+// "nothing was promoted" would turn an infrastructure fault into a wrong plan.
 func (c *Coordinator) baselinePromoted(
 	ctx context.Context,
 	from, to string,
 	mr *engine.ChangeRequest,
 	candidates []git.Commit,
 ) (map[string]struct{}, error) {
+	const unavailable = "baseline rung unavailable: "
+
+	if !git.ValidOID(mr.SourceHead) {
+		c.log().Warn(unavailable+"the merged managed request records a source head that is not a "+
+			"valid object id, so already-promoted content can be reported unpromoted; the marker "+
+			"block of the request was most likely edited by hand",
+			"from", from, "to", to, "request", mr.ID, "sourceHead", mr.SourceHead)
+		return nil, nil
+	}
+
 	exists, err := c.Git.CommitExists(ctx, mr.SourceHead)
 	if err != nil {
 		return nil, err
 	}
 	if !exists {
-		c.log().Warn("baseline rung unavailable: the merged managed request's recorded source head "+
+		c.log().Warn(unavailable+"the merged managed request's recorded source head "+
 			"no longer exists, so already-promoted content can be reported unpromoted; expected when "+
 			"the promotion source's history was rewritten",
 			"from", from, "to", to, "request", mr.ID, "sourceHead", mr.SourceHead)
