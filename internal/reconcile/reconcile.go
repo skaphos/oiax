@@ -392,7 +392,7 @@ func (c *Coordinator) baselinePromoted(
 ) (map[string]struct{}, error) {
 	const unavailable = "baseline rung unavailable: "
 
-	if !git.ValidOID(mr.SourceHead) {
+	if !git.ValidOID(mr.SourceHead) || (len(mr.SourceHead) != 40 && len(mr.SourceHead) != 64) {
 		c.log().Warn(unavailable+"the merged managed request records a source head that is not a "+
 			"valid object id, so already-promoted content can be reported unpromoted; the marker "+
 			"block of the request was most likely edited by hand",
