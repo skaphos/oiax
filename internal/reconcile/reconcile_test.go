@@ -401,6 +401,92 @@ func TestPlanBaselineRungSettlesEdge(t *testing.T) {
 	}
 }
 
+// A merged managed request records the sourceHead it promoted. When the
+// promotion source is later rewritten — a force-push, or a fixture reset —
+// that object is gone and the baseline rung has nothing to resolve against.
+// The rung must switch off for the edge, the same degraded mode a shallow
+// clone produces, instead of failing the whole plan: an unresolvable recorded
+// head is absent provenance, not an error.
+func TestPlanBaselineRungSkipsUnresolvableRecordedHead(t *testing.T) {
+	r, _ := gitHarness(t)
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "v1\n", "c1 on development")
+
+	// Well formed, and no object in this repository has it.
+	const gone = "0123456789abcdef0123456789abcdef01234567"
+
+	f := &fakeForge{
+		merged: []engine.ChangeRequest{{
+			ID: "18", Type: engine.RequestTypePromotion,
+			Source: "development", Target: "test", SourceHead: gone,
+		}},
+	}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan must not fail on an unresolvable recorded head: %v", err)
+	}
+
+	// With the baseline contributing nothing, reachability decides: the commit
+	// is unpromoted and the edge needs a promotion request.
+	var got *engine.Action
+	for i, a := range plan.Actions {
+		if a.From == "development" && a.To == "test" {
+			got = &plan.Actions[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("want a development->test action, got %+v", plan.Actions)
+	}
+	if got.Type != engine.ActionCreatePromotionRequest {
+		t.Errorf("action type = %v, want %v", got.Type, engine.ActionCreatePromotionRequest)
+	}
+	if got.Unpromoted != 1 {
+		t.Errorf("unpromoted = %d, want 1", got.Unpromoted)
+	}
+}
+
+// The marker parser takes sourceHead verbatim out of a request body a human
+// can edit, so the recorded head is not guaranteed to be shaped like an object
+// id. git reports a malformed argument as an error rather than as a definitive
+// absence, so without a shape check at the boundary an edited marker block
+// takes the edge out permanently — the same failure this change removes for a
+// stranded head, arriving by a different route.
+func TestPlanBaselineRungSkipsMalformedRecordedHead(t *testing.T) {
+	for _, sourceHead := range []string{"not-a-sha", "HEAD~1", "development", "cae397"} {
+		t.Run(sourceHead, func(t *testing.T) {
+			r, _ := gitHarness(t)
+			checkout(t, r, "development")
+			commitOn(t, r.Dir, "app.txt", "v1\n", "c1 on development")
+
+			f := &fakeForge{
+				merged: []engine.ChangeRequest{{
+					ID: "18", Type: engine.RequestTypePromotion,
+					Source: "development", Target: "test", SourceHead: sourceHead,
+				}},
+			}
+			c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+			plan, err := c.Plan(context.Background())
+			if err != nil {
+				t.Fatalf("plan must not fail on a malformed recorded head: %v", err)
+			}
+
+			var got *engine.Action
+			for i, a := range plan.Actions {
+				if a.From == "development" && a.To == "test" {
+					got = &plan.Actions[i]
+				}
+			}
+			if got == nil {
+				t.Fatalf("want a development->test action, got %+v", plan.Actions)
+			}
+			if got.Type != engine.ActionCreatePromotionRequest {
+				t.Errorf("action type = %v, want %v", got.Type, engine.ActionCreatePromotionRequest)
+			}
+		})
+	}
+}
+
 func TestPlanPatchIdentityRungSettlesEdge(t *testing.T) {
 	// A rebase-merge scenario: development's feature commit was already
 	// promoted into test as a distinct commit with the same diff (identical

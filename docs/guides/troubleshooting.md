@@ -54,6 +54,53 @@ so is also worthwhile if you use squash or rebase merges, which lean
 hardest on those rungs. A [partial clone](github-action.md#large-repositories-partial-clone)
 (`--filter=blob:none`) keeps full history and is not treated as shallow.
 
+## `baseline rung unavailable: … recorded source head no longer exists`
+
+**Symptom.** A warning on one edge, and possibly a promotion request for
+content you believe was already promoted:
+
+```
+baseline rung unavailable: the merged managed request's recorded source head no longer exists, so already-promoted content can be reported unpromoted; expected when the promotion source's history was rewritten
+```
+
+**Cause.** Every merged managed request records the source head it
+promoted, and the [promotion baseline](../architecture.md#the-equivalence-ladder)
+resolves that object to decide which candidates already went through. The
+record is immutable once the request has merged, so a force-push on the
+promotion source strands it permanently — the reference never heals. Oiax
+switches the rung off for that edge and continues on the remaining rungs.
+
+This is expected in a repository whose branches are deliberately rewritten
+(a disposable fixture, a rebuilt environment branch). It is worth
+investigating if you did not expect a rewrite: something force-pushed a
+long-lived promotion source.
+
+**Fix.** Usually none — reachability, patch identity, and head-tree still
+run, and a promotion request they cannot settle is a report you can close.
+To restore the rung for that edge, make the recorded object resolvable
+again. On GitHub a merged request's head survives as `refs/pull/<n>/head`:
+
+```bash
+git fetch --no-tags origin '+refs/pull/*/head:refs/remotes/origin/pr/*'
+```
+
+If the rewrite was not intended, find what force-pushed the source branch
+and restore it from a reflog or from a clone that predates the rewrite.
+
+### The same warning, naming a non-full object id
+
+    baseline rung unavailable: the merged managed request records a source head that is not a full object id (expected 40 or 64 lowercase hex characters), so already-promoted content can be reported unpromoted; the marker block of the request was most likely edited by hand
+
+Same consequence, different cause. Here the recorded value cannot name a
+commit at all: `sourceHead` is read verbatim out of the request body, so an
+edit to the marker block — the one thing the block asks you not to do —
+leaves a value that will never resolve.
+
+Repair it by restoring the `sourceHead` line to the full object id the
+request promoted; the `logMessage` of the merge commit, or the request's own
+commit list on the forge, will tell you which one it was. The warning names
+the offending value and the request it came from.
+
 ## `git 2.45 or newer is required`
 
 **Symptom.** `plan` or `reconcile` fails immediately with:
