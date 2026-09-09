@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os/exec"
 	"regexp"
@@ -1522,7 +1521,7 @@ func (c *Coordinator) log() *slog.Logger {
 	if c.Log != nil {
 		return c.Log
 	}
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return discardLogger
 }
 
 // matchRequest returns a copy of the first request whose source and target

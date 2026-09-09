@@ -40,11 +40,15 @@ type NotificationRuntime struct {
 	Log            *slog.Logger
 }
 
+// discardLogger is shared so per-attempt logging never allocates a handler
+// when no logger was installed.
+var discardLogger = slog.New(slog.DiscardHandler)
+
 func (r *NotificationRuntime) log() *slog.Logger {
 	if r.Log != nil {
 		return r.Log
 	}
-	return slog.New(slog.DiscardHandler)
+	return discardLogger
 }
 
 func (r *NotificationRuntime) now() time.Time {
