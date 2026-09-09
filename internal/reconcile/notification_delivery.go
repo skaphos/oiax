@@ -127,9 +127,13 @@ func destinationForKey(l *notification.LedgerV1, key string, configured map[stri
 // dispatchBatch performs one destination's work with two ledger writes: one
 // that saves missing messages and claims every due record under a batch lease,
 // and one that records every receipt. A renewal is written only while the
-// batch is still sending as its lease approaches expiry. Once a record is
-// claimed its receipt is always written, even after the stage budget expires,
-// so a POST that was issued can never be replayed as if it had not happened.
+// batch is still sending as its lease approaches expiry. Every send after the
+// first re-observes the durable ledger and proves the batch still owns the
+// destination and record at this run's revision, so a policy accepted by
+// another run mid-batch stops the remaining stale payloads before they reach
+// the network. Once a record is claimed its receipt is always written, even
+// after the stage budget expires, so a POST that was issued can never be
+// replayed as if it had not happened.
 func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID string, tasks []deliveryTask, templates *notification.TemplateSet, results chan<- deliveryOutcome) {
 	destination := tasks[0].destination
 	name := destination.Name
@@ -198,6 +202,7 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 	endpoint, _ := r.LookupEnv(destination.EndpointEnv)
 	sender := r.Sender(destination)
 	var stop error
+	current := prepared
 	for i, key := range claimed {
 		if i > 0 {
 			if err := r.wait(ctx, notificationSendSpacing); err != nil {
@@ -209,7 +214,8 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 			stop = err
 			break
 		}
-		if leaseUntil.Sub(r.now()) < notification.ClaimDuration/2 {
+		switch {
+		case leaseUntil.Sub(r.now()) < notification.ClaimDuration/2:
 			renewed, err := r.commit(ctx, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
 				if l == nil {
 					return nil, notification.ErrAbsent
@@ -220,9 +226,26 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 				stop = err
 				break
 			}
+			current = renewed
 			leaseUntil = renewed.Ledger.Destinations[name].Lease.Until
+		case i > 0:
+			// The claim write itself proved the first send; later sends observe
+			// the ledger again, which costs one advertisement when nothing moved.
+			observed, err := r.read(ctx)
+			if err != nil {
+				stop = err
+				break
+			}
+			current = observed
 		}
-		payload, err := deliveryPayload(prepared.Ledger, key, attempts[key], r.ConfigOID)
+		if stop != nil {
+			break
+		}
+		if err := notification.CheckBatchSend(current.Ledger, r.ConfigOID, name, batchID, key, attempts[key], r.now()); err != nil {
+			stop = err
+			break
+		}
+		payload, err := deliveryPayload(current.Ledger, key, attempts[key], r.ConfigOID)
 		if err != nil {
 			attempted[key] = err
 			continue

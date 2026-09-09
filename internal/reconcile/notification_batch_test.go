@@ -100,8 +100,10 @@ func TestNotificationDispatchBatchesLedgerWritesPerDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	reads, commits := store.counts()
-	if commits != 2 || reads != 1 {
-		t.Fatalf("five deliveries cost %d writes and %d reads; want one claim and one receipt write after one read", commits, reads)
+	// One read finds the due work, and each send after the first re-observes
+	// the ledger before contacting the receiver; only two writes are made.
+	if commits != 2 || reads != 5 {
+		t.Fatalf("five deliveries cost %d writes and %d reads; want one claim and one receipt write with four pre-send observations", commits, reads)
 	}
 	if len(sender.Payloads()) != 5 || len(diagnostics) != 5 {
 		t.Fatalf("sends=%d diagnostics=%d", len(sender.Payloads()), len(diagnostics))
@@ -316,5 +318,61 @@ func TestNotificationStatusFlowsToLedgerDiagnosticAndLog(t *testing.T) {
 		if strings.Contains(line, forbidden) {
 			t.Fatalf("attempt log leaked %q: %s", forbidden, line)
 		}
+	}
+}
+
+// A policy accepted by another run while a batch is sending must stop the
+// remaining sends: the claim snapshot is not a licence to post stale payloads.
+func TestNotificationBatchStopsWhenPolicyChangesMidBatch(t *testing.T) {
+	t.Parallel()
+	clock := notificationtest.NewClock(time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC))
+	store := &notificationtest.MemoryStore{}
+	runtime := batchRuntime(t, clock, store, 3)
+	oldOID := runtime.ConfigOID
+	newOID := strings.Repeat("b", 40)
+	retiring := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "other", Type: "webhook", EndpointEnv: "OTHER"}}}
+	sender := &notificationtest.Recorder{Result: notification.AttemptResult{Code: notification.OutcomeAccepted, Status: 204}}
+	runtime.Sender = func(v1.NotificationDestination) notification.Sender {
+		return notificationSenderFunc(func(ctx context.Context, endpoint string, payload notification.DeliveryPayloadV1) notification.AttemptResult {
+			result := sender.Send(ctx, endpoint, payload)
+			if len(sender.Payloads()) == 1 {
+				// Another run accepts a descendant revision that retires "ops"
+				// between this batch's first and second send.
+				current, err := store.Read(context.Background())
+				if err != nil {
+					t.Error(err)
+					return result
+				}
+				if _, err := store.Commit(context.Background(), current.Revision, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
+					return notification.AcceptPolicy(l, notification.PolicyRevisionV1{ConfigOID: newOID, PolicyDigest: policyDigest(retiring)}, retiring, clock.Now(), notification.RevisionEvidence{AcceptedOID: oldOID, IncomingOID: newOID, Relation: notification.RevisionDescendant})
+				}); err != nil {
+					t.Error(err)
+				}
+			}
+			return result
+		})
+	}
+	err := runtime.Dispatch(context.Background())
+	if err == nil || !errors.Is(err, notification.ErrStaleRevision) {
+		t.Fatalf("mid-batch policy change was not reported as stale: %v", err)
+	}
+	if got := len(sender.Payloads()); got != 1 {
+		t.Fatalf("stale payloads were sent after the policy changed: sends=%d", got)
+	}
+	first := notification.EventID(runtime.Repository, "100", v1.NotificationRequestMerged)
+	for key, record := range ledgerRecords(t, store) {
+		switch {
+		case record.EventID == first && record.Status != notification.StatusDelivered:
+			t.Fatalf("first send lost its receipt: %s = %+v", key, record)
+		case record.EventID != first && record.Status != notification.StatusSkipped:
+			t.Fatalf("retired record was not left retired: %s = %+v", key, record)
+		}
+	}
+	snapshot, err := store.Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := snapshot.Ledger.Destinations["ops"]; d.Lease != (notification.Lease{}) {
+		t.Fatalf("batch lease was not released after stopping: %+v", d)
 	}
 }

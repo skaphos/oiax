@@ -390,6 +390,34 @@ func RenewBatch(l *LedgerV1, configOID, destination, batchID string, attempts ma
 	return out, nil
 }
 
+// CheckBatchSend proves, on freshly observed durable state, that a batch still
+// owns its destination and one claimed record at the caller's accepted
+// revision. It is evaluated immediately before every POST and replaces the
+// per-record renewal write: a policy accepted by another run while the batch
+// is sending retires or regenerates the record, and a stale payload must then
+// stay unsent rather than be delivered to a subscription that no longer exists.
+func CheckBatchSend(l *LedgerV1, configOID, destination, batchID, key, attemptID string, now time.Time) error {
+	if l == nil {
+		return ErrAbsent
+	}
+	if l.PolicyRevision.ConfigOID != configOID {
+		return ErrStaleRevision
+	}
+	d, ok := l.Destinations[destination]
+	if !ok || !d.Active || d.Lease.AttemptID != batchID || !now.Before(d.Lease.Until) {
+		return ErrNotDue
+	}
+	r, ok := l.Deliveries[key]
+	if !ok || r.Status != StatusClaimed || r.Lease.AttemptID != attemptID || !now.Before(r.Lease.Until) || d.Generation != r.Generation || r.Message == nil {
+		return ErrNotDue
+	}
+	e := l.Events[r.EventID]
+	if _, subscribed := d.Subscriptions[SubscriptionKey(e.Kind, e.Request.Type)]; !subscribed {
+		return ErrNotDue
+	}
+	return nil
+}
+
 // AttemptReceipt pairs a record's batch attempt with the result to record.
 type AttemptReceipt struct {
 	AttemptID string

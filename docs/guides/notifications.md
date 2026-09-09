@@ -129,7 +129,10 @@ one-second destination pacing. Requests have a ten-second deadline; finalization
 has a shared ten-minute budget that is independent of the two-minute claim
 lease, which only fences concurrent runs. Each destination's batch costs two
 ledger writes per run (one claim, one receipt write); a lease renewal is
-written only while the batch is still sending as its lease nears expiry. Once
+written only while the batch is still sending as its lease nears expiry. Every
+later send in a batch first re-reads the ledger and confirms the batch still
+owns the destination and record at the run's configuration revision, so a
+policy accepted by another run mid-batch stops the remaining sends. Once
 a POST has been issued its receipt is written even if the budget expires, and
 a claim abandoned before its POST is recorded as `canceled` rather than keeping
 an earlier attempt's code. Every attempt logs one `notification attempt` line

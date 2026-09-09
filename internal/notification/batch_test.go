@@ -272,3 +272,59 @@ func TestNotificationResultStatusAndOutcomeError(t *testing.T) {
 		t.Fatal("outcome status lost through wrapping")
 	}
 }
+
+func TestNotificationCheckBatchSend(t *testing.T) {
+	t.Parallel()
+	l, keys := batchLedger(t, 2)
+	rev := l.PolicyRevision.ConfigOID
+	now := modelTime()
+	batch := BatchID("run", "ops")
+	attempts := batchAttempts("run", keys)
+	claimed, _, err := ClaimBatch(l, rev, "ops", batch, keys, attempts, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := keys[0]
+	for _, tc := range []struct {
+		name   string
+		mutate func(*LedgerV1)
+		at     time.Time
+		want   error
+	}{
+		{"owned", func(*LedgerV1) {}, now.Add(time.Second), nil},
+		{"policy advanced", func(l *LedgerV1) { l.PolicyRevision.ConfigOID = "b" + rev[1:] }, now.Add(time.Second), ErrStaleRevision},
+		{"destination retired", func(l *LedgerV1) { d := l.Destinations["ops"]; d.Active = false; l.Destinations["ops"] = d }, now.Add(time.Second), ErrNotDue},
+		{"destination lease taken", func(l *LedgerV1) { d := l.Destinations["ops"]; d.Lease.AttemptID = "other"; l.Destinations["ops"] = d }, now.Add(time.Second), ErrNotDue},
+		{"destination lease expired", func(*LedgerV1) {}, now.Add(ClaimDuration), ErrNotDue},
+		{"record lease superseded", func(l *LedgerV1) { r := l.Deliveries[key]; r.Lease.AttemptID = "other"; l.Deliveries[key] = r }, now.Add(time.Second), ErrNotDue},
+		{"record skipped", func(l *LedgerV1) {
+			r := l.Deliveries[key]
+			r.Status = StatusSkipped
+			r.Code = OutcomeRetired
+			l.Deliveries[key] = r
+		}, now.Add(time.Second), ErrNotDue},
+		{"generation changed", func(l *LedgerV1) {
+			d := l.Destinations["ops"]
+			d.Generation = Digest("other")
+			l.Destinations["ops"] = d
+		}, now.Add(time.Second), ErrNotDue},
+		{"unsubscribed", func(l *LedgerV1) {
+			d := l.Destinations["ops"]
+			d.Subscriptions = map[string]Subscription{}
+			l.Destinations["ops"] = d
+		}, now.Add(time.Second), ErrNotDue},
+		{"unknown record", func(l *LedgerV1) { delete(l.Deliveries, key) }, now.Add(time.Second), ErrNotDue},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			l := claimed.Clone()
+			tc.mutate(l)
+			if err := CheckBatchSend(l, rev, "ops", batch, key, attempts[key], tc.at); !errors.Is(err, tc.want) {
+				t.Fatalf("CheckBatchSend = %v, want %v", err, tc.want)
+			}
+		})
+	}
+	if err := CheckBatchSend(nil, rev, "ops", batch, key, attempts[key], now); !errors.Is(err, ErrAbsent) {
+		t.Fatalf("nil ledger = %v", err)
+	}
+}
