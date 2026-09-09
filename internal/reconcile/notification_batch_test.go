@@ -718,3 +718,27 @@ func TestNotificationCommitSlotHonoursCallerContext(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A refused POST whose receipt write fails still reports the receiver's
+// verdict and status, not only the storage failure.
+func TestNotificationRefusedWithoutReceiptKeepsReceiverStatus(t *testing.T) {
+	t.Parallel()
+	clock := notificationtest.NewClock(time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC))
+	memory := &notificationtest.MemoryStore{}
+	runtime := batchRuntime(t, clock, memory, 1)
+	runtime.Sender = func(v1.NotificationDestination) notification.Sender {
+		return notificationSenderFunc(func(context.Context, string, notification.DeliveryPayloadV1) notification.AttemptResult {
+			memory.WriteError = notification.ErrUnavailable
+			return notification.AttemptResult{Code: notification.OutcomeConfiguration, Status: 400}
+		})
+	}
+	var diagnostics []NotificationDiagnostic
+	runtime.Report = func(d NotificationDiagnostic) { diagnostics = append(diagnostics, d) }
+	err := runtime.Dispatch(context.Background())
+	if !errors.Is(err, notification.ErrUnavailable) {
+		t.Fatalf("write failure lost: %v", err)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Reason != "configuration-failure" || diagnostics[0].Status != 400 {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+}

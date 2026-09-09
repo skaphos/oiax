@@ -135,3 +135,15 @@ func TestNotificationConfigurationActionDistinguishesExchangedRequests(t *testin
 		t.Fatalf("claim lost diagnostic = %+v", lost)
 	}
 }
+
+func TestNotificationDiagnosticsKeepStatusWhenReceiptWriteFails(t *testing.T) {
+	t.Parallel()
+	refused := NotificationProblem(errors.Join(notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 400}, notification.ErrUnavailable))
+	if refused.Reason != "configuration-failure" || refused.Status != 400 {
+		t.Fatalf("refused with failed receipt = %+v", refused)
+	}
+	capacity := NotificationProblem(errors.Join(notification.OutcomeError{Code: notification.OutcomeService, Status: 503}, notification.ErrCapacity))
+	if capacity.Reason != "notification-capacity-exhausted" || capacity.Status != 503 {
+		t.Fatalf("sentinel outranks outcome but must keep the status: %+v", capacity)
+	}
+}

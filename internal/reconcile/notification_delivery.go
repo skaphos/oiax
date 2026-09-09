@@ -313,7 +313,9 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 			// still say what the receiver answered.
 			err = errors.Join(notification.ErrReceiptUncertain, notification.OutcomeError{Code: result.Code, Status: result.Status}, writeErr)
 		case writeErr != nil:
-			err = writeErr
+			// The receiver's verdict is kept alongside the write failure so the
+			// diagnostic can still carry the outcome and status.
+			err = errors.Join(notification.OutcomeError{Code: result.Code, Status: result.Status}, writeErr)
 		case result.Code != notification.OutcomeAccepted:
 			err = notification.OutcomeError{Code: result.Code, Status: result.Status}
 		}

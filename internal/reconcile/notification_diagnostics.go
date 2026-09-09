@@ -81,6 +81,11 @@ func NotificationProblem(err error) NotificationDiagnostic {
 			}
 		}
 	}
+	if d.Status == 0 {
+		// A storage sentinel may outrank the outcome, but the receiver's
+		// status is still worth reporting when an exchange completed.
+		_, d.Status = notificationOutcome(err)
+	}
 	return d
 }
 
