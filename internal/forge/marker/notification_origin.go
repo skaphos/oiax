@@ -65,6 +65,8 @@ func AppendNotificationOrigin(body string, origin *notification.NotificationOrig
 // ParseNotificationOrigin accepts one closed, bounded block with exact field
 // names. Decode each field independently to reject duplicate keys, case aliases,
 // unknown fields and trailing JSON instead of encoding/json's last-key-wins.
+// headVerified is the only optional field: blocks written before it existed
+// still parse and remain unverified.
 func ParseNotificationOrigin(body string) (notification.NotificationOriginV1, bool) {
 	var origin notification.NotificationOriginV1
 	block, count, complete := originBlock(body)
@@ -85,6 +87,7 @@ func ParseNotificationOrigin(body string) (notification.NotificationOriginV1, bo
 		"configOID": &origin.ConfigOID, "observedAt": &origin.ObservedAt,
 		"logicalSource": &origin.LogicalSource, "logicalTarget": &origin.LogicalTarget,
 		"sourceOID": &origin.SourceOID, "baseOID": &origin.BaseOID,
+		"headVerified": &origin.HeadVerified,
 	}
 	for d.More() {
 		key, err := d.Token()
@@ -97,6 +100,7 @@ func ParseNotificationOrigin(body string) (notification.NotificationOriginV1, bo
 		}
 		delete(fields, name)
 	}
+	delete(fields, "headVerified")
 	if _, err := d.Token(); err != nil || len(fields) != 0 || !notification.ValidOrigin(origin) {
 		return origin, false
 	}

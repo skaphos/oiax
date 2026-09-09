@@ -355,6 +355,10 @@ func (f *notificationBinaryFixture) serve(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusNotFound)
 	case strings.HasPrefix(r.URL.Path, "/repos/example/repo/labels/"):
 		respond(map[string]string{"name": strings.TrimPrefix(r.URL.Path, "/repos/example/repo/labels/")})
+	case strings.HasPrefix(r.URL.Path, "/repos/example/repo/compare/"):
+		// Creation membership from the origin's OIDs: one fixture commit at the head.
+		_, head, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/repos/example/repo/compare/"), "...")
+		respond(map[string]any{"total_commits": 1, "commits": []map[string]any{{"sha": head, "commit": map[string]string{"message": "fixture commit"}}}})
 	case r.URL.Path == collection:
 		q := r.URL.Query()
 		lifecycle := q.Get("state") == "all" || q.Get("searchCriteria.maxTime") != ""

@@ -63,6 +63,31 @@ func TestNotificationOriginRoundTripAndMarkerPreservation(t *testing.T) {
 	}
 }
 
+func TestNotificationOriginHeadVerifiedIsOptional(t *testing.T) {
+	t.Parallel()
+	o := testNotificationOrigin()
+	unverified, err := AppendNotificationOrigin("", &o)
+	if err != nil || strings.Contains(unverified, "headVerified") {
+		t.Fatalf("unverified origin encoded a verdict: %s, %v", unverified, err)
+	}
+	verified := o
+	verified.HeadVerified = true
+	encoded, err := AppendNotificationOrigin("", &verified)
+	if err != nil || !strings.Contains(encoded, `"headVerified":true`) {
+		t.Fatalf("verified origin lost its verdict: %s, %v", encoded, err)
+	}
+	if got, ok := ParseNotificationOrigin(encoded); !ok || got != verified {
+		t.Fatalf("verified round trip = %+v, %v", got, ok)
+	}
+	// Blocks written before the field existed parse as unverified; an explicit
+	// false is equivalent.
+	for name, body := range map[string]string{"legacy": unverified, "explicit false": strings.Replace(encoded, `"headVerified":true`, `"headVerified":false`, 1)} {
+		if got, ok := ParseNotificationOrigin(body); !ok || got != o {
+			t.Fatalf("%s origin = %+v, %v", name, got, ok)
+		}
+	}
+}
+
 func TestNotificationOriginRejectsAmbiguousAndMalformedBlocks(t *testing.T) {
 	t.Parallel()
 	o := testNotificationOrigin()
@@ -75,6 +100,9 @@ func TestNotificationOriginRejectsAmbiguousAndMalformedBlocks(t *testing.T) {
 		"duplicate key":          strings.Replace(valid, `"version":1`, `"version":1,"version":1`, 1),
 		"case alias":             strings.Replace(valid, `"version":1`, `"version":1,"Version":1`, 1),
 		"unknown field":          strings.Replace(valid, `"version":1`, `"version":1,"extra":true`, 1),
+		"non-boolean verdict":    strings.Replace(valid, `"version":1`, `"version":1,"headVerified":"yes"`, 1),
+		"duplicate verdict":      strings.Replace(valid, `"version":1`, `"version":1,"headVerified":true,"headVerified":true`, 1),
+		"verdict case alias":     strings.Replace(valid, `"version":1`, `"version":1,"HeadVerified":true`, 1),
 		"unknown version":        strings.Replace(valid, `"version":1`, `"version":2`, 1),
 		"bad OID":                strings.Replace(valid, o.ConfigOID, "not-an-oid", 1),
 		"missing logical source": strings.Replace(valid, `"logicalSource":"dev"`, `"logicalSource":""`, 1),
@@ -145,6 +173,9 @@ func FuzzNotificationOrigin(f *testing.F) {
 	body, _ := AppendNotificationOrigin("", &o)
 	f.Add(body)
 	f.Add(body + body)
+	o.HeadVerified = true
+	verified, _ := AppendNotificationOrigin("", &o)
+	f.Add(verified)
 	f.Add("<!-- oiax-notification-origin:{} -->")
 	f.Add("<!-->")
 	f.Fuzz(func(t *testing.T, body string) {

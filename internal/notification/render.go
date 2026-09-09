@@ -116,24 +116,31 @@ func RenderBuiltin(e EventV1) (RenderedMessageV1, error) {
 	if destination == "" {
 		destination = e.Request.Destination
 	}
+	// Without membership the body names the request instead of commits that are
+	// never listed; the fixed facts already state that details are unavailable.
 	var title, body string
 	if e.Kind == v1.NotificationRequestCreated {
 		title = "Branch promotion ready for review"
-		body = "These commits are ready for review for the " + destination + " environment."
+		subject := "These commits are"
+		if e.Snapshot.CommitsUnavailable {
+			subject = "Request #" + e.Request.ID + " is"
+		}
+		body = subject + " ready for review for the " + destination + " environment."
 		if e.Request.Type == v1.NotificationBackflow {
 			title = "Backflow ready for review"
-			body = "These commits are ready for review to return to " + destination + " by backflow."
+			body = subject + " ready for review to return to " + destination + " by backflow."
 		}
 	} else {
 		title = "Branch promotion completed"
-		body = "These commits were promoted to the " + destination + " environment."
+		subject := "These commits were"
+		if e.Snapshot.CommitsUnavailable {
+			subject = "Request #" + e.Request.ID + " was"
+		}
+		body = subject + " promoted to the " + destination + " environment."
 		if e.Request.Type == v1.NotificationBackflow {
 			title = "Backflow completed"
-			body = "These commits were returned to " + destination + " by backflow."
+			body = subject + " returned to " + destination + " by backflow."
 		}
-	}
-	if e.Snapshot.CommitsUnavailable {
-		body += "\n\nCommit details unavailable; see the request."
 	}
 	return RenderedMessageV1{Title: SafeDisplayText(title, false, e.Request.URL), Body: SafeDisplayText(body, true, e.Request.URL)}, nil
 }
