@@ -16,6 +16,7 @@ var (
 	ErrStaleRevision     = errors.New("stale-config-revision")
 	ErrUnorderedRevision = errors.New("config-revision-unordered")
 	ErrNotDue            = errors.New("delivery-not-due")
+	ErrClaimLost         = errors.New("delivery-claim-lost")
 	ErrInvalidState      = errors.New("invalid-notification-state")
 	ErrCapacity          = errors.New("notification-capacity-exhausted")
 )
@@ -368,6 +369,9 @@ func ClaimBatch(l *LedgerV1, configOID, destination, batchID string, keys []stri
 // still claimed by its batch attempt. It never revives an expired or superseded
 // lease: a run whose batch lost its fence must stop sending.
 func RenewBatch(l *LedgerV1, configOID, destination, batchID string, attempts map[string]string, now time.Time) (*LedgerV1, error) {
+	if now.IsZero() {
+		return nil, ErrInvalidState
+	}
 	if l.PolicyRevision.ConfigOID != configOID {
 		return nil, ErrStaleRevision
 	}
@@ -396,9 +400,17 @@ func RenewBatch(l *LedgerV1, configOID, destination, batchID string, attempts ma
 // per-record renewal write: a policy accepted by another run while the batch
 // is sending retires or regenerates the record, and a stale payload must then
 // stay unsent rather than be delivered to a subscription that no longer exists.
+//
+// ErrStaleRevision and ErrNotDue mean the batch lost the destination and must
+// stop. ErrClaimLost means only this record was settled by another attempt
+// (for example a late accepted result); the batch still owns the destination
+// and may continue with its remaining records.
 func CheckBatchSend(l *LedgerV1, configOID, destination, batchID, key, attemptID string, now time.Time) error {
 	if l == nil {
 		return ErrAbsent
+	}
+	if now.IsZero() {
+		return ErrInvalidState
 	}
 	if l.PolicyRevision.ConfigOID != configOID {
 		return ErrStaleRevision
@@ -409,11 +421,11 @@ func CheckBatchSend(l *LedgerV1, configOID, destination, batchID, key, attemptID
 	}
 	r, ok := l.Deliveries[key]
 	if !ok || r.Status != StatusClaimed || r.Lease.AttemptID != attemptID || !now.Before(r.Lease.Until) || d.Generation != r.Generation || r.Message == nil {
-		return ErrNotDue
+		return ErrClaimLost
 	}
 	e := l.Events[r.EventID]
 	if _, subscribed := d.Subscriptions[SubscriptionKey(e.Kind, e.Request.Type)]; !subscribed {
-		return ErrNotDue
+		return ErrClaimLost
 	}
 	return nil
 }

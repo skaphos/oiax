@@ -496,3 +496,163 @@ func TestNotificationBatchSurvivesSaveFailureForEveryRecord(t *testing.T) {
 		}
 	}
 }
+
+// hookSender runs a hook after its first send, so a test can change the
+// durable ledger between two sends of one batch.
+type hookSender struct {
+	mu    sync.Mutex
+	sends int
+	hook  func()
+}
+
+func (s *hookSender) Send(context.Context, string, notification.DeliveryPayloadV1) notification.AttemptResult {
+	s.mu.Lock()
+	s.sends++
+	first := s.sends == 1
+	s.mu.Unlock()
+	if first && s.hook != nil {
+		s.hook()
+	}
+	return notification.AttemptResult{Code: notification.OutcomeAccepted, Status: 204}
+}
+
+func (s *hookSender) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sends
+}
+
+// A record settled by another attempt while the batch is sending is skipped
+// alone: the batch still owns the destination and its remaining records are
+// still sent.
+func TestNotificationBatchSkipsRecordSettledByLateResult(t *testing.T) {
+	t.Parallel()
+	clock := notificationtest.NewClock(time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC))
+	store := &notificationtest.MemoryStore{}
+	runtime := batchRuntime(t, clock, store, 3)
+	ctx := context.Background()
+
+	// An older run claimed the second record and hung; its lease has expired.
+	snapshot, err := store.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := notification.DueDeliveries(snapshot.Ledger, clock.Now())
+	if len(keys) != 3 {
+		t.Fatalf("due=%d", len(keys))
+	}
+	second := keys[1]
+	const oldAttempt = "old-attempt"
+	if _, err := store.Commit(ctx, snapshot.Revision, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
+		l, err := notification.SaveMessage(l, runtime.ConfigOID, second, notification.RenderedMessageV1{Title: "t", Body: "b"})
+		if err != nil {
+			return nil, err
+		}
+		return notification.Claim(l, runtime.ConfigOID, second, oldAttempt, clock.Now())
+	}); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(notification.ClaimDuration + time.Second)
+
+	sender := &hookSender{}
+	sender.hook = func() {
+		// The hung attempt's accepted response lands after this batch's first
+		// POST: the second record becomes delivered by that older attempt.
+		current, err := store.Read(ctx)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if _, err := store.Commit(ctx, current.Revision, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
+			return notification.RecordResult(l, second, oldAttempt, notification.AttemptResult{Code: notification.OutcomeAccepted, Status: 200}, clock.Now())
+		}); err != nil {
+			t.Error(err)
+		}
+	}
+	runtime.Sender = func(v1.NotificationDestination) notification.Sender { return sender }
+	var diagnostics []NotificationDiagnostic
+	runtime.Report = func(d NotificationDiagnostic) { diagnostics = append(diagnostics, d) }
+	err = runtime.Dispatch(ctx)
+	if !errors.Is(err, notification.ErrClaimLost) {
+		t.Fatalf("settled record was not reported: %v", err)
+	}
+	if got := sender.count(); got != 2 {
+		t.Fatalf("batch did not continue past the settled record: sends=%d", got)
+	}
+	reasons := map[string]int{}
+	for _, d := range diagnostics {
+		reasons[d.Reason]++
+	}
+	if reasons["delivered"] != 2 || reasons["delivery-claim-lost"] != 1 || len(diagnostics) != 3 {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+	records := ledgerRecords(t, store)
+	for i, key := range keys {
+		record := records[key]
+		if record.Status != notification.StatusDelivered {
+			t.Fatalf("record %d = %+v", i+1, record)
+		}
+	}
+	if record := records[second]; record.LastStatus != 200 || record.Attempts != 2 {
+		t.Fatalf("late result was not the authoritative receipt: %+v", record)
+	}
+	snapshot, err = store.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := snapshot.Ledger.Destinations["ops"]; d.Lease != (notification.Lease{}) {
+		t.Fatalf("batch lease not released: %+v", d)
+	}
+}
+
+// A runtime wired without a sender must fail closed before claiming anything,
+// never invent a receiver refusal for a request that was not made.
+func TestNotificationBatchNilSenderIsInvalidState(t *testing.T) {
+	t.Parallel()
+	clock := notificationtest.NewClock(time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC))
+	store := &countingStore{LedgerStore: &notificationtest.MemoryStore{}}
+	runtime := batchRuntime(t, clock, store, 2)
+	runtime.Sender = func(v1.NotificationDestination) notification.Sender { return nil }
+	var diagnostics []NotificationDiagnostic
+	runtime.Report = func(d NotificationDiagnostic) { diagnostics = append(diagnostics, d) }
+	store.reset()
+	err := runtime.Dispatch(context.Background())
+	if !errors.Is(err, notification.ErrInvalidState) {
+		t.Fatalf("nil sender = %v", err)
+	}
+	if _, commits := store.counts(); commits != 0 {
+		t.Fatalf("nil sender claimed work: commits=%d", commits)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Reason != "invalid-notification-state" {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+	for key, record := range ledgerRecords(t, store) {
+		if record.Status != notification.StatusPending || record.Attempts != 0 {
+			t.Fatalf("record touched: %s = %+v", key, record)
+		}
+	}
+}
+
+// An accepted POST whose receipt write fails keeps the receiver's status on
+// the uncertainty diagnostic, so the operator sees what the receiver answered.
+func TestNotificationUncertainReceiptKeepsReceiverStatus(t *testing.T) {
+	t.Parallel()
+	clock := notificationtest.NewClock(time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC))
+	memory := &notificationtest.MemoryStore{}
+	runtime := batchRuntime(t, clock, memory, 1)
+	runtime.Sender = func(v1.NotificationDestination) notification.Sender {
+		return notificationSenderFunc(func(context.Context, string, notification.DeliveryPayloadV1) notification.AttemptResult {
+			memory.WriteError = notification.ErrUnavailable
+			return notification.AttemptResult{Code: notification.OutcomeAccepted, Status: 202}
+		})
+	}
+	var diagnostics []NotificationDiagnostic
+	runtime.Report = func(d NotificationDiagnostic) { diagnostics = append(diagnostics, d) }
+	err := runtime.Dispatch(context.Background())
+	if !errors.Is(err, notification.ErrReceiptUncertain) {
+		t.Fatalf("uncertain receipt = %v", err)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Reason != "accepted-receipt-uncertain" || diagnostics[0].Status != 202 {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+}

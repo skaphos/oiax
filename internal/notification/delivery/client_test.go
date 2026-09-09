@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -255,7 +256,9 @@ func TestNotificationClientAcknowledgmentsAndBounds(t *testing.T) {
 		{"throttle", "slack", 429, "secret response", notification.OutcomeRateLimited},
 		{"server", "teams", 503, "secret response", notification.OutcomeService},
 		{"auth", "webhook", 401, "secret response", notification.OutcomeConfiguration},
-		{"oversized", "teams", 200, strings.Repeat("x", (16<<10)+1), notification.OutcomeResponseTooLarge},
+		{"slack oversized", "slack", 200, strings.Repeat("x", (16<<10)+1), notification.OutcomeResponseTooLarge},
+		{"teams oversized accepted", "teams", 200, strings.Repeat("x", (16<<10)+1), notification.OutcomeAccepted},
+		{"webhook oversized refused", "webhook", 400, strings.Repeat("x", (16<<10)+1), notification.OutcomeConfiguration},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -291,6 +294,51 @@ func TestNotificationClientAcknowledgmentsAndBounds(t *testing.T) {
 			}
 			if tc.status == 429 && result.RetryAfter != 2*time.Minute {
 				t.Fatal("Retry-After lost")
+			}
+		})
+	}
+}
+
+// A status line that already decides the outcome must not be overridden by a
+// body that cannot be read in full: an accepted request that is retried is a
+// duplicate. Slack is the one transport whose acknowledgement lives in the body.
+func TestNotificationClientTruncatedBodyKeepsStatusVerdict(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		kind   v1.NotificationTransport
+		status int
+		want   notification.OutcomeCode
+	}{
+		{"webhook accepted", "webhook", 200, notification.OutcomeAccepted},
+		{"teams accepted", "teams", 202, notification.OutcomeAccepted},
+		{"webhook refused", "webhook", 403, notification.OutcomeConfiguration},
+		{"slack undecided", "slack", 200, notification.OutcomeNetwork},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				hijacker, ok := w.(http.Hijacker)
+				if !ok {
+					t.Error("fixture cannot hijack")
+					return
+				}
+				conn, _, err := hijacker.Hijack()
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				// Promise 100 body bytes, deliver five, then close the connection.
+				_, _ = fmt.Fprintf(conn, "HTTP/1.1 %d %s\r\nContent-Length: 100\r\nContent-Type: text/plain\r\n\r\nshort", tc.status, http.StatusText(tc.status))
+				_ = conn.Close()
+			}))
+			t.Cleanup(s.Close)
+			c := NewClient(tc.kind, false)
+			c.http.Transport = s.Client().Transport // test-only trusted local TLS
+			result := c.Send(context.Background(), s.URL+"/secret", adapterPayload())
+			if result.Code != tc.want || result.Status != tc.status {
+				t.Fatalf("truncated body => %+v, want %s with status %d", result, tc.want, tc.status)
 			}
 		})
 	}

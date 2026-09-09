@@ -156,6 +156,13 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 		results <- deliveryOutcome{index: tasks[0].index, err: err, destination: name}
 		return
 	}
+	sender := r.Sender(destination)
+	if sender == nil {
+		// A runtime wired without a sender is a programming error, never a
+		// receiver refusal. Nothing has been claimed, so no lease is held.
+		results <- deliveryOutcome{index: tasks[0].index, err: failure(notification.ErrInvalidState), destination: name}
+		return
+	}
 
 	var claimed []string
 	var unrenderable map[string]error
@@ -216,7 +223,6 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 	}
 	attempted := map[string]error{}
 	endpoint, _ := r.LookupEnv(destination.EndpointEnv)
-	sender := r.Sender(destination)
 	var stop error
 	current := prepared
 	for i, key := range claimed {
@@ -258,6 +264,13 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 			break
 		}
 		if err := notification.CheckBatchSend(current.Ledger, r.ConfigOID, name, batchID, key, attempts[key], r.now()); err != nil {
+			if errors.Is(err, notification.ErrClaimLost) {
+				// Another attempt settled this record; its durable state is
+				// authoritative and the canceled receipt below is a no-op on it.
+				// The batch still owns the destination, so the rest proceeds.
+				attempted[key] = err
+				continue
+			}
 			stop = err
 			break
 		}
@@ -266,14 +279,11 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 			attempted[key] = err
 			continue
 		}
-		result := notification.AttemptResult{Code: notification.OutcomeConfiguration}
-		if sender != nil {
-			sendCtx, cancel := context.WithTimeout(ctx, notificationSendTimeout)
-			started := time.Now()
-			result = sender.Send(sendCtx, endpoint, payload)
-			cancel()
-			r.logAttempt(name, result, time.Since(started))
-		}
+		sendCtx, cancel := context.WithTimeout(ctx, notificationSendTimeout)
+		started := time.Now()
+		result := sender.Send(sendCtx, endpoint, payload)
+		cancel()
+		r.logAttempt(name, result, time.Since(started))
 		receipts[key] = notification.AttemptReceipt{AttemptID: attempts[key], Result: result}
 		attempted[key] = nil
 	}
@@ -299,7 +309,9 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 			err = stop
 		case err != nil:
 		case writeErr != nil && result.Code == notification.OutcomeAccepted:
-			err = errors.Join(notification.ErrReceiptUncertain, writeErr)
+			// The receiver's status is kept so the uncertainty diagnostic can
+			// still say what the receiver answered.
+			err = errors.Join(notification.ErrReceiptUncertain, notification.OutcomeError{Code: result.Code, Status: result.Status}, writeErr)
 		case writeErr != nil:
 			err = writeErr
 		case result.Code != notification.OutcomeAccepted:

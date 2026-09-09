@@ -85,7 +85,7 @@ func TestNotificationPresentationRedactsAddresses(t *testing.T) {
 func TestNotificationDiagnosticsCarryReceiverStatus(t *testing.T) {
 	t.Parallel()
 	const refused = "Receiver refused the request (HTTP 400); check the webhook URL and signature, that the flow is enabled, and that its trigger schema accepts the documented payload."
-	const refusedNoStatus = "Receiver refused the request; check the webhook URL and signature, that the flow is enabled, and that its trigger schema accepts the documented payload."
+	const refusedNoStatus = "The request was never exchanged with the receiver: the payload could not be encoded for this transport. Review custom presentation and the destination type, then retry."
 	const transport = "Review endpoint HTTPS, TLS, DNS and private-network policy, then retry."
 	for _, tc := range []struct {
 		name   string
@@ -113,5 +113,25 @@ func TestNotificationDiagnosticsCarryReceiverStatus(t *testing.T) {
 				t.Fatal("diagnostic leaked receiver text")
 			}
 		})
+	}
+}
+
+func TestNotificationConfigurationActionDistinguishesExchangedRequests(t *testing.T) {
+	t.Parallel()
+	refused := NotificationProblem(notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 401})
+	if refused.Status != 401 || !strings.Contains(refused.Action, "HTTP 401") || !strings.Contains(refused.Action, "refused") {
+		t.Fatalf("refused request diagnostic = %+v", refused)
+	}
+	local := NotificationProblem(notification.OutcomeError{Code: notification.OutcomeConfiguration})
+	if local.Status != 0 || strings.Contains(local.Action, "refused") || !strings.Contains(local.Action, "never exchanged") {
+		t.Fatalf("local failure diagnostic = %+v", local)
+	}
+	uncertain := NotificationProblem(errors.Join(notification.ErrReceiptUncertain, notification.OutcomeError{Code: notification.OutcomeAccepted, Status: 202}, notification.ErrUnavailable))
+	if uncertain.Reason != "accepted-receipt-uncertain" || uncertain.Status != 202 {
+		t.Fatalf("uncertain receipt diagnostic = %+v", uncertain)
+	}
+	lost := NotificationProblem(fmt.Errorf("destination ops: %w", notification.ErrClaimLost))
+	if lost.Reason != "delivery-claim-lost" || lost.Action == "" {
+		t.Fatalf("claim lost diagnostic = %+v", lost)
 	}
 }

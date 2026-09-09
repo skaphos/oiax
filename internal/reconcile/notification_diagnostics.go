@@ -32,6 +32,9 @@ func NotificationProblem(err error) NotificationDiagnostic {
 		d.Reason, d.Action = "delivered", "Delivery has a persisted receipt; no retry is needed."
 	case errors.Is(err, notification.ErrReceiptUncertain):
 		d.Reason, d.Action = "accepted-receipt-uncertain", "Receiver may have accepted this event; retry preserves its ID but may duplicate visibility."
+		_, d.Status = notificationOutcome(err)
+	case errors.Is(err, notification.ErrClaimLost):
+		d.Reason, d.Action = "delivery-claim-lost", "Another attempt settled this record while the batch was sending; its durable receipt is authoritative and no send was made."
 	case errors.Is(err, notification.ErrStaleRevision):
 		d.Reason, d.Action = "stale-config-revision", "Run the latest reviewed descendant configuration commit."
 	case errors.Is(err, notification.ErrUnorderedRevision):
@@ -60,9 +63,10 @@ func NotificationProblem(err error) NotificationDiagnostic {
 			case notification.OutcomeMissingSecret:
 				d.Action = "Set the named runtime endpoint variable, then retry."
 			case notification.OutcomeConfiguration:
-				// The request reached the receiver and was refused. Only the
+				// A status means the request reached the receiver and was
+				// refused; no status means it was never exchanged. Only the
 				// integer status is ever interpolated.
-				d.Action = "Receiver refused the request; check the webhook URL and signature, that the flow is enabled, and that its trigger schema accepts the documented payload."
+				d.Action = "The request was never exchanged with the receiver: the payload could not be encoded for this transport. Review custom presentation and the destination type, then retry."
 				if status != 0 {
 					d.Action = fmt.Sprintf("Receiver refused the request (HTTP %d); check the webhook URL and signature, that the flow is enabled, and that its trigger schema accepts the documented payload.", status)
 				}

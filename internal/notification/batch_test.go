@@ -296,24 +296,31 @@ func TestNotificationCheckBatchSend(t *testing.T) {
 		{"destination retired", func(l *LedgerV1) { d := l.Destinations["ops"]; d.Active = false; l.Destinations["ops"] = d }, now.Add(time.Second), ErrNotDue},
 		{"destination lease taken", func(l *LedgerV1) { d := l.Destinations["ops"]; d.Lease.AttemptID = "other"; l.Destinations["ops"] = d }, now.Add(time.Second), ErrNotDue},
 		{"destination lease expired", func(*LedgerV1) {}, now.Add(ClaimDuration), ErrNotDue},
-		{"record lease superseded", func(l *LedgerV1) { r := l.Deliveries[key]; r.Lease.AttemptID = "other"; l.Deliveries[key] = r }, now.Add(time.Second), ErrNotDue},
+		{"record lease superseded", func(l *LedgerV1) { r := l.Deliveries[key]; r.Lease.AttemptID = "other"; l.Deliveries[key] = r }, now.Add(time.Second), ErrClaimLost},
 		{"record skipped", func(l *LedgerV1) {
 			r := l.Deliveries[key]
 			r.Status = StatusSkipped
 			r.Code = OutcomeRetired
 			l.Deliveries[key] = r
-		}, now.Add(time.Second), ErrNotDue},
+		}, now.Add(time.Second), ErrClaimLost},
 		{"generation changed", func(l *LedgerV1) {
 			d := l.Destinations["ops"]
 			d.Generation = Digest("other")
 			l.Destinations["ops"] = d
-		}, now.Add(time.Second), ErrNotDue},
+		}, now.Add(time.Second), ErrClaimLost},
 		{"unsubscribed", func(l *LedgerV1) {
 			d := l.Destinations["ops"]
 			d.Subscriptions = map[string]Subscription{}
 			l.Destinations["ops"] = d
-		}, now.Add(time.Second), ErrNotDue},
-		{"unknown record", func(l *LedgerV1) { delete(l.Deliveries, key) }, now.Add(time.Second), ErrNotDue},
+		}, now.Add(time.Second), ErrClaimLost},
+		{"unknown record", func(l *LedgerV1) { delete(l.Deliveries, key) }, now.Add(time.Second), ErrClaimLost},
+		{"record delivered by a late result", func(l *LedgerV1) {
+			r := l.Deliveries[key]
+			r.Status = StatusDelivered
+			r.Lease = Lease{}
+			l.Deliveries[key] = r
+		}, now.Add(time.Second), ErrClaimLost},
+		{"zero clock", func(*LedgerV1) {}, time.Time{}, ErrInvalidState},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
