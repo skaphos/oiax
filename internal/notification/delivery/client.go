@@ -137,7 +137,8 @@ func (c *Client) Send(ctx context.Context, endpoint string, payload notification
 	}
 	defer func() { _ = response.Body.Close() }()
 	// Every post-exchange outcome carries the integer status so operators can
-	// tell a refused request apart from a transport problem. Body text is not.
+	// tell a refused request apart from a transport problem. Response body
+	// text is never retained: it may echo the secret-bearing endpoint.
 	status := response.StatusCode
 	exchanged := func(code notification.OutcomeCode) notification.AttemptResult {
 		return notification.AttemptResult{Code: code, Status: status}
