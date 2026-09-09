@@ -188,8 +188,8 @@ hold (they are exclusion checks — a match by any one is enough):
 - **`Oiax-Backflow: skip` trailer** — a human marked the commit as
   intentionally not-returned (see below).
 
-The first two read the target's history back to the candidates' common
-ancestor — not merely the part written since the source and target last
+The first two read the target's history back to the candidates' best common
+ancestors — not merely the part written since the source and target last
 diverged. A returned commit therefore stays recognized after its return
 promotes forward and becomes shared history on the source; a promotion
 that moves the merge base past the return does not get it re-proposed.
