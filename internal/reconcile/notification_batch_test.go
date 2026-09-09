@@ -430,3 +430,69 @@ func TestNotificationBatchIsolatesUnrenderableRecord(t *testing.T) {
 		}
 	}
 }
+
+// advanceOnCommitStore accepts a descendant policy revision that retires the
+// destination immediately before the runtime's first commit, so the claim
+// transition runs against a ledger whose revision no longer matches the run.
+type advanceOnCommitStore struct {
+	*notificationtest.MemoryStore
+	mu       sync.Mutex
+	advanced bool
+	oldOID   string
+	newOID   string
+	policy   *v1.NotificationPolicy
+	now      func() time.Time
+}
+
+func (s *advanceOnCommitStore) Commit(ctx context.Context, expected string, transition notification.Transition) (notification.Snapshot, error) {
+	s.mu.Lock()
+	first := !s.advanced
+	s.advanced = true
+	s.mu.Unlock()
+	if first {
+		current, err := s.Read(ctx)
+		if err != nil {
+			return notification.Snapshot{}, err
+		}
+		advanced, err := s.MemoryStore.Commit(ctx, current.Revision, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
+			return notification.AcceptPolicy(l, notification.PolicyRevisionV1{ConfigOID: s.newOID, PolicyDigest: policyDigest(s.policy)}, s.policy, s.now(), notification.RevisionEvidence{AcceptedOID: s.oldOID, IncomingOID: s.newOID, Relation: notification.RevisionDescendant})
+		})
+		if err != nil {
+			return notification.Snapshot{}, err
+		}
+		expected = advanced.Revision
+	}
+	return s.MemoryStore.Commit(ctx, expected, transition)
+}
+
+// A save that fails for every record (here: the revision moved between the
+// due scan and the claim write) must report the batch as stale, never panic
+// on a ledger that a failed save left nil.
+func TestNotificationBatchSurvivesSaveFailureForEveryRecord(t *testing.T) {
+	t.Parallel()
+	clock := notificationtest.NewClock(time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC))
+	memory := &notificationtest.MemoryStore{}
+	runtime := batchRuntime(t, clock, memory, 3)
+	store := &advanceOnCommitStore{
+		MemoryStore: memory,
+		oldOID:      runtime.ConfigOID,
+		newOID:      strings.Repeat("b", 40),
+		policy:      &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "other", Type: "webhook", EndpointEnv: "OTHER"}}},
+		now:         clock.Now,
+	}
+	runtime.Store = store
+	sender := &notificationtest.Recorder{Result: notification.AttemptResult{Code: notification.OutcomeAccepted}}
+	runtime.Sender = func(v1.NotificationDestination) notification.Sender { return sender }
+	err := runtime.Dispatch(context.Background())
+	if !errors.Is(err, notification.ErrStaleRevision) {
+		t.Fatalf("stale batch = %v", err)
+	}
+	if got := len(sender.Payloads()); got != 0 {
+		t.Fatalf("stale batch reached the receiver: sends=%d", got)
+	}
+	for key, record := range ledgerRecords(t, memory) {
+		if record.Message != nil || record.Attempts != 0 || record.Status != notification.StatusSkipped {
+			t.Fatalf("retired record was touched by the stale run: %s = %+v", key, record)
+		}
+	}
+}

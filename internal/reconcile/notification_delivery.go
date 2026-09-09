@@ -173,17 +173,21 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 				continue
 			}
 			if record.Message == nil {
+				// A record whose message cannot be rendered or saved stays
+				// pending on its own, exactly as the per-record loop left it;
+				// it must not block the destination's other due work, and a
+				// failed save must leave the ledger being built untouched.
 				message, err := templates.Render(name, l.Events[record.EventID])
-				if err == nil {
-					l, err = notification.SaveMessage(l, r.ConfigOID, key, message)
-				}
 				if err != nil {
-					// A record whose message cannot be saved stays pending on
-					// its own, exactly as the per-record loop left it; it must
-					// not block the destination's other due work.
 					failed[key] = err
 					continue
 				}
+				saved, err := notification.SaveMessage(l, r.ConfigOID, key, message)
+				if err != nil {
+					failed[key] = err
+					continue
+				}
+				l = saved
 			}
 			present = append(present, key)
 		}
