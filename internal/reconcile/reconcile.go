@@ -97,6 +97,12 @@ type Result struct {
 	// run (SKA-601) — an apply-summary count only, never surfaced in the plan
 	// JSON. Adopt/advance/consolidate/close do not increment it.
 	Conflicts int
+	// Dropped counts the backflow commits whose cherry-pick replay was dropped
+	// by `--empty=drop` this run: their content had already reached the target
+	// in a form the plan's identity ladder could not match (a squash or rebase
+	// gave it a different patch-id), so the replay returned nothing. An
+	// apply-summary count only; it never affects the exit code.
+	Dropped int
 }
 
 // Plan observes state for every promotion edge, in the graph's declaration
@@ -530,37 +536,46 @@ func (c *Coordinator) observeCherryPickBackflow(ctx context.Context, from, to, t
 	}
 	obs.DownstreamOnly = returnable
 
-	// Patch-ids already present on the backflow target since it diverged
-	// from the source: a downstream commit whose diff is here has already
-	// been returned by content.
-	returned := make(map[string]struct{})
-	tmb, err := c.Git.MergeBase(ctx, to, target)
+	// Resolve each branch endpoint to the ref that actually holds it. Under
+	// actions/checkout only the triggering branch is a local head; every other
+	// branch in a promotion graph exists solely as an origin-tracking ref. The
+	// trailer range is read by shelling out to git directly (the Runner does not
+	// expose commit bodies/trailers), so — unlike the rest of the git layer,
+	// which routes endpoints through validRev — it must resolve names itself
+	// rather than hard-coding refs/heads/<name>, which failed on every
+	// non-triggering branch.
+	fromRef, err := c.Git.ResolveRev(ctx, from)
 	if err != nil {
 		return err
 	}
-	if tmb != "" {
-		rp, err := c.Git.PatchIDs(ctx, tmb, target)
-		if err != nil {
-			return err
-		}
-		for _, pid := range rp {
-			returned[pid] = struct{}{}
-		}
+	toRef, err := c.Git.ResolveRev(ctx, to)
+	if err != nil {
+		return err
 	}
-	obs.ReturnedPatchIDs = returned
 
-	// SHAs resolved as already returned (or withheld) by identity rather
-	// than content: any downstream commit carrying the O6 skip trailer,
-	// and the source SHA named in a target commit's cherry-pick -x
-	// provenance trailer. Kept as two sets so the plan's per-commit
-	// exclusion diagnostics can name which rung excluded each commit.
-	skips, provenance, err := c.backflowAlreadyReturned(ctx, from, to, target, tmb)
+	// Withheld by identity: any downstream commit carrying the O6
+	// 'Oiax-Backflow: skip' trailer on the downstream-only range (from..to).
+	// This is a git TRAILER (a key:value in the message's last paragraph),
+	// parsed with git's own trailer semantics — not a whole-body line match —
+	// so a commit that merely quotes 'Oiax-Backflow: skip' in prose elsewhere
+	// in its body does not falsely suppress a legitimate hotfix.
+	skips, err := c.backflowSkipTrailers(ctx, fromRef+".."+toRef)
 	if err != nil {
 		return err
 	}
 	obs.SkippedByTrailer = skips
-	obs.ReturnedByProvenance = provenance
-	return nil
+
+	// Already returned, by content (patch-id present on the target) and by
+	// identity (a target commit's cherry-pick -x provenance names the source
+	// SHA). Kept as two sets so the plan's per-commit exclusion diagnostics
+	// can name which rung excluded each commit; both are read over one shared
+	// range of the target so the two rungs always agree.
+	candidates := make([]string, len(returnable))
+	for i, cm := range returnable {
+		candidates[i] = cm.SHA
+	}
+	obs.ReturnedPatchIDs, obs.ReturnedByProvenance, err = c.backflowReturned(ctx, target, candidates)
+	return err
 }
 
 // observeMergeBackflow gathers the inputs a merge-strategy backflow edge needs
@@ -653,64 +668,76 @@ func (c *Coordinator) isBackflowSource(branch string) bool {
 }
 
 // backflowAlreadyReturned resolves, by identity, which downstream-only SHAs
-// need no backflow, keeping the two identity signals separate so per-commit
-// exclusion diagnostics can name the rung:
+// backflowReturned resolves which of the candidate downstream-only SHAs the
+// backflow target already carries, as the two sets the engine's identity
+// ladder consumes:
 //
-//   - skips: downstream commits carrying the O6 'Oiax-Backflow: skip' trailer,
-//     intentionally not backflowed;
-//   - provenance: SHAs a target commit's 'cherry picked from commit <sha>'
-//     provenance names — already returned.
+//   - patchIDs: the stable patch-ids present on the target — a candidate whose
+//     diff is among them was returned by content;
+//   - provenance: the source SHAs named by a target commit's
+//     'cherry picked from commit <sha>' line — returned by identity.
 //
-// It reads commit message bodies, which the git.Runner does not expose, so it
-// shells out directly following the same no-shell posture: the range endpoints
-// reach git as operands after --end-of-options, never as a shell string.
-func (c *Coordinator) backflowAlreadyReturned(ctx context.Context, from, to, target, targetMergeBase string) (skips, provenance map[string]struct{}, err error) {
-	// Resolve each branch endpoint to the ref that actually holds it. Under
-	// actions/checkout only the triggering branch is a local head; every other
-	// branch in a promotion graph exists solely as an origin-tracking ref. These
-	// ranges are read by shelling out to git directly (the Runner does not expose
-	// commit bodies/trailers), so — unlike the rest of the git layer, which routes
-	// endpoints through validRev — they must resolve names themselves rather than
-	// hard-coding refs/heads/<name>, which failed on every non-triggering branch.
-	fromRef, err := c.Git.ResolveRev(ctx, from)
-	if err != nil {
-		return nil, nil, err
-	}
-	toRef, err := c.Git.ResolveRev(ctx, to)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// O6 skip trailer on the downstream-only range (from..to). This is a git
-	// TRAILER (a key:value in the message's last paragraph), parsed with git's
-	// own trailer semantics — not a whole-body line match — so a commit that
-	// merely quotes 'Oiax-Backflow: skip' in prose elsewhere in its body does
-	// not falsely suppress a legitimate hotfix.
-	skips, err = c.backflowSkipTrailers(ctx, fromRef+".."+toRef)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Cherry-pick -x provenance on the target's commits since it diverged from
-	// the source (targetMergeBase..target). targetMergeBase is already an object
-	// id from a prior MergeBase call; target still needs resolving to its ref.
+// Both are read over ONE range of the target's history: every target commit
+// that is not an ancestor of ALL the candidates (target ^bases..., the bases
+// being the candidates' common ancestors). That bound is what makes a return
+// durable. A returned twin is written after the original it returns — it names
+// the original's SHA, or was cut from its diff — so it is never an ancestor of
+// that original and always falls inside this range, even once the twin has
+// promoted forward and become reachable from the source. The previous bound,
+// merge-base(source, target)..target, lost exactly that twin: a promotion
+// merge moves the merge base past it, the original is re-proposed every run,
+// and its replay is either dropped as empty (masking the state) or, once the
+// target moves on, a genuine conflict (#85). Bounding at the candidates'
+// union of ancestry instead (target --not candidate...) would fail the same
+// way: a candidate committed after the promotion descends from the earlier
+// candidate's twin and would hide it.
+//
+// Cost is proportional to target history newer than the oldest candidate —
+// the same order as the previous bound in the common case. With no candidate
+// there is nothing to resolve and nothing is read; the sets are empty, never
+// nil. Commit bodies are read by shelling out directly (the git.Runner does
+// not expose them), following the same no-shell posture: every operand is an
+// object id or a resolved ref, passed after --end-of-options.
+func (c *Coordinator) backflowReturned(ctx context.Context, target string, candidates []string) (patchIDs, provenance map[string]struct{}, err error) {
+	patchIDs = make(map[string]struct{})
 	provenance = make(map[string]struct{})
-	if targetMergeBase != "" {
-		targetRef, err := c.Git.ResolveRev(ctx, target)
-		if err != nil {
-			return nil, nil, err
-		}
-		targetBodies, err := c.commitBodies(ctx, targetMergeBase+".."+targetRef)
-		if err != nil {
-			return nil, nil, err
-		}
-		for _, body := range targetBodies {
-			for _, sha := range provenanceSHAs(body) {
-				provenance[sha] = struct{}{}
-			}
+	if len(candidates) == 0 {
+		return patchIDs, provenance, nil
+	}
+	// nil when the candidates share no ancestor: the walk is then unbounded,
+	// which is still correct.
+	bases, err := c.Git.CommonAncestors(ctx, candidates...)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	rp, err := c.Git.PatchIDsExcluding(ctx, target, bases...)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, pid := range rp {
+		patchIDs[pid] = struct{}{}
+	}
+
+	targetRef, err := c.Git.ResolveRev(ctx, target)
+	if err != nil {
+		return nil, nil, err
+	}
+	revs := make([]string, 0, 1+len(bases))
+	revs = append(revs, targetRef)
+	for _, base := range bases {
+		revs = append(revs, "^"+base)
+	}
+	bodies, err := c.commitBodies(ctx, revs...)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, body := range bodies {
+		for _, sha := range provenanceSHAs(body) {
+			provenance[sha] = struct{}{}
 		}
 	}
-	return skips, provenance, nil
+	return patchIDs, provenance, nil
 }
 
 // squashCommitCount reports how many distinct commits the commit named by sha
@@ -741,19 +768,20 @@ func (c *Coordinator) squashCommitCount(ctx context.Context, sha string) int {
 	return len(seen)
 }
 
-// commitBodies returns the full commit message body of every commit in the
-// given rev-range, keyed by full commit SHA. It runs in the git Runner's
-// working directory. Records are NUL-delimited (commit bodies contain
-// newlines) and each is "<sha>\x1f<body>".
-func (c *Coordinator) commitBodies(ctx context.Context, revRange string) (map[string]string, error) {
-	cmd := exec.CommandContext(ctx, "git", "log", "--no-color", "-z",
-		"--format=%H%x1f%B", "--end-of-options", revRange)
+// commitBodies returns the full commit message body of every commit selected
+// by the given revision operands (a rev-range, or a tip followed by ^excluded
+// revisions), keyed by full commit SHA. It runs in the git Runner's working
+// directory. Records are NUL-delimited (commit bodies contain newlines) and
+// each is "<sha>\x1f<body>".
+func (c *Coordinator) commitBodies(ctx context.Context, revs ...string) (map[string]string, error) {
+	args := append([]string{"log", "--no-color", "-z", "--format=%H%x1f%B", "--end-of-options"}, revs...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = c.Git.Dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("read commit bodies for %q: %w: %s", revRange, err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("read commit bodies for %q: %w: %s", strings.Join(revs, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	out := make(map[string]string)
 	for _, rec := range strings.Split(stdout.String(), "\x00") {
@@ -961,6 +989,7 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 		"superseded", res.Superseded,
 		"divergence", res.Divergence,
 		"conflicts", res.Conflicts,
+		"dropped", res.Dropped,
 	)
 	return res, nil
 }
@@ -1043,7 +1072,8 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 		for i, cm := range toReturn {
 			shas[len(toReturn)-1-i] = cm.SHA
 		}
-		head, err = wt.CherryPick(ctx, shas)
+		var dropped []string
+		head, dropped, err = wt.CherryPick(ctx, shas)
 		if err != nil {
 			var conflict *git.CherryPickConflict
 			if errors.As(err, &conflict) {
@@ -1058,6 +1088,17 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 				return c.recordBackflowConflict(ctx, a, st, conflict.SHA, conflict.Subject, conflict.Applied, false, conflicted, res)
 			}
 			return fmt.Errorf("apply backflow %s->%s: %w", a.From, a.To, err)
+		}
+		// A dropped pick is a return the plan could not see: its content is on
+		// the target, but not as a single commit with a matching patch-id (a
+		// squash or rebase merge combined it). Name each one so the state is
+		// visible in the run log and the apply summary instead of vanishing —
+		// it is settled by content, not a divergence, so the exit code is
+		// unaffected.
+		if len(dropped) > 0 {
+			res.Dropped += len(dropped)
+			c.log().Info("backflow replay dropped commits already present on the target",
+				"from", a.From, "to", a.To, "dropped", len(dropped), "commits", dropped)
 		}
 	}
 

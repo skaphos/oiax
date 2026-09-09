@@ -1394,6 +1394,10 @@ func TestApplyBackflowAllCommitsDropConverges(t *testing.T) {
 	if res.Applied != 0 || res.Divergence {
 		t.Errorf("result = %+v, want Applied=0 Divergence=false (converged)", res)
 	}
+	// The drop is surfaced in the apply summary rather than vanishing.
+	if res.Dropped != 1 {
+		t.Errorf("result.Dropped = %d, want 1 (the redundant pick)", res.Dropped)
+	}
 	if len(f.pushed) != 0 || len(f.created) != 0 {
 		t.Errorf("converged backflow must push nothing and create nothing: pushed=%d created=%d", len(f.pushed), len(f.created))
 	}

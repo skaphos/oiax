@@ -225,6 +225,10 @@ func TestScenarioBackflowMixedDropAndApplyConverges(t *testing.T) {
 	if res.Applied != 1 || res.Divergence {
 		t.Errorf("result = %+v, want Applied=1 Divergence=false (converged with one surviving commit)", res)
 	}
+	// The dropped half is counted, not silently lost.
+	if res.Dropped != 1 {
+		t.Errorf("result.Dropped = %d, want 1 (the already-present commit)", res.Dropped)
+	}
 	if len(f.pushed) != 1 {
 		t.Fatalf("want exactly 1 push (the surviving new commit), got %d", len(f.pushed))
 	}
