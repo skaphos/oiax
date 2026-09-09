@@ -524,10 +524,41 @@ func (r *Runner) PatchIDs(ctx context.Context, base, tip string) (map[string]str
 	if err != nil {
 		return nil, err
 	}
+	return r.patchIDs(ctx, fmt.Sprintf("%s..%s", baseRev, tipRef))
+}
+
+// PatchIDsExcluding returns the stable patch-id of every non-merge commit
+// reachable from tip but from none of the excluded revisions (the git range
+// `tip ^excluded...`), keyed by commit SHA. It is PatchIDs for a walk bounded
+// by several revisions at once: the backflow "already returned" scan reads the
+// target's history back to its candidates' common ancestors, of which there can
+// be more than one. With no excluded revision the walk covers tip's whole
+// history. tip must be a branch name; each excluded revision may be a branch
+// name or an object id.
+func (r *Runner) PatchIDsExcluding(ctx context.Context, tip string, excluded ...string) (map[string]string, error) {
+	tipRef, err := r.resolveBranchRef(ctx, tip)
+	if err != nil {
+		return nil, err
+	}
+	revs := make([]string, 0, 1+len(excluded))
+	revs = append(revs, tipRef)
+	for _, ex := range excluded {
+		rev, err := r.validRev(ctx, ex)
+		if err != nil {
+			return nil, err
+		}
+		revs = append(revs, "^"+rev)
+	}
+	return r.patchIDs(ctx, revs...)
+}
+
+// patchIDs is the shared implementation behind PatchIDs and
+// PatchIDsExcluding. revs are already validated revision operands.
+func (r *Runner) patchIDs(ctx context.Context, revs ...string) (map[string]string, error) {
 	// Two steps, no shell pipe: capture the diff, then feed it to
 	// `git patch-id` on stdin.
-	rng := fmt.Sprintf("%s..%s", baseRev, tipRef)
-	diff, err := r.run(ctx, "log", "-p", "--no-color", rng)
+	args := append([]string{"log", "-p", "--no-color"}, revs...)
+	diff, err := r.run(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -551,6 +582,41 @@ func (r *Runner) PatchIDs(ctx context.Context, base, tip string) (map[string]str
 		ids[commitID] = patchID
 	}
 	return ids, nil
+}
+
+// CommonAncestors returns the best common ancestors of all the given commits
+// — `git merge-base --octopus --all` — as object ids. Every ancestor shared by
+// all the commits is reachable from at least one of the returned bases, so the
+// range `tip ^bases...` walks exactly the commits reachable from tip that are
+// NOT ancestors of every given commit; a single commit's best common ancestor
+// is itself. The backflow "already returned" scan uses this to bound its walk
+// of the target at its candidates (see reconcile.backflowReturned). The result
+// is nil when the commits share no ancestor at all (git exits 1), in which
+// case a walk bounded by it is unbounded — correct, merely slower. Each sha
+// must be an object id from prior git output and is guarded as such.
+func (r *Runner) CommonAncestors(ctx context.Context, shas ...string) ([]string, error) {
+	if len(shas) == 0 {
+		return nil, errors.New("common ancestors of no commits")
+	}
+	args := []string{"merge-base", "--octopus", "--all"}
+	for _, sha := range shas {
+		if !oidPattern.MatchString(sha) {
+			return nil, fmt.Errorf("invalid commit oid %q", sha)
+		}
+		args = append(args, sha)
+	}
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+	return strings.Split(out, "\n"), nil
 }
 
 // MergeCommitSHAs returns the set of merge commits (two or more parents) in
@@ -799,26 +865,32 @@ func (e *CherryPickConflict) Error() string {
 //
 // `--empty=drop` skips a pick that reduces to an empty diff because its change
 // is already present on the target (a redundant return): that is convergence,
-// not a conflict.
+// not a conflict. Such picks leave HEAD where it was; their shas are returned
+// as dropped, in application order, so the caller can say which returns the
+// plan's content check could not see rather than let them vanish silently.
 //
-// On full success it returns the new HEAD object id. On the first commit whose
-// content genuinely conflicts (git exit code 1) it runs `git cherry-pick
-// --abort` (leaving the worktree clean) and returns a *CherryPickConflict
-// naming that commit and the count of commits applied cleanly before it;
-// nothing is pushed. Any other failure (exit code other than 1: a cancelled
-// context, a killed subprocess, a structural refusal) propagates as an
-// ordinary error rather than a *CherryPickConflict. Each sha is guarded with
-// oidPattern before use.
-func (r *Runner) CherryPick(ctx context.Context, shas []string) (string, error) {
+// On full success it returns the new HEAD object id and the dropped shas (nil
+// when every pick applied). On the first commit whose content genuinely
+// conflicts (git exit code 1) it runs `git cherry-pick --abort` (leaving the
+// worktree clean) and returns a *CherryPickConflict naming that commit and the
+// count of commits applied cleanly before it; nothing is pushed. Any other
+// failure (exit code other than 1: a cancelled context, a killed subprocess, a
+// structural refusal) propagates as an ordinary error rather than a
+// *CherryPickConflict. Each sha is guarded with oidPattern before use.
+func (r *Runner) CherryPick(ctx context.Context, shas []string) (head string, dropped []string, err error) {
+	head, err = r.run(ctx, "rev-parse", "HEAD")
+	if err != nil {
+		return "", nil, err
+	}
 	for i, sha := range shas {
 		if !oidPattern.MatchString(sha) {
-			return "", fmt.Errorf("invalid commit oid %q", sha)
+			return "", nil, fmt.Errorf("invalid commit oid %q", sha)
 		}
 		// Pin the committer to the original commit's name, email and date so
 		// the replayed SHA is reproducible across runs and environments.
 		ci, err := r.run(ctx, "show", "-s", "--format=%cn%x1f%ce%x1f%cI", "--end-of-options", sha)
 		if err != nil {
-			return "", fmt.Errorf("read committer of %s: %w", sha, err)
+			return "", nil, fmt.Errorf("read committer of %s: %w", sha, err)
 		}
 		name, rest, _ := strings.Cut(ci, "\x1f")
 		email, date, _ := strings.Cut(rest, "\x1f")
@@ -830,6 +902,15 @@ func (r *Runner) CherryPick(ctx context.Context, shas []string) (string, error) 
 		_, err = r.run(ctx, "cherry-pick", "-x", "--empty=drop", sha)
 		r.Env = nil
 		if err == nil {
+			// A dropped pick is the one success path that leaves HEAD in place.
+			after, err := r.run(ctx, "rev-parse", "HEAD")
+			if err != nil {
+				return "", nil, err
+			}
+			if after == head {
+				dropped = append(dropped, sha)
+			}
+			head = after
 			continue
 		}
 		var exitErr *exec.ExitError
@@ -838,15 +919,15 @@ func (r *Runner) CherryPick(ctx context.Context, shas []string) (string, error) 
 			// subject before aborting (the commit object survives the abort).
 			subject, _ := r.run(ctx, "show", "-s", "--format=%s", "--end-of-options", sha)
 			_, _ = r.run(ctx, "cherry-pick", "--abort")
-			return "", &CherryPickConflict{SHA: sha, Subject: subject, Applied: i}
+			return "", nil, &CherryPickConflict{SHA: sha, Subject: subject, Applied: i}
 		}
 		// Any other exit code is an operational or structural failure, not a
 		// content conflict. Best-effort abort with a fresh context (the caller's
 		// may be cancelled), then surface the real error.
 		_, _ = r.run(context.Background(), "cherry-pick", "--abort")
-		return "", fmt.Errorf("cherry-pick %s: %w", sha, err)
+		return "", nil, fmt.Errorf("cherry-pick %s: %w", sha, err)
 	}
-	return r.run(ctx, "rev-parse", "HEAD")
+	return head, dropped, nil
 }
 
 // MergeConflict reports that a `git merge --no-ff` of the backflow source head

@@ -188,11 +188,20 @@ hold (they are exclusion checks — a match by any one is enough):
 - **`Oiax-Backflow: skip` trailer** — a human marked the commit as
   intentionally not-returned (see below).
 
+The first two read the target's history back to the candidates' common
+ancestor — not merely the part written since the source and target last
+diverged. A returned commit therefore stays recognized after its return
+promotes forward and becomes shared history on the source; a promotion
+that moves the merge base past the return does not get it re-proposed.
+
 A commit matched by none of these is unreturned, and becomes a replay
 candidate. Merge commits and empty commits are excluded (they carry no
 patch to replay). A commit whose change is already on the target reduces
-to an empty diff on replay and is simply skipped — that is convergence,
-not a conflict.
+to an empty diff on replay and is dropped — that is convergence, not a
+conflict. Each dropped commit is named in the run log (`backflow replay
+dropped commits already present on the target`) and counted as `dropped`
+in the apply summary, so a return the ladder could not see by content is
+still visible rather than silently gone.
 
 ## The `Oiax-Backflow: skip` escape hatch
 

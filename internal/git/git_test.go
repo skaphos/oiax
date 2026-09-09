@@ -635,12 +635,15 @@ func TestCherryPickHappyPath(t *testing.T) {
 	}
 	defer cleanup()
 
-	head, err := wt.CherryPick(ctx, []string{c1, c2})
+	head, dropped, err := wt.CherryPick(ctx, []string{c1, c2})
 	if err != nil {
 		t.Fatalf("CherryPick: %v", err)
 	}
 	if head == base {
 		t.Fatal("CherryPick returned the unchanged target head")
+	}
+	if len(dropped) != 0 {
+		t.Fatalf("dropped = %v, want none (both picks applied)", dropped)
 	}
 
 	// Both commits' content replayed into the worktree.
@@ -691,7 +694,7 @@ func TestCherryPickConflict(t *testing.T) {
 	}
 	defer cleanup()
 
-	_, err = wt.CherryPick(ctx, []string{cClean, cConflict})
+	_, _, err = wt.CherryPick(ctx, []string{cClean, cConflict})
 	var conflict *git.CherryPickConflict
 	if !errors.As(err, &conflict) {
 		t.Fatalf("CherryPick error = %v, want *CherryPickConflict", err)
@@ -743,7 +746,7 @@ func TestCherryPickCancelledContextIsOperationalError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled before the first git invocation
 
-	_, err = wt.CherryPick(ctx, []string{src})
+	_, _, err = wt.CherryPick(ctx, []string{src})
 	if err == nil {
 		t.Fatal("CherryPick on a cancelled context returned nil, want an operational error")
 	}
@@ -776,7 +779,7 @@ func TestCherryPickIsDeterministic(t *testing.T) {
 			t.Fatalf("Worktree: %v", err)
 		}
 		defer cleanup()
-		head, err := wt.CherryPick(ctx, []string{c1})
+		head, _, err := wt.CherryPick(ctx, []string{c1})
 		if err != nil {
 			t.Fatalf("CherryPick: %v", err)
 		}
@@ -822,13 +825,17 @@ func TestCherryPickDropsRedundant(t *testing.T) {
 	defer cleanup()
 
 	targetHead := runGit(t, dir, "rev-parse", "target")
-	head, err := wt.CherryPick(ctx, []string{c1})
+	head, dropped, err := wt.CherryPick(ctx, []string{c1})
 	if err != nil {
 		t.Fatalf("CherryPick of a redundant commit must not error: %v", err)
 	}
-	// The redundant commit was dropped, so HEAD did not advance.
+	// The redundant commit was dropped, so HEAD did not advance — and the
+	// drop is reported, not silent.
 	if head != targetHead {
 		t.Fatalf("HEAD = %q, want unchanged target head %q (redundant pick dropped)", head, targetHead)
+	}
+	if len(dropped) != 1 || dropped[0] != c1 {
+		t.Fatalf("dropped = %v, want [%s]", dropped, c1)
 	}
 }
 
