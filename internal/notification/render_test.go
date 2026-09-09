@@ -27,23 +27,38 @@ func renderFixture(event v1.NotificationEvent, kind v1.NotificationRequestType) 
 func TestRenderBuiltinCoversEveryLifecycleAndRequestType(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		event v1.NotificationEvent
-		kind  v1.NotificationRequestType
-		title string
-		body  string
+		event       v1.NotificationEvent
+		kind        v1.NotificationRequestType
+		title       string
+		available   string
+		unavailable string
 	}{
-		{v1.NotificationRequestCreated, v1.NotificationPromotion, "Branch promotion ready for review", "ready for review for the Development environment"},
-		{v1.NotificationRequestMerged, v1.NotificationPromotion, "Branch promotion completed", "promoted to the Development environment"},
-		{v1.NotificationRequestCreated, v1.NotificationBackflow, "Backflow ready for review", "ready for review to return to Development by backflow"},
-		{v1.NotificationRequestMerged, v1.NotificationBackflow, "Backflow completed", "returned to Development by backflow"},
+		{v1.NotificationRequestCreated, v1.NotificationPromotion, "Branch promotion ready for review", "These commits are ready for review for the Development environment.", "Request #42 is ready for review for the Development environment."},
+		{v1.NotificationRequestMerged, v1.NotificationPromotion, "Branch promotion completed", "These commits were promoted to the Development environment.", "Request #42 was promoted to the Development environment."},
+		{v1.NotificationRequestCreated, v1.NotificationBackflow, "Backflow ready for review", "These commits are ready for review to return to Development by backflow.", "Request #42 is ready for review to return to Development by backflow."},
+		{v1.NotificationRequestMerged, v1.NotificationBackflow, "Backflow completed", "These commits were returned to Development by backflow.", "Request #42 was returned to Development by backflow."},
 	}
 	for _, tc := range cases {
-		message, err := RenderBuiltin(renderFixture(tc.event, tc.kind))
-		if err != nil || message.Title != tc.title || !strings.Contains(message.Body, tc.body) || !strings.Contains(message.Body, "Commit details unavailable") {
-			t.Errorf("%s/%s = %+v, %v", tc.event, tc.kind, message, err)
-		}
-		if strings.Contains(strings.ToLower(message.Body), "deploy") {
-			t.Errorf("%s/%s asserted deployment: %q", tc.event, tc.kind, message.Body)
+		for _, unavailable := range []bool{true, false} {
+			event := renderFixture(tc.event, tc.kind)
+			want, wantUnavailableLines := tc.unavailable, 1
+			if !unavailable {
+				event.Snapshot = CommitSnapshot{SourceOID: strings.Repeat("a", 40), BaseOID: strings.Repeat("b", 40), Commits: []CommitSummary{{SHA: strings.Repeat("a", 40), ShortSHA: "aaaaaaa", Subject: "subject"}}, CommitCount: 1, CommitCountKnown: true}
+				want, wantUnavailableLines = tc.available, 0
+			}
+			message, err := RenderBuiltin(event)
+			facts, factsErr := FixedFacts(event)
+			if err != nil || factsErr != nil || message.Title != tc.title || message.Body != want {
+				t.Errorf("%s/%s unavailable=%v = %+v, %v, %v", tc.event, tc.kind, unavailable, message, err, factsErr)
+			}
+			// Unavailable details are a fixed fact stated once; the body must not
+			// repeat it or refer to commits it never lists.
+			if n := strings.Count(message.Body+"\n"+facts, "Commit details unavailable; see the request."); n != wantUnavailableLines {
+				t.Errorf("%s/%s unavailable=%v stated unavailable details %d times:\n%s\n%s", tc.event, tc.kind, unavailable, n, message.Body, facts)
+			}
+			if strings.Contains(strings.ToLower(message.Body), "deploy") {
+				t.Errorf("%s/%s asserted deployment: %q", tc.event, tc.kind, message.Body)
+			}
 		}
 	}
 }

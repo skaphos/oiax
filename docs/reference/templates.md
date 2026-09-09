@@ -211,10 +211,11 @@ text, not Markdown or mentions. Dynamic render failures defer notification
 delivery without replacing the core result.
 
 Commit facts and labels are fixed at first event admission. GitHub creation
-details are explicitly unavailable rather than guessed from pre-POST hints;
-Azure can use a verified first iteration. Squash/rebase source SHAs are review
-identities, not a promise of destination SHAs. Truncation and unknown totals are
-reported independently of custom wording.
+details come from the origin Oiax wrote when it opened the request; the total is
+exact only when the head read back after the POST matched that origin, and
+unknown otherwise. Azure can use a verified first iteration. Squash/rebase
+source SHAs are review identities, not a promise of destination SHAs. Truncation
+and unknown totals are reported independently of custom wording.
 
 Each destination's rendered message is saved before its first attempt and reused
 after errors or uncertain acceptance. Template edits affect only not-yet-rendered

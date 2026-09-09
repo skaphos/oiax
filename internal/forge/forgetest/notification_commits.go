@@ -29,7 +29,7 @@ func RunNotificationSnapshots(t *testing.T, factory func(*testing.T, SnapshotCas
 				}
 				reader, req := factory(t, SnapshotCase{Kind: kind, Mode: mode, Count: count})
 				got, err := reader.GetCommitSnapshot(context.Background(), req, forge.EventRevision{Kind: kind, SourceOID: req.SourceOID, BaseOID: req.BaseOID, MergeResultOID: req.MergeResultOID})
-				if mode == "unavailable" || (req.Repository.Provider == "github" && kind == v1.NotificationRequestCreated) {
+				if mode == "unavailable" {
 					if !got.CommitsUnavailable || len(got.Commits) != 0 {
 						t.Fatal("unverified history asserted", err)
 					}

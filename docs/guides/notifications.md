@@ -102,9 +102,15 @@ facts cannot be removed. Text is inert on Teams and Slack. Non-request HTTP(S)
 addresses are redacted from free-form text to avoid exposing secret-bearing URLs.
 
 Commit membership describes the event, never a later moving branch. GitHub merge
-summaries use completed review membership; exact GitHub creation membership is
-unavailable because the API does not establish a first creation iteration. Azure
-uses first-iteration OIDs for creation and completed last-merge OIDs for merges.
+summaries use completed review membership. GitHub creation membership comes from
+the origin Oiax wrote when it opened the request: the commits reachable from the
+origin's source OID but not from its base OID. Right after the POST, Oiax reads
+the request back; when its head still equals the origin's source OID the origin
+is marked verified (`headVerified`) and the commit total is exact. Otherwise the
+same commits are listed with an unknown total. Requests without an origin
+(opened before notifications were enabled, or adopted rather than created) have
+no creation membership. Azure uses first-iteration OIDs for creation and
+completed last-merge OIDs for merges.
 Unavailable evidence does not discard the notification. At most 100 summaries
 are included, with 200-rune subjects and explicit truncation/unknown-total flags.
 Reviewed source SHAs need not equal destination SHAs after squash/rebase.

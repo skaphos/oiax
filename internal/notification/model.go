@@ -111,6 +111,11 @@ type NotificationOriginV1 struct {
 	LogicalTarget string    `json:"logicalTarget"`
 	SourceOID     string    `json:"sourceOID"`
 	BaseOID       string    `json:"baseOID"`
+	// HeadVerified records that the request's head still equaled SourceOID when
+	// read back immediately after the creating POST, so BaseOID..SourceOID is
+	// exact creation membership. Origins written before this field existed
+	// omit it and are unverified.
+	HeadVerified bool `json:"headVerified,omitempty"`
 }
 
 type CommitSummary struct {
