@@ -158,33 +158,45 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 	}
 
 	var claimed []string
+	var unrenderable map[string]error
 	prepared, err := r.commit(ctx, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
 		if l == nil {
 			return nil, notification.ErrAbsent
 		}
+		// The transition is re-evaluated on every conflict, so per-record
+		// failures are rebuilt from the fresh snapshot each time.
+		failed := map[string]error{}
 		present := make([]string, 0, len(keys))
 		for _, key := range keys {
 			record, ok := l.Deliveries[key]
 			if !ok {
 				continue
 			}
+			if record.Message == nil {
+				message, err := templates.Render(name, l.Events[record.EventID])
+				if err == nil {
+					l, err = notification.SaveMessage(l, r.ConfigOID, key, message)
+				}
+				if err != nil {
+					// A record whose message cannot be saved stays pending on
+					// its own, exactly as the per-record loop left it; it must
+					// not block the destination's other due work.
+					failed[key] = err
+					continue
+				}
+			}
 			present = append(present, key)
-			if record.Message != nil {
-				continue
-			}
-			message, err := templates.Render(name, l.Events[record.EventID])
-			if err != nil {
-				return nil, err
-			}
-			l, err = notification.SaveMessage(l, r.ConfigOID, key, message)
-			if err != nil {
-				return nil, err
-			}
 		}
+		unrenderable = failed
 		var err error
 		l, claimed, err = notification.ClaimBatch(l, r.ConfigOID, name, batchID, present, attempts, r.now())
 		return l, err
 	})
+	if err == nil || errors.Is(err, notification.ErrNotDue) {
+		for key, renderErr := range unrenderable {
+			results <- deliveryOutcome{index: indexes[key], err: failure(renderErr), destination: name}
+		}
+	}
 	if errors.Is(err, notification.ErrNotDue) {
 		return
 	}

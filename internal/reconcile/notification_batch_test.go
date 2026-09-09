@@ -376,3 +376,57 @@ func TestNotificationBatchStopsWhenPolicyChangesMidBatch(t *testing.T) {
 		t.Fatalf("batch lease was not released after stopping: %+v", d)
 	}
 }
+
+// One event whose message cannot be rendered stays pending by itself; the
+// destination's other due records are still claimed and sent in the batch.
+func TestNotificationBatchIsolatesUnrenderableRecord(t *testing.T) {
+	t.Parallel()
+	clock := notificationtest.NewClock(time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC))
+	store := &notificationtest.MemoryStore{}
+	policy := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "ops", Type: "webhook", EndpointEnv: "AUDIT"}}}
+	runtime := mergeRuntime(clock.Now, store, policy)
+	runtime.Wait = func(ctx context.Context, delay time.Duration) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		clock.Advance(delay)
+		return nil
+	}
+	sender := &notificationtest.Recorder{Result: notification.AttemptResult{Code: notification.OutcomeAccepted, Status: 204}}
+	runtime.Sender = func(v1.NotificationDestination) notification.Sender { return sender }
+	var diagnostics []NotificationDiagnostic
+	runtime.Report = func(d NotificationDiagnostic) { diagnostics = append(diagnostics, d) }
+	if err := runtime.Activate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	good := mergeEvent(runtime.Repository, "100", clock.Now())
+	bad := mergeEvent(runtime.Repository, "101", clock.Now().Add(time.Second))
+	bad.Request.Source = strings.Repeat("x", 13<<10) // fixed facts exceed their limit
+	last := mergeEvent(runtime.Repository, "102", clock.Now().Add(2*time.Second))
+	if err := runtime.Admit(context.Background(), []notification.EventV1{good, bad, last}); err != nil {
+		t.Fatal(err)
+	}
+	diagnostics = nil // activation reported its own cutoff diagnostic
+	err := runtime.Dispatch(context.Background())
+	if !errors.Is(err, notification.ErrCapacity) {
+		t.Fatalf("unrenderable record was not reported: %v", err)
+	}
+	if got := len(sender.Payloads()); got != 2 {
+		t.Fatalf("renderable records were blocked: sends=%d", got)
+	}
+	reasons := map[string]int{}
+	for _, d := range diagnostics {
+		reasons[d.Reason]++
+	}
+	if reasons["delivered"] != 2 || reasons["notification-capacity-exhausted"] != 1 || len(diagnostics) != 3 {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+	for key, record := range ledgerRecords(t, store) {
+		switch {
+		case record.EventID == bad.ID && (record.Status != notification.StatusPending || record.Message != nil || record.Attempts != 0):
+			t.Fatalf("unrenderable record was claimed or altered: %s = %+v", key, record)
+		case record.EventID != bad.ID && record.Status != notification.StatusDelivered:
+			t.Fatalf("renderable record not delivered: %s = %+v", key, record)
+		}
+	}
+}

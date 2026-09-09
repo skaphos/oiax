@@ -140,8 +140,9 @@ with the destination, reason, HTTP status (when an exchange completed) and
 elapsed milliseconds; endpoints and payload text are never logged. Backoff and
 bounded Retry-After survive runs.
 One failed receiver does not block others or alter core reconcile exits 0/1/3.
-Runtime rendering overflow stays pending until corrected; validation failures
-still fail before core mutation. Payloads cap at 24 KiB and responses at 16 KiB.
+Runtime rendering overflow leaves only that record pending until corrected,
+without blocking the destination's other deliveries; validation failures still
+fail before core mutation. Payloads cap at 24 KiB and responses at 16 KiB.
 The ledger caps at 8 MiB and 50,000 delivery records; capacity exhaustion suspends
 new work without removing receipts. Review backlog and retention requirements
 before adopting high-volume use; no destructive automatic pruning is provided.
