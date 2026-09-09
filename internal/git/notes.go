@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
 
 var (
@@ -22,6 +24,11 @@ var (
 )
 
 const maxNotesBytes = 8 << 20
+
+// notesCommandTimeout bounds every git invocation the notes writer makes, so a
+// hung network operation can hold the writer's lock for at most this long
+// instead of until the caller's whole stage budget expires. Tests lower it.
+var notesCommandTimeout = 60 * time.Second
 
 var notesKeyPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var notesOIDPattern = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
@@ -40,6 +47,13 @@ type NotesOptions struct {
 type NotificationNotes struct {
 	dir, remote, ref string
 	env              []string
+
+	mu sync.Mutex
+	// knownTip is the remote tip whose objects are already in the private
+	// database (last fetched or last pushed), so an unchanged advertisement
+	// needs no fetch. pushedTip and pushedAnchor identify the tip this process
+	// last pushed; appending to it relies on the push lease alone as the CAS.
+	knownTip, pushedTip, pushedAnchor string
 }
 
 func OpenNotificationNotes(ctx context.Context, options NotesOptions) (*NotificationNotes, error) {
@@ -102,6 +116,8 @@ func (n *NotificationNotes) run(ctx context.Context, input []byte, limit int, ar
 	if n.dir == "" {
 		return nil, ErrNotesInvalid
 	}
+	ctx, cancel := context.WithTimeout(ctx, notesCommandTimeout)
+	defer cancel()
 	base := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "commit.gpgSign=false", "-c", "http.followRedirects=false", "-c", "protocol.ext.allow=never", "-c", "protocol.file.allow=always", "-c", "gc.auto=0"}
 	cmd := exec.CommandContext(ctx, "git", append(base, args...)...)
 	cmd.Dir = n.dir
@@ -115,6 +131,9 @@ func (n *NotificationNotes) run(ctx context.Context, input []byte, limit int, ar
 	cmd.Stdin = bytes.NewReader(input)
 	output := capWriter{limit: limit}
 	cmd.Stdout = &output
+	// After the bound kills git, its transport helpers (ssh, git-remote-https)
+	// may still hold the stdout pipe; do not let them pin the writer's lock.
+	cmd.WaitDelay = time.Second
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -132,6 +151,12 @@ type NoteSnapshot struct {
 // Read distinguishes successful empty advertisement from denial/transport errors.
 // Fetch writes only inside the private object database, never to the remote.
 func (n *NotificationNotes) Read(ctx context.Context) (NoteSnapshot, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.read(ctx)
+}
+
+func (n *NotificationNotes) read(ctx context.Context) (NoteSnapshot, error) {
 	output, err := n.run(ctx, nil, 1024, "ls-remote", "--refs", "--", n.remote, n.ref)
 	if err != nil {
 		return NoteSnapshot{}, err
@@ -143,10 +168,17 @@ func (n *NotificationNotes) Read(ctx context.Context) (NoteSnapshot, error) {
 	if len(fields) != 2 || !notesOIDPattern.MatchString(fields[0]) || fields[1] != n.ref {
 		return NoteSnapshot{}, ErrNotesInvalid
 	}
-	if _, err := n.run(ctx, nil, 1024, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--", n.remote, "+"+n.ref+":"+n.ref); err != nil {
-		return NoteSnapshot{}, err
+	advertised := fields[0]
+	verify := advertised + "^{commit}"
+	if advertised != n.knownTip {
+		// The advertised tip moved or was never seen: fetch it. An unchanged
+		// tip is already complete locally, so only the advertisement is needed.
+		if _, err := n.run(ctx, nil, 1024, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--", n.remote, "+"+n.ref+":"+n.ref); err != nil {
+			return NoteSnapshot{}, err
+		}
+		verify = n.ref + "^{commit}"
 	}
-	tipBytes, err := n.run(ctx, nil, 128, "rev-parse", "--verify", n.ref+"^{commit}")
+	tipBytes, err := n.run(ctx, nil, 128, "rev-parse", "--verify", verify)
 	if err != nil {
 		return NoteSnapshot{}, ErrNotesInvalid
 	}
@@ -154,7 +186,12 @@ func (n *NotificationNotes) Read(ctx context.Context) (NoteSnapshot, error) {
 	if !notesOIDPattern.MatchString(tip) {
 		return NoteSnapshot{}, ErrNotesInvalid
 	}
-	return n.readTip(ctx, tip)
+	snapshot, err := n.readTip(ctx, tip)
+	if err != nil {
+		return NoteSnapshot{}, err
+	}
+	n.knownTip = tip
+	return snapshot, nil
 }
 
 func (n *NotificationNotes) readTip(ctx context.Context, tip string) (NoteSnapshot, error) {
@@ -200,15 +237,22 @@ func (n *NotificationNotes) Write(ctx context.Context, expected, anchor string, 
 	if len(data) > maxNotesBytes {
 		return "", ErrNotesCapacity
 	}
-	current, err := n.Read(ctx)
-	if err != nil && !errors.Is(err, ErrNotesAbsent) {
-		return "", err
-	}
-	if current.Tip != expected {
-		return "", ErrNotesConflict
-	}
-	if expected != "" && current.AnchorOID != anchor {
-		return "", ErrNotesInvalid
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	// Appending to the tip this process pushed last needs no pre-read: that
+	// parent and its anchor were verified locally, and the push lease below is
+	// the compare-and-swap. Any other expected tip is re-advertised first.
+	if expected == "" || expected != n.pushedTip || anchor != n.pushedAnchor {
+		current, err := n.read(ctx)
+		if err != nil && !errors.Is(err, ErrNotesAbsent) {
+			return "", err
+		}
+		if current.Tip != expected {
+			return "", ErrNotesConflict
+		}
+		if expected != "" && current.AnchorOID != anchor {
+			return "", ErrNotesInvalid
+		}
 	}
 	if expected == "" {
 		// Anchor must be a real reachable configuration commit, not a blob or
@@ -249,11 +293,13 @@ func (n *NotificationNotes) Write(ctx context.Context, expected, anchor string, 
 	_, err = n.run(ctx, nil, 2048, "push", "--porcelain", "--no-verify", "--force-with-lease="+n.ref+":"+expected, "--", n.remote, tip+":"+n.ref)
 	if err != nil {
 		// Re-advertise to distinguish a real expected-tip race from denial.
-		latest, readErr := n.Read(ctx)
+		n.pushedTip, n.pushedAnchor = "", ""
+		latest, readErr := n.read(ctx)
 		if (readErr == nil || errors.Is(readErr, ErrNotesAbsent)) && latest.Tip != expected {
 			return "", ErrNotesConflict
 		}
 		return "", err
 	}
+	n.knownTip, n.pushedTip, n.pushedAnchor = tip, tip, anchor
 	return tip, nil
 }

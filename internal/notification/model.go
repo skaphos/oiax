@@ -20,7 +20,17 @@ const (
 	MaxLedgerBytes = 8 << 20
 	MaxDeliveries  = 50000
 	MaxCommits     = 100
-	ClaimDuration  = 120 * time.Second
+	// ClaimDuration is the concurrency fence for one claimed attempt or batch;
+	// it is not a throughput budget for a run.
+	ClaimDuration = 120 * time.Second
+	// FinalizeBudget bounds one invocation's whole notification finalization
+	// stage (observation and dispatch) independently of the lease length.
+	FinalizeBudget = 10 * time.Minute
+	// ReceiptWriteTimeout bounds the ledger write that records results after a
+	// POST has been issued; that write must survive stage cancellation. It
+	// outlasts one blocked notes command (bounded separately by the notes
+	// writer) so another destination's stalled commit cannot consume it.
+	ReceiptWriteTimeout = 90 * time.Second
 	// Reserve worst-case serialized claim/result metadata for every pending
 	// delivery, including a bounded operation ID and timestamps, before sending.
 	ResultReserveBytes = 2048
@@ -211,10 +221,22 @@ const (
 	OutcomeRetired          OutcomeCode = "subscription-retired"
 )
 
+// AttemptResult carries the receiver's integer HTTP status for post-exchange
+// outcomes. Receiver response text is never retained.
 type AttemptResult struct {
 	Code       OutcomeCode
 	RetryAfter time.Duration
+	Status     int
 }
+
+// OutcomeError is the leaf error for a failed attempt. Its text is exactly
+// the outcome code so diagnostics can classify it without interpolation.
+type OutcomeError struct {
+	Code   OutcomeCode
+	Status int
+}
+
+func (e OutcomeError) Error() string { return string(e.Code) }
 
 type DeliveryRecord struct {
 	EventID       string         `json:"eventID"`
@@ -226,11 +248,15 @@ type DeliveryRecord struct {
 	Lease         Lease          `json:"lease"`
 	// AttemptIDs retain evidence for late accepted responses. They are bounded
 	// by the ledger byte budget and never silently pruned.
-	AttemptIDs  []string           `json:"attemptIDs,omitempty"`
-	AcceptedAt  time.Time          `json:"acceptedAt"`
-	DeliveredAt time.Time          `json:"deliveredAt"`
-	Code        OutcomeCode        `json:"code,omitempty"`
-	Message     *RenderedMessageV1 `json:"message,omitempty"`
+	AttemptIDs  []string    `json:"attemptIDs,omitempty"`
+	AcceptedAt  time.Time   `json:"acceptedAt"`
+	DeliveredAt time.Time   `json:"deliveredAt"`
+	Code        OutcomeCode `json:"code,omitempty"`
+	// LastStatus is the receiver's HTTP status from the most recently recorded
+	// attempt, or zero when no exchange completed. Older binaries reject
+	// ledgers carrying this field; it is omitted until a status is recorded.
+	LastStatus int                `json:"lastStatus,omitempty"`
+	Message    *RenderedMessageV1 `json:"message,omitempty"`
 }
 
 type ScanProgress struct {

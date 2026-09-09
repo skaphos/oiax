@@ -136,31 +136,46 @@ func (c *Client) Send(ctx context.Context, endpoint string, payload notification
 		return result(notification.OutcomeNetwork)
 	}
 	defer func() { _ = response.Body.Close() }()
-	data, err := io.ReadAll(io.LimitReader(response.Body, (16<<10)+1))
-	if err != nil {
-		return result(notification.OutcomeNetwork)
-	}
-	if len(data) > 16<<10 {
-		return result(notification.OutcomeResponseTooLarge)
-	}
+	// Every post-exchange outcome carries the integer status so operators can
+	// tell a refused request apart from a transport problem. Response body
+	// text is never retained: it may echo the secret-bearing endpoint.
 	status := response.StatusCode
+	exchanged := func(code notification.OutcomeCode) notification.AttemptResult {
+		return notification.AttemptResult{Code: code, Status: status}
+	}
 	if status == http.StatusTooManyRequests {
-		return notification.AttemptResult{Code: notification.OutcomeRateLimited, RetryAfter: retryAfter(response.Header.Get("Retry-After"), time.Now())}
+		return notification.AttemptResult{Code: notification.OutcomeRateLimited, RetryAfter: retryAfter(response.Header.Get("Retry-After"), time.Now()), Status: status}
 	}
 	if status == http.StatusRequestTimeout || status >= 500 {
-		return result(notification.OutcomeService)
+		return exchanged(notification.OutcomeService)
 	}
 	if status >= 300 && status < 400 {
-		return result(notification.OutcomeRedirect)
+		return exchanged(notification.OutcomeRedirect)
 	}
-	if c.kind == v1.NotificationSlack {
-		if status == 200 && strings.TrimSpace(string(data)) == "ok" {
-			return result(notification.OutcomeAccepted)
+	if c.kind != v1.NotificationSlack {
+		// Teams and generic webhooks are decided by the status line alone. The
+		// body is drained within a bound and discarded, so a body that is
+		// oversized or cut short can never turn an accepted request into a
+		// retry, and therefore into a duplicate.
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 16<<10))
+		if status >= 200 && status < 300 {
+			return exchanged(notification.OutcomeAccepted)
 		}
-	} else if status >= 200 && status < 300 {
-		return result(notification.OutcomeAccepted)
+		return exchanged(notification.OutcomeConfiguration)
 	}
-	return result(notification.OutcomeConfiguration)
+	// Slack acknowledges only with a 200 whose body is exactly "ok", so its
+	// body must be read; the status is still carried on every outcome.
+	data, err := io.ReadAll(io.LimitReader(response.Body, (16<<10)+1))
+	if err != nil {
+		return exchanged(notification.OutcomeNetwork)
+	}
+	if len(data) > 16<<10 {
+		return exchanged(notification.OutcomeResponseTooLarge)
+	}
+	if status == 200 && strings.TrimSpace(string(data)) == "ok" {
+		return exchanged(notification.OutcomeAccepted)
+	}
+	return exchanged(notification.OutcomeConfiguration)
 }
 
 func retryAfter(value string, now time.Time) time.Duration {

@@ -3,11 +3,17 @@ package reconcile
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/skaphos/oiax/v2/internal/notification"
 )
 
-type NotificationDiagnostic struct{ Destination, Reason, Action string }
+// NotificationDiagnostic carries only closed reason/action text plus the
+// receiver's integer HTTP status when an exchange completed.
+type NotificationDiagnostic struct {
+	Destination, Reason, Action string
+	Status                      int
+}
 
 // Scope labels global failures without inventing a configured destination.
 func (d NotificationDiagnostic) Scope() string {
@@ -26,6 +32,9 @@ func NotificationProblem(err error) NotificationDiagnostic {
 		d.Reason, d.Action = "delivered", "Delivery has a persisted receipt; no retry is needed."
 	case errors.Is(err, notification.ErrReceiptUncertain):
 		d.Reason, d.Action = "accepted-receipt-uncertain", "Receiver may have accepted this event; retry preserves its ID but may duplicate visibility."
+		_, d.Status = notificationOutcome(err)
+	case errors.Is(err, notification.ErrClaimLost):
+		d.Reason, d.Action = "delivery-claim-lost", "Another attempt settled this record while the batch was sending; its durable receipt is authoritative and no send was made."
 	case errors.Is(err, notification.ErrStaleRevision):
 		d.Reason, d.Action = "stale-config-revision", "Run the latest reviewed descendant configuration commit."
 	case errors.Is(err, notification.ErrUnorderedRevision):
@@ -47,12 +56,21 @@ func NotificationProblem(err error) NotificationDiagnostic {
 	}
 	// Compare complete leaf codes, never interpolate an arbitrary error string.
 	if d.Reason == "notification-deferred" {
-		if code := notificationOutcome(err); code != "" {
+		if code, status := notificationOutcome(err); code != "" {
 			d.Reason = string(code)
+			d.Status = status
 			switch code {
 			case notification.OutcomeMissingSecret:
 				d.Action = "Set the named runtime endpoint variable, then retry."
-			case notification.OutcomeConfiguration, notification.OutcomeInvalidEndpoint, notification.OutcomeRedirect:
+			case notification.OutcomeConfiguration:
+				// A status means the request reached the receiver and was
+				// refused; no status means it was never exchanged. Only the
+				// integer status is ever interpolated.
+				d.Action = "The request was never exchanged with the receiver: the payload could not be encoded for this transport. Review custom presentation and the destination type, then retry."
+				if status != 0 {
+					d.Action = fmt.Sprintf("Receiver refused the request (HTTP %d); check the webhook URL and signature, that the flow is enabled, and that its trigger schema accepts the documented payload.", status)
+				}
+			case notification.OutcomeInvalidEndpoint, notification.OutcomeRedirect:
 				d.Action = "Review endpoint HTTPS, TLS, DNS and private-network policy, then retry."
 			case notification.OutcomePayloadTooLarge, notification.OutcomeResponseTooLarge:
 				d.Action = "Reduce custom presentation or receiver response size, then retry."
@@ -63,30 +81,39 @@ func NotificationProblem(err error) NotificationDiagnostic {
 			}
 		}
 	}
+	if d.Status == 0 {
+		// A storage sentinel may outrank the outcome, but the receiver's
+		// status is still worth reporting when an exchange completed.
+		_, d.Status = notificationOutcome(err)
+	}
 	return d
 }
 
 // notificationOutcome walks wrapped and joined errors depth-first, left-to-right.
 // A summary selects the first recognized leaf; per-destination diagnostics are
 // still reported separately. Never classify a wrapper's combined error text.
-func notificationOutcome(err error) notification.OutcomeCode {
+func notificationOutcome(err error) (notification.OutcomeCode, int) {
 	if err == nil {
-		return ""
+		return "", 0
 	}
 	switch current := err.(type) {
 	case interface{ Unwrap() []error }:
 		for _, child := range current.Unwrap() {
-			if code := notificationOutcome(child); code != "" {
-				return code
+			if code, status := notificationOutcome(child); code != "" {
+				return code, status
 			}
 		}
 	case interface{ Unwrap() error }:
 		return notificationOutcome(current.Unwrap())
 	default:
+		var outcome notification.OutcomeError
+		if errors.As(err, &outcome) && notification.ValidOutcome(outcome.Code) {
+			return outcome.Code, outcome.Status
+		}
 		code := notification.OutcomeCode(err.Error())
 		if notification.ValidOutcome(code) {
-			return code
+			return code, 0
 		}
 	}
-	return ""
+	return "", 0
 }

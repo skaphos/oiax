@@ -25,7 +25,7 @@ func (c *Coordinator) PrepareNotifications(ctx context.Context) error {
 // FinalizeNotifications recovers actual POST outcomes independently of scans,
 // then observes lifecycle and dispatches. It never replaces the core result.
 func (c *Coordinator) FinalizeNotifications(ctx context.Context, outcomes ...forge.CreateOutcome) error {
-	ctx, cancel := context.WithTimeout(ctx, notification.ClaimDuration)
+	ctx, cancel := context.WithTimeout(ctx, notification.FinalizeBudget)
 	defer cancel()
 	return c.withNotificationRuntime(ctx, func(r *NotificationRuntime) error {
 		if err := r.Activate(ctx); err != nil {
@@ -98,6 +98,7 @@ func (c *Coordinator) withNotificationRuntime(ctx context.Context, run func(*Not
 			return delivery.NewClient(destination.Type, destination.AllowPrivateNetwork)
 		},
 		VerifyRevision: c.notificationRevisionRelation,
+		Log:            c.log(),
 	}
 	return run(runtime)
 }

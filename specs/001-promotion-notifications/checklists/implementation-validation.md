@@ -155,7 +155,7 @@ template overflow alongside a healthy destination on both forges.
 2026-09-05: snapshot enrichment is wired outside ledger CAS callbacks. First
 admission fixes bounded commit facts and environment labels; rereads and retries
 cannot replace them. Enrichment has a ten-second page budget and finalization a
-shared two-minute budget. Enrichment failure preserves the lifecycle event with
+shared ten-minute budget. Enrichment failure preserves the lifecycle event with
 explicit unavailable details.
 
 GitHub reads completed PR review membership with authoritative detail totals,

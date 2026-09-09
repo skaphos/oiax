@@ -81,3 +81,69 @@ func TestNotificationPresentationRedactsAddresses(t *testing.T) {
 		}
 	}
 }
+
+func TestNotificationDiagnosticsCarryReceiverStatus(t *testing.T) {
+	t.Parallel()
+	const refused = "Receiver refused the request (HTTP 400); check the webhook URL and signature, that the flow is enabled, and that its trigger schema accepts the documented payload."
+	const refusedNoStatus = "The request was never exchanged with the receiver: the payload could not be encoded for this transport. Review custom presentation and the destination type, then retry."
+	const transport = "Review endpoint HTTPS, TLS, DNS and private-network policy, then retry."
+	for _, tc := range []struct {
+		name   string
+		err    error
+		reason string
+		status int
+		action string
+	}{
+		{"typed configuration", notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 400}, "configuration-failure", 400, refused},
+		{"wrapped and joined", fmt.Errorf("destination ops: %w", errors.Join(errors.New("https://receiver.invalid/credential-canary"), notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 400})), "configuration-failure", 400, refused},
+		{"text-only configuration", errors.New(string(notification.OutcomeConfiguration)), "configuration-failure", 0, refusedNoStatus},
+		{"configuration without exchange", notification.OutcomeError{Code: notification.OutcomeConfiguration}, "configuration-failure", 0, refusedNoStatus},
+		{"invalid endpoint keeps transport text", notification.OutcomeError{Code: notification.OutcomeInvalidEndpoint}, "invalid-endpoint", 0, transport},
+		{"redirect keeps transport text", notification.OutcomeError{Code: notification.OutcomeRedirect, Status: 307}, "redirect-rejected", 307, transport},
+		{"service status", notification.OutcomeError{Code: notification.OutcomeService, Status: 503}, "service-failure", 503, "Retry when the saved backoff expires; the event ID and attempted payload remain unchanged."},
+		{"unknown code is not classified", notification.OutcomeError{Code: "https://receiver.invalid/credential-canary", Status: 400}, "notification-deferred", 0, "Retry reconciliation; inspect provider and notes permissions."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := NotificationProblem(tc.err)
+			if d.Reason != tc.reason || d.Status != tc.status || d.Action != tc.action {
+				t.Fatalf("diagnostic = %+v", d)
+			}
+			if strings.Contains(d.Reason+d.Action, "credential-canary") {
+				t.Fatal("diagnostic leaked receiver text")
+			}
+		})
+	}
+}
+
+func TestNotificationConfigurationActionDistinguishesExchangedRequests(t *testing.T) {
+	t.Parallel()
+	refused := NotificationProblem(notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 401})
+	if refused.Status != 401 || !strings.Contains(refused.Action, "HTTP 401") || !strings.Contains(refused.Action, "refused") {
+		t.Fatalf("refused request diagnostic = %+v", refused)
+	}
+	local := NotificationProblem(notification.OutcomeError{Code: notification.OutcomeConfiguration})
+	if local.Status != 0 || strings.Contains(local.Action, "refused") || !strings.Contains(local.Action, "never exchanged") {
+		t.Fatalf("local failure diagnostic = %+v", local)
+	}
+	uncertain := NotificationProblem(errors.Join(notification.ErrReceiptUncertain, notification.OutcomeError{Code: notification.OutcomeAccepted, Status: 202}, notification.ErrUnavailable))
+	if uncertain.Reason != "accepted-receipt-uncertain" || uncertain.Status != 202 {
+		t.Fatalf("uncertain receipt diagnostic = %+v", uncertain)
+	}
+	lost := NotificationProblem(fmt.Errorf("destination ops: %w", notification.ErrClaimLost))
+	if lost.Reason != "delivery-claim-lost" || lost.Action == "" {
+		t.Fatalf("claim lost diagnostic = %+v", lost)
+	}
+}
+
+func TestNotificationDiagnosticsKeepStatusWhenReceiptWriteFails(t *testing.T) {
+	t.Parallel()
+	refused := NotificationProblem(errors.Join(notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 400}, notification.ErrUnavailable))
+	if refused.Reason != "configuration-failure" || refused.Status != 400 {
+		t.Fatalf("refused with failed receipt = %+v", refused)
+	}
+	capacity := NotificationProblem(errors.Join(notification.OutcomeError{Code: notification.OutcomeService, Status: 503}, notification.ErrCapacity))
+	if capacity.Reason != "notification-capacity-exhausted" || capacity.Status != 503 {
+		t.Fatalf("sentinel outranks outcome but must keep the status: %+v", capacity)
+	}
+}

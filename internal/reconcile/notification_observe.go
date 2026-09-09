@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -17,7 +18,17 @@ import (
 // NotificationRuntime owns effects independently of the branch engine. All
 // callback dependencies are installed before use; one instance is one invocation.
 type NotificationRuntime struct {
-	commitMu       sync.Mutex
+	// hintMu guards revision, the last ledger tip this runtime read or wrote.
+	// It is the hint passed to LedgerStore.Commit so a write needs no separate
+	// pre-read.
+	hintMu   sync.Mutex
+	revision string
+	// commitSlot serializes commits so concurrent destination batches do not
+	// conflict against each other. It is acquired under the caller's context:
+	// a bounded receipt write must not spend its budget queued behind another
+	// batch's blocked notes operation, and then fail once it is admitted.
+	commitOnce     sync.Once
+	commitSlot     chan struct{}
 	Store          notification.LedgerStore
 	Reader         forge.LifecycleReader
 	Repository     notification.RepositoryIdentity
@@ -33,6 +44,18 @@ type NotificationRuntime struct {
 	Wait           func(context.Context, time.Duration) error
 	Close          func() error
 	Report         func(NotificationDiagnostic)
+	Log            *slog.Logger
+}
+
+// discardLogger is shared so per-attempt logging never allocates a handler
+// when no logger was installed.
+var discardLogger = slog.New(slog.DiscardHandler)
+
+func (r *NotificationRuntime) log() *slog.Logger {
+	if r.Log != nil {
+		return r.Log
+	}
+	return discardLogger
 }
 
 func (r *NotificationRuntime) now() time.Time {
@@ -59,23 +82,64 @@ func policyDigest(p *v1.NotificationPolicy) string {
 	return notification.Digest("policy-v1", string(data))
 }
 
-// commit supplies the caller-observed revision required by LedgerStore and
-// retries only explicit CAS conflicts. The transition is deliberately passed
-// through unchanged so every attempt reduces a freshly read snapshot.
+// read observes the durable ledger and remembers its tip for later commits.
+func (r *NotificationRuntime) read(ctx context.Context) (notification.Snapshot, error) {
+	snapshot, err := r.Store.Read(ctx)
+	if err == nil || errors.Is(err, notification.ErrAbsent) {
+		r.hintMu.Lock()
+		r.revision = snapshot.Revision
+		r.hintMu.Unlock()
+	}
+	return snapshot, err
+}
+
+// acquireCommit takes the commit slot or gives up when the context ends first.
+func (r *NotificationRuntime) acquireCommit(ctx context.Context) error {
+	r.commitOnce.Do(func() { r.commitSlot = make(chan struct{}, 1) })
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case r.commitSlot <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (r *NotificationRuntime) releaseCommit() { <-r.commitSlot }
+
+// commit supplies the last observed revision as the hint LedgerStore requires
+// and retries only explicit CAS conflicts, re-reading before each retry. The
+// transition is deliberately passed through unchanged so every attempt reduces
+// a freshly read snapshot; the store itself never trusts the hint.
 func (r *NotificationRuntime) commit(ctx context.Context, transition notification.Transition) (notification.Snapshot, error) {
 	if r.Store == nil || transition == nil {
 		return notification.Snapshot{}, notification.ErrInvalidState
 	}
-	r.commitMu.Lock()
-	defer r.commitMu.Unlock()
-	for range 5 {
-		current, err := r.Store.Read(ctx)
-		if err != nil && !errors.Is(err, notification.ErrAbsent) {
-			return notification.Snapshot{}, err
+	if err := r.acquireCommit(ctx); err != nil {
+		return notification.Snapshot{}, err
+	}
+	defer r.releaseCommit()
+	r.hintMu.Lock()
+	expected := r.revision
+	r.hintMu.Unlock()
+	for attempt := range 5 {
+		if attempt > 0 {
+			current, err := r.Store.Read(ctx)
+			if err != nil && !errors.Is(err, notification.ErrAbsent) {
+				return notification.Snapshot{}, err
+			}
+			expected = current.Revision
 		}
-		next, err := r.Store.Commit(ctx, current.Revision, transition)
+		next, err := r.Store.Commit(ctx, expected, transition)
 		if errors.Is(err, notification.ErrConflict) {
 			continue
+		}
+		if err == nil {
+			r.hintMu.Lock()
+			r.revision = next.Revision
+			r.hintMu.Unlock()
 		}
 		return next, err
 	}
@@ -90,7 +154,7 @@ func (r *NotificationRuntime) Activate(ctx context.Context) error {
 		return notification.ErrInvalidState
 	}
 	revision := notification.PolicyRevisionV1{ConfigOID: r.ConfigOID, PolicyDigest: policyDigest(r.Policy)}
-	_, initialErr := r.Store.Read(ctx)
+	_, initialErr := r.read(ctx)
 	now := r.now()
 	_, err := r.commit(ctx, func(ctx context.Context, current *notification.LedgerV1) (*notification.LedgerV1, error) {
 		if current == nil {
@@ -142,7 +206,7 @@ func (r *NotificationRuntime) Observe(ctx context.Context) error {
 	if r.Reader == nil || r.Topology == nil {
 		return notification.ErrLifecycleUnavailable
 	}
-	snapshot, err := r.Store.Read(ctx)
+	snapshot, err := r.read(ctx)
 	if err != nil {
 		return err
 	}
@@ -216,7 +280,7 @@ func (r *NotificationRuntime) Observe(ctx context.Context) error {
 func (r *NotificationRuntime) recordObservation(ctx context.Context, requests []notification.LifecycleRequest, scan string, progress notification.ScanProgress, now time.Time) error {
 	// Provider enrichment happens outside CAS callbacks. Conflicts re-reduce
 	// captured facts, never reread a moving remote inside a state transition.
-	snapshot, err := r.Store.Read(ctx)
+	snapshot, err := r.read(ctx)
 	if err != nil {
 		return err
 	}

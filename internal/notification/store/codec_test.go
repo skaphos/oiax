@@ -188,6 +188,9 @@ func TestNotificationLedgerFullStateValidation(t *testing.T) {
 		}},
 		{"bad status", func(l *notification.LedgerV1) { r := l.Deliveries[key]; r.Status = "untrusted"; l.Deliveries[key] = r }},
 		{"bad code", func(l *notification.LedgerV1) { r := l.Deliveries[key]; r.Code = "secret"; l.Deliveries[key] = r }},
+		{"low http status", func(l *notification.LedgerV1) { r := l.Deliveries[key]; r.LastStatus = 99; l.Deliveries[key] = r }},
+		{"high http status", func(l *notification.LedgerV1) { r := l.Deliveries[key]; r.LastStatus = 600; l.Deliveries[key] = r }},
+		{"negative http status", func(l *notification.LedgerV1) { r := l.Deliveries[key]; r.LastStatus = -1; l.Deliveries[key] = r }},
 		{"false delivered", func(l *notification.LedgerV1) {
 			r := l.Deliveries[key]
 			r.Status = notification.StatusDelivered
@@ -259,7 +262,7 @@ func TestNotificationLedgerFullStateValidation(t *testing.T) {
 			}
 		})
 	}
-	for _, result := range []notification.AttemptResult{{Code: notification.OutcomeAccepted}, {Code: notification.OutcomeNetwork}} {
+	for _, result := range []notification.AttemptResult{{Code: notification.OutcomeAccepted}, {Code: notification.OutcomeNetwork}, {Code: notification.OutcomeConfiguration, Status: 400}, {Code: notification.OutcomeAccepted, Status: 202}} {
 		l, err := notification.RecordResult(baseline, key, "attempt", result, time.Date(2026, 9, 4, 18, 1, 0, 0, time.UTC))
 		if err != nil {
 			t.Fatal(err)
@@ -268,8 +271,17 @@ func TestNotificationLedgerFullStateValidation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Decode(bytes.NewReader(data)); err != nil {
+		// A ledger that never saw an HTTP status stays byte-compatible with
+		// binaries that predate the field; a recorded status round-trips.
+		if bytes.Contains(data, []byte(`"lastStatus"`)) != (result.Status != 0) {
+			t.Fatalf("lastStatus presence for %+v: %s", result, data)
+		}
+		decoded, err := Decode(bytes.NewReader(data))
+		if err != nil {
 			t.Fatal(err)
+		}
+		if decoded.Deliveries[key].LastStatus != result.Status {
+			t.Fatalf("lastStatus = %d, want %d", decoded.Deliveries[key].LastStatus, result.Status)
 		}
 	}
 }
