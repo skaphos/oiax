@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/skaphos/oiax/v2/internal/git"
 )
@@ -170,5 +171,44 @@ func TestNotificationNotesSkipsRedundantFetchesAndPreReads(t *testing.T) {
 	}
 	if got := invocations.counts(); got["ls-remote"] != 1 || got["push"] != 0 {
 		t.Fatalf("anchor change = %v", got)
+	}
+}
+
+// A git command that hangs (here: ls-remote sleeping behind the shim) is cut
+// off by the notes writer's own per-command bound, so a stalled network call
+// cannot hold the writer's lock until the caller's whole budget expires.
+func TestNotificationNotesBoundsEveryCommand(t *testing.T) {
+	ctx := context.Background()
+	_, dir := newRepo(t)
+	writeCommit(t, dir, "config", "graph", "config")
+	remote := t.TempDir()
+	runGit(t, remote, "init", "--bare", "-q")
+	runGit(t, dir, "push", remote, "HEAD:refs/heads/main")
+	if runtime.GOOS == "windows" {
+		t.Skip("shell shim requires a POSIX shell")
+	}
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git executable not available")
+	}
+	shimDir := t.TempDir()
+	script := "#!/bin/sh\nfor a in \"$@\"; do if [ \"$a\" = ls-remote ]; then sleep 30; fi; done\nexec \"" + real + "\" \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(shimDir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Cleanup(git.SetNotesCommandTimeout(200 * time.Millisecond))
+	n, err := git.OpenNotificationNotes(ctx, git.NotesOptions{Remote: remote, GraphKey: strings.Repeat("e", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = n.Close() })
+	started := time.Now()
+	_, err = n.Read(ctx)
+	if err == nil {
+		t.Fatal("hung ls-remote succeeded")
+	}
+	if time.Since(started) > 5*time.Second {
+		t.Fatalf("hung command was not bounded: %s", time.Since(started))
 	}
 }

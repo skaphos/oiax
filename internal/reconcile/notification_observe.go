@@ -18,10 +18,17 @@ import (
 // NotificationRuntime owns effects independently of the branch engine. All
 // callback dependencies are installed before use; one instance is one invocation.
 type NotificationRuntime struct {
-	commitMu sync.Mutex
-	// revision is the last ledger tip this runtime read or wrote. It is the
-	// hint passed to LedgerStore.Commit so a write needs no separate pre-read.
-	revision       string
+	// hintMu guards revision, the last ledger tip this runtime read or wrote.
+	// It is the hint passed to LedgerStore.Commit so a write needs no separate
+	// pre-read.
+	hintMu   sync.Mutex
+	revision string
+	// commitSlot serializes commits so concurrent destination batches do not
+	// conflict against each other. It is acquired under the caller's context:
+	// a bounded receipt write must not spend its budget queued behind another
+	// batch's blocked notes operation, and then fail once it is admitted.
+	commitOnce     sync.Once
+	commitSlot     chan struct{}
 	Store          notification.LedgerStore
 	Reader         forge.LifecycleReader
 	Repository     notification.RepositoryIdentity
@@ -79,12 +86,28 @@ func policyDigest(p *v1.NotificationPolicy) string {
 func (r *NotificationRuntime) read(ctx context.Context) (notification.Snapshot, error) {
 	snapshot, err := r.Store.Read(ctx)
 	if err == nil || errors.Is(err, notification.ErrAbsent) {
-		r.commitMu.Lock()
+		r.hintMu.Lock()
 		r.revision = snapshot.Revision
-		r.commitMu.Unlock()
+		r.hintMu.Unlock()
 	}
 	return snapshot, err
 }
+
+// acquireCommit takes the commit slot or gives up when the context ends first.
+func (r *NotificationRuntime) acquireCommit(ctx context.Context) error {
+	r.commitOnce.Do(func() { r.commitSlot = make(chan struct{}, 1) })
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case r.commitSlot <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (r *NotificationRuntime) releaseCommit() { <-r.commitSlot }
 
 // commit supplies the last observed revision as the hint LedgerStore requires
 // and retries only explicit CAS conflicts, re-reading before each retry. The
@@ -94,9 +117,13 @@ func (r *NotificationRuntime) commit(ctx context.Context, transition notificatio
 	if r.Store == nil || transition == nil {
 		return notification.Snapshot{}, notification.ErrInvalidState
 	}
-	r.commitMu.Lock()
-	defer r.commitMu.Unlock()
+	if err := r.acquireCommit(ctx); err != nil {
+		return notification.Snapshot{}, err
+	}
+	defer r.releaseCommit()
+	r.hintMu.Lock()
 	expected := r.revision
+	r.hintMu.Unlock()
 	for attempt := range 5 {
 		if attempt > 0 {
 			current, err := r.Store.Read(ctx)
@@ -110,7 +137,9 @@ func (r *NotificationRuntime) commit(ctx context.Context, transition notificatio
 			continue
 		}
 		if err == nil {
+			r.hintMu.Lock()
 			r.revision = next.Revision
+			r.hintMu.Unlock()
 		}
 		return next, err
 	}

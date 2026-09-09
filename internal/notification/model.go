@@ -27,8 +27,10 @@ const (
 	// stage (observation and dispatch) independently of the lease length.
 	FinalizeBudget = 10 * time.Minute
 	// ReceiptWriteTimeout bounds the ledger write that records results after a
-	// POST has been issued; that write must survive stage cancellation.
-	ReceiptWriteTimeout = 30 * time.Second
+	// POST has been issued; that write must survive stage cancellation. It
+	// outlasts one blocked notes command (bounded separately by the notes
+	// writer) so another destination's stalled commit cannot consume it.
+	ReceiptWriteTimeout = 90 * time.Second
 	// Reserve worst-case serialized claim/result metadata for every pending
 	// delivery, including a bounded operation ID and timestamps, before sending.
 	ResultReserveBytes = 2048

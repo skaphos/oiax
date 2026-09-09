@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -23,6 +24,11 @@ var (
 )
 
 const maxNotesBytes = 8 << 20
+
+// notesCommandTimeout bounds every git invocation the notes writer makes, so a
+// hung network operation can hold the writer's lock for at most this long
+// instead of until the caller's whole stage budget expires. Tests lower it.
+var notesCommandTimeout = 60 * time.Second
 
 var notesKeyPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var notesOIDPattern = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
@@ -110,6 +116,8 @@ func (n *NotificationNotes) run(ctx context.Context, input []byte, limit int, ar
 	if n.dir == "" {
 		return nil, ErrNotesInvalid
 	}
+	ctx, cancel := context.WithTimeout(ctx, notesCommandTimeout)
+	defer cancel()
 	base := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "commit.gpgSign=false", "-c", "http.followRedirects=false", "-c", "protocol.ext.allow=never", "-c", "protocol.file.allow=always", "-c", "gc.auto=0"}
 	cmd := exec.CommandContext(ctx, "git", append(base, args...)...)
 	cmd.Dir = n.dir
@@ -123,6 +131,9 @@ func (n *NotificationNotes) run(ctx context.Context, input []byte, limit int, ar
 	cmd.Stdin = bytes.NewReader(input)
 	output := capWriter{limit: limit}
 	cmd.Stdout = &output
+	// After the bound kills git, its transport helpers (ssh, git-remote-https)
+	// may still hold the stdout pipe; do not let them pin the writer's lock.
+	cmd.WaitDelay = time.Second
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

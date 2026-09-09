@@ -127,11 +127,11 @@ func destinationForKey(l *notification.LedgerV1, key string, configured map[stri
 // dispatchBatch performs one destination's work with two ledger writes: one
 // that saves missing messages and claims every due record under a batch lease,
 // and one that records every receipt. A renewal is written only while the
-// batch is still sending as its lease approaches expiry. Every send after the
-// first re-observes the durable ledger and proves the batch still owns the
+// batch is still sending as its lease approaches expiry. Every send first
+// re-observes the durable ledger and proves the batch still owns the
 // destination and record at this run's revision, so a policy accepted by
-// another run mid-batch stops the remaining stale payloads before they reach
-// the network. Once a record is claimed its receipt is always written, even
+// another run between the claim and any POST stops the stale payloads before
+// they reach the network. Once a record is claimed its receipt is always written, even
 // after the stage budget expires, so a POST that was issued can never be
 // replayed as if it had not happened.
 func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID string, tasks []deliveryTask, templates *notification.TemplateSet, results chan<- deliveryOutcome) {
@@ -250,9 +250,9 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 			}
 			current = renewed
 			leaseUntil = renewed.Ledger.Destinations[name].Lease.Until
-		case i > 0:
-			// The claim write itself proved the first send; later sends observe
-			// the ledger again, which costs one advertisement when nothing moved.
+		default:
+			// Every send observes the ledger again first; with the tip cache
+			// that costs one advertisement when nothing moved.
 			observed, err := r.read(ctx)
 			if err != nil {
 				stop = err

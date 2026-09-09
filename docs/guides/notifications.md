@@ -131,10 +131,12 @@ has a shared ten-minute budget that is independent of the two-minute claim
 lease, which only fences concurrent runs. Each destination's batch costs two
 ledger writes per run (one claim, one receipt write); a lease renewal is
 written only while the batch is still sending as its lease nears expiry. Every
-later send in a batch first re-reads the ledger and confirms the batch still
-owns the destination and record at the run's configuration revision, so a
-policy accepted by another run mid-batch stops the remaining sends. Once
-a POST has been issued its receipt is written even if the budget expires, and
+send first re-reads the ledger and confirms the batch still owns the
+destination and record at the run's configuration revision, so a policy
+accepted by another run between the claim and any POST stops the stale sends.
+Once a POST has been issued its receipt is written even if the budget expires
+(on its own 90-second bound; every notes command is bounded at 60 seconds so a
+stalled push on one destination cannot consume another's receipt budget), and
 a claim abandoned before its POST is recorded as `canceled` rather than keeping
 an earlier attempt's code (when that receipt write itself fails, the claim
 waits for its lease to expire). A record settled by another attempt while the
@@ -158,7 +160,7 @@ Use preview decisions and safe reason/action diagnostics:
 | `invalid-endpoint`, `redirect-rejected` | Check HTTPS, DNS, TLS and network policy. |
 | `configuration-failure` | The request reached the receiver and was refused; the warning and the ledger record (`lastStatus`) carry the integer HTTP status. Check the webhook URL and signature (400/401/403), that the flow still exists and is enabled (404/410), and that its trigger schema accepts the documented payload. |
 | `service-failure`, `rate-limited` | Restore the receiver and allow saved backoff to expire. |
-| `network-failure` | No status was received (connection, TLS, or read failure); saved backoff retries automatically. |
+| `network-failure` | The exchange failed before a decisive answer: no status for connection or TLS failures, or (Slack only) the status received before its body read failed. Saved backoff retries automatically. |
 | `payload-too-large`, `response-too-large` | Reduce custom presentation, or (Slack only) the receiver's response size, then retry. |
 | `canceled`, `notification-canceled` | The run's budget or cancellation ended the attempt; it retries on the next scheduled run. |
 | `subscription-retired` | A later configuration removed the destination or subscription; no retry is scheduled. |

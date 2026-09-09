@@ -100,10 +100,10 @@ func TestNotificationDispatchBatchesLedgerWritesPerDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	reads, commits := store.counts()
-	// One read finds the due work, and each send after the first re-observes
-	// the ledger before contacting the receiver; only two writes are made.
-	if commits != 2 || reads != 5 {
-		t.Fatalf("five deliveries cost %d writes and %d reads; want one claim and one receipt write with four pre-send observations", commits, reads)
+	// One read finds the due work, and every send re-observes the ledger
+	// before contacting the receiver; only two writes are made.
+	if commits != 2 || reads != 6 {
+		t.Fatalf("five deliveries cost %d writes and %d reads; want one claim and one receipt write with five pre-send observations", commits, reads)
 	}
 	if len(sender.Payloads()) != 5 || len(diagnostics) != 5 {
 		t.Fatalf("sends=%d diagnostics=%d", len(sender.Payloads()), len(diagnostics))
@@ -654,5 +654,67 @@ func TestNotificationUncertainReceiptKeepsReceiverStatus(t *testing.T) {
 	}
 	if len(diagnostics) != 1 || diagnostics[0].Reason != "accepted-receipt-uncertain" || diagnostics[0].Status != 202 {
 		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+}
+
+// blockingStore parks the first Commit until released, holding the runtime's
+// commit slot the way a stalled notes push would.
+type blockingStore struct {
+	notification.LedgerStore
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingStore) Commit(ctx context.Context, expected string, transition notification.Transition) (notification.Snapshot, error) {
+	blocked := false
+	s.once.Do(func() { blocked = true })
+	if blocked {
+		close(s.entered)
+		<-s.release
+	}
+	return s.LedgerStore.Commit(ctx, expected, transition)
+}
+
+// A commit whose context ends while another commit holds the slot must give
+// up on its own deadline rather than wait for the other batch and then fail
+// once admitted with an expired context.
+func TestNotificationCommitSlotHonoursCallerContext(t *testing.T) {
+	t.Parallel()
+	clock := notificationtest.NewClock(time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC))
+	memory := &notificationtest.MemoryStore{}
+	runtime := batchRuntime(t, clock, memory, 1)
+	store := &blockingStore{LedgerStore: memory, entered: make(chan struct{}), release: make(chan struct{})}
+	runtime.Store = store
+	identity := func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
+		return l.Clone(), nil
+	}
+	first := make(chan error, 1)
+	go func() {
+		_, err := runtime.commit(context.Background(), identity)
+		first <- err
+	}()
+	select {
+	case <-store.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first commit never reached the store")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := runtime.commit(ctx, identity)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("queued commit = %v, want the caller's deadline", err)
+	}
+	if time.Since(started) > 2*time.Second {
+		t.Fatal("queued commit waited for the blocked commit instead of its own deadline")
+	}
+	close(store.release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	// The slot is free again: a later commit proceeds normally.
+	if _, err := runtime.commit(context.Background(), identity); err != nil {
+		t.Fatal(err)
 	}
 }
