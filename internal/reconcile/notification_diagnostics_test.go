@@ -81,3 +81,37 @@ func TestNotificationPresentationRedactsAddresses(t *testing.T) {
 		}
 	}
 }
+
+func TestNotificationDiagnosticsCarryReceiverStatus(t *testing.T) {
+	t.Parallel()
+	const refused = "Receiver refused the request (HTTP 400); check the webhook URL and signature, that the flow is enabled, and that its trigger schema accepts the documented payload."
+	const refusedNoStatus = "Receiver refused the request; check the webhook URL and signature, that the flow is enabled, and that its trigger schema accepts the documented payload."
+	const transport = "Review endpoint HTTPS, TLS, DNS and private-network policy, then retry."
+	for _, tc := range []struct {
+		name   string
+		err    error
+		reason string
+		status int
+		action string
+	}{
+		{"typed configuration", notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 400}, "configuration-failure", 400, refused},
+		{"wrapped and joined", fmt.Errorf("destination ops: %w", errors.Join(errors.New("https://receiver.invalid/credential-canary"), notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 400})), "configuration-failure", 400, refused},
+		{"text-only configuration", errors.New(string(notification.OutcomeConfiguration)), "configuration-failure", 0, refusedNoStatus},
+		{"configuration without exchange", notification.OutcomeError{Code: notification.OutcomeConfiguration}, "configuration-failure", 0, refusedNoStatus},
+		{"invalid endpoint keeps transport text", notification.OutcomeError{Code: notification.OutcomeInvalidEndpoint}, "invalid-endpoint", 0, transport},
+		{"redirect keeps transport text", notification.OutcomeError{Code: notification.OutcomeRedirect, Status: 307}, "redirect-rejected", 307, transport},
+		{"service status", notification.OutcomeError{Code: notification.OutcomeService, Status: 503}, "service-failure", 503, "Retry when the saved backoff expires; the event ID and attempted payload remain unchanged."},
+		{"unknown code is not classified", notification.OutcomeError{Code: "https://receiver.invalid/credential-canary", Status: 400}, "notification-deferred", 0, "Retry reconciliation; inspect provider and notes permissions."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := NotificationProblem(tc.err)
+			if d.Reason != tc.reason || d.Status != tc.status || d.Action != tc.action {
+				t.Fatalf("diagnostic = %+v", d)
+			}
+			if strings.Contains(d.Reason+d.Action, "credential-canary") {
+				t.Fatal("diagnostic leaked receiver text")
+			}
+		})
+	}
+}

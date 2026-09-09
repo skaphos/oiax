@@ -3,11 +3,17 @@ package reconcile
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/skaphos/oiax/v2/internal/notification"
 )
 
-type NotificationDiagnostic struct{ Destination, Reason, Action string }
+// NotificationDiagnostic carries only closed reason/action text plus the
+// receiver's integer HTTP status when an exchange completed.
+type NotificationDiagnostic struct {
+	Destination, Reason, Action string
+	Status                      int
+}
 
 // Scope labels global failures without inventing a configured destination.
 func (d NotificationDiagnostic) Scope() string {
@@ -47,12 +53,20 @@ func NotificationProblem(err error) NotificationDiagnostic {
 	}
 	// Compare complete leaf codes, never interpolate an arbitrary error string.
 	if d.Reason == "notification-deferred" {
-		if code := notificationOutcome(err); code != "" {
+		if code, status := notificationOutcome(err); code != "" {
 			d.Reason = string(code)
+			d.Status = status
 			switch code {
 			case notification.OutcomeMissingSecret:
 				d.Action = "Set the named runtime endpoint variable, then retry."
-			case notification.OutcomeConfiguration, notification.OutcomeInvalidEndpoint, notification.OutcomeRedirect:
+			case notification.OutcomeConfiguration:
+				// The request reached the receiver and was refused. Only the
+				// integer status is ever interpolated.
+				d.Action = "Receiver refused the request; check the webhook URL and signature, that the flow is enabled, and that its trigger schema accepts the documented payload."
+				if status != 0 {
+					d.Action = fmt.Sprintf("Receiver refused the request (HTTP %d); check the webhook URL and signature, that the flow is enabled, and that its trigger schema accepts the documented payload.", status)
+				}
+			case notification.OutcomeInvalidEndpoint, notification.OutcomeRedirect:
 				d.Action = "Review endpoint HTTPS, TLS, DNS and private-network policy, then retry."
 			case notification.OutcomePayloadTooLarge, notification.OutcomeResponseTooLarge:
 				d.Action = "Reduce custom presentation or receiver response size, then retry."
@@ -69,24 +83,28 @@ func NotificationProblem(err error) NotificationDiagnostic {
 // notificationOutcome walks wrapped and joined errors depth-first, left-to-right.
 // A summary selects the first recognized leaf; per-destination diagnostics are
 // still reported separately. Never classify a wrapper's combined error text.
-func notificationOutcome(err error) notification.OutcomeCode {
+func notificationOutcome(err error) (notification.OutcomeCode, int) {
 	if err == nil {
-		return ""
+		return "", 0
 	}
 	switch current := err.(type) {
 	case interface{ Unwrap() []error }:
 		for _, child := range current.Unwrap() {
-			if code := notificationOutcome(child); code != "" {
-				return code
+			if code, status := notificationOutcome(child); code != "" {
+				return code, status
 			}
 		}
 	case interface{ Unwrap() error }:
 		return notificationOutcome(current.Unwrap())
 	default:
+		var outcome notification.OutcomeError
+		if errors.As(err, &outcome) && notification.ValidOutcome(outcome.Code) {
+			return outcome.Code, outcome.Status
+		}
 		code := notification.OutcomeCode(err.Error())
 		if notification.ValidOutcome(code) {
-			return code
+			return code, 0
 		}
 	}
-	return ""
+	return "", 0
 }

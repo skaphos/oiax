@@ -126,7 +126,16 @@ person could see the message.
 
 Each run schedules up to 10 deliveries per destination and 100 total, with
 one-second destination pacing. Requests have a ten-second deadline; finalization
-has a shared two-minute budget. Backoff and bounded Retry-After survive runs.
+has a shared ten-minute budget that is independent of the two-minute claim
+lease, which only fences concurrent runs. Each destination's batch costs two
+ledger writes per run (one claim, one receipt write); a lease renewal is
+written only while the batch is still sending as its lease nears expiry. Once
+a POST has been issued its receipt is written even if the budget expires, and
+a claim abandoned before its POST is recorded as `canceled` rather than keeping
+an earlier attempt's code. Every attempt logs one `notification attempt` line
+with the destination, reason, HTTP status (when an exchange completed) and
+elapsed milliseconds; endpoints and payload text are never logged. Backoff and
+bounded Retry-After survive runs.
 One failed receiver does not block others or alter core reconcile exits 0/1/3.
 Runtime rendering overflow stays pending until corrected; validation failures
 still fail before core mutation. Payloads cap at 24 KiB and responses at 16 KiB.
@@ -140,6 +149,7 @@ Use preview decisions and safe reason/action diagnostics:
 | --- | --- |
 | `missing-secret` | Bind the configured variable in the reconcile job. |
 | `invalid-endpoint`, `redirect-rejected` | Check HTTPS, DNS, TLS and network policy. |
+| `configuration-failure` | The request reached the receiver and was refused; the warning and the ledger record (`lastStatus`) carry the integer HTTP status. Check the webhook URL and signature (400/401/403), that the flow still exists and is enabled (404/410), and that its trigger schema accepts the documented payload. |
 | `service-failure`, `rate-limited` | Restore the receiver and allow saved backoff to expire. |
 | `accepted-receipt-uncertain` | Correlate by event ID; a retry may repeat visibility. |
 | `notification-discovery-incomplete` | Run scheduled repair; bounded scans retain progress. |
@@ -171,6 +181,14 @@ For rollback, remove optional notification configuration (or first disable it
 while still using a compatible binary), then downgrade. Older binaries reject
 unknown configuration fields, even disabled ones. Preserve notes and creation
 origin comments; do not reset history, release-managed files, or tags manually.
+
+The ledger only gains fields when a newer binary records them. Once any
+delivery record carries `lastStatus` (written after a receiver answered a
+request), binaries older than the release that introduced it reject the whole
+ledger as `invalid-notification-state` and suspend sends; ledgers never touched
+by such a response stay byte-for-byte compatible. Downgrade before enabling a
+destination on the newer release, or keep the newer release once a status has
+been recorded rather than editing notes by hand.
 
 Live provider/recipient visibility and setup-time acceptance are deferred by the
 maintainer to post-release adoption testing. Automated local fixtures and CI are

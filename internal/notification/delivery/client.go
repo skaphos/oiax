@@ -136,31 +136,36 @@ func (c *Client) Send(ctx context.Context, endpoint string, payload notification
 		return result(notification.OutcomeNetwork)
 	}
 	defer func() { _ = response.Body.Close() }()
+	// Every post-exchange outcome carries the integer status so operators can
+	// tell a refused request apart from a transport problem. Body text is not.
+	status := response.StatusCode
+	exchanged := func(code notification.OutcomeCode) notification.AttemptResult {
+		return notification.AttemptResult{Code: code, Status: status}
+	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, (16<<10)+1))
 	if err != nil {
 		return result(notification.OutcomeNetwork)
 	}
 	if len(data) > 16<<10 {
-		return result(notification.OutcomeResponseTooLarge)
+		return exchanged(notification.OutcomeResponseTooLarge)
 	}
-	status := response.StatusCode
 	if status == http.StatusTooManyRequests {
-		return notification.AttemptResult{Code: notification.OutcomeRateLimited, RetryAfter: retryAfter(response.Header.Get("Retry-After"), time.Now())}
+		return notification.AttemptResult{Code: notification.OutcomeRateLimited, RetryAfter: retryAfter(response.Header.Get("Retry-After"), time.Now()), Status: status}
 	}
 	if status == http.StatusRequestTimeout || status >= 500 {
-		return result(notification.OutcomeService)
+		return exchanged(notification.OutcomeService)
 	}
 	if status >= 300 && status < 400 {
-		return result(notification.OutcomeRedirect)
+		return exchanged(notification.OutcomeRedirect)
 	}
 	if c.kind == v1.NotificationSlack {
 		if status == 200 && strings.TrimSpace(string(data)) == "ok" {
-			return result(notification.OutcomeAccepted)
+			return exchanged(notification.OutcomeAccepted)
 		}
 	} else if status >= 200 && status < 300 {
-		return result(notification.OutcomeAccepted)
+		return exchanged(notification.OutcomeAccepted)
 	}
-	return result(notification.OutcomeConfiguration)
+	return exchanged(notification.OutcomeConfiguration)
 }
 
 func retryAfter(value string, now time.Time) time.Duration {

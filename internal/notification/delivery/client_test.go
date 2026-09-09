@@ -186,8 +186,8 @@ func TestNotificationClientEncodingFailureOutcomes(t *testing.T) {
 				}, nil)
 				p := adapterPayload()
 				tc.change(&p)
-				if got := c.Send(context.Background(), "https://receiver.example/hook", p); got.Code != tc.want {
-					t.Fatalf("got %s, want %s", got.Code, tc.want)
+				if got := c.Send(context.Background(), "https://receiver.example/hook", p); got.Code != tc.want || got.Status != 0 {
+					t.Fatalf("got %+v, want %s without an HTTP status", got, tc.want)
 				}
 			})
 		}
@@ -284,6 +284,10 @@ func TestNotificationClientAcknowledgmentsAndBounds(t *testing.T) {
 			result := c.Send(context.Background(), s.URL+"/secret", payload)
 			if result.Code != tc.want || calls != 1 {
 				t.Fatalf("got %+v calls %d", result, calls)
+			}
+			// Every completed exchange reports the integer status, never the body.
+			if result.Status != tc.status {
+				t.Fatalf("status = %d, want %d", result.Status, tc.status)
 			}
 			if tc.status == 429 && result.RetryAfter != 2*time.Minute {
 				t.Fatal("Retry-After lost")

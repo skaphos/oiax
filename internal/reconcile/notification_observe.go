@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -17,7 +18,10 @@ import (
 // NotificationRuntime owns effects independently of the branch engine. All
 // callback dependencies are installed before use; one instance is one invocation.
 type NotificationRuntime struct {
-	commitMu       sync.Mutex
+	commitMu sync.Mutex
+	// revision is the last ledger tip this runtime read or wrote. It is the
+	// hint passed to LedgerStore.Commit so a write needs no separate pre-read.
+	revision       string
 	Store          notification.LedgerStore
 	Reader         forge.LifecycleReader
 	Repository     notification.RepositoryIdentity
@@ -33,6 +37,14 @@ type NotificationRuntime struct {
 	Wait           func(context.Context, time.Duration) error
 	Close          func() error
 	Report         func(NotificationDiagnostic)
+	Log            *slog.Logger
+}
+
+func (r *NotificationRuntime) log() *slog.Logger {
+	if r.Log != nil {
+		return r.Log
+	}
+	return slog.New(slog.DiscardHandler)
 }
 
 func (r *NotificationRuntime) now() time.Time {
@@ -59,23 +71,42 @@ func policyDigest(p *v1.NotificationPolicy) string {
 	return notification.Digest("policy-v1", string(data))
 }
 
-// commit supplies the caller-observed revision required by LedgerStore and
-// retries only explicit CAS conflicts. The transition is deliberately passed
-// through unchanged so every attempt reduces a freshly read snapshot.
+// read observes the durable ledger and remembers its tip for later commits.
+func (r *NotificationRuntime) read(ctx context.Context) (notification.Snapshot, error) {
+	snapshot, err := r.Store.Read(ctx)
+	if err == nil || errors.Is(err, notification.ErrAbsent) {
+		r.commitMu.Lock()
+		r.revision = snapshot.Revision
+		r.commitMu.Unlock()
+	}
+	return snapshot, err
+}
+
+// commit supplies the last observed revision as the hint LedgerStore requires
+// and retries only explicit CAS conflicts, re-reading before each retry. The
+// transition is deliberately passed through unchanged so every attempt reduces
+// a freshly read snapshot; the store itself never trusts the hint.
 func (r *NotificationRuntime) commit(ctx context.Context, transition notification.Transition) (notification.Snapshot, error) {
 	if r.Store == nil || transition == nil {
 		return notification.Snapshot{}, notification.ErrInvalidState
 	}
 	r.commitMu.Lock()
 	defer r.commitMu.Unlock()
-	for range 5 {
-		current, err := r.Store.Read(ctx)
-		if err != nil && !errors.Is(err, notification.ErrAbsent) {
-			return notification.Snapshot{}, err
+	expected := r.revision
+	for attempt := range 5 {
+		if attempt > 0 {
+			current, err := r.Store.Read(ctx)
+			if err != nil && !errors.Is(err, notification.ErrAbsent) {
+				return notification.Snapshot{}, err
+			}
+			expected = current.Revision
 		}
-		next, err := r.Store.Commit(ctx, current.Revision, transition)
+		next, err := r.Store.Commit(ctx, expected, transition)
 		if errors.Is(err, notification.ErrConflict) {
 			continue
+		}
+		if err == nil {
+			r.revision = next.Revision
 		}
 		return next, err
 	}
@@ -90,7 +121,7 @@ func (r *NotificationRuntime) Activate(ctx context.Context) error {
 		return notification.ErrInvalidState
 	}
 	revision := notification.PolicyRevisionV1{ConfigOID: r.ConfigOID, PolicyDigest: policyDigest(r.Policy)}
-	_, initialErr := r.Store.Read(ctx)
+	_, initialErr := r.read(ctx)
 	now := r.now()
 	_, err := r.commit(ctx, func(ctx context.Context, current *notification.LedgerV1) (*notification.LedgerV1, error) {
 		if current == nil {
@@ -142,7 +173,7 @@ func (r *NotificationRuntime) Observe(ctx context.Context) error {
 	if r.Reader == nil || r.Topology == nil {
 		return notification.ErrLifecycleUnavailable
 	}
-	snapshot, err := r.Store.Read(ctx)
+	snapshot, err := r.read(ctx)
 	if err != nil {
 		return err
 	}
@@ -216,7 +247,7 @@ func (r *NotificationRuntime) Observe(ctx context.Context) error {
 func (r *NotificationRuntime) recordObservation(ctx context.Context, requests []notification.LifecycleRequest, scan string, progress notification.ScanProgress, now time.Time) error {
 	// Provider enrichment happens outside CAS callbacks. Conflicts re-reduce
 	// captured facts, never reread a moving remote inside a state transition.
-	snapshot, err := r.Store.Read(ctx)
+	snapshot, err := r.read(ctx)
 	if err != nil {
 		return err
 	}

@@ -69,10 +69,15 @@ conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.`,
 				coord.NotificationDiagnostics = append(coord.NotificationDiagnostics, reconcile.NotificationProblem(notificationErr))
 			}
 			for _, d := range coord.NotificationDiagnostics {
+				attrs := []any{"scope", d.Scope(), "reason", d.Reason}
+				if d.Status != 0 {
+					attrs = append(attrs, "status", d.Status)
+				}
+				attrs = append(attrs, "action", d.Action)
 				if d.Reason == "delivered" {
-					coord.Log.Info("notification delivery", "scope", d.Scope(), "reason", d.Reason, "action", d.Action)
+					coord.Log.Info("notification delivery", attrs...)
 				} else {
-					coord.Log.Warn("notification delivery", "scope", d.Scope(), "reason", d.Reason, "action", d.Action)
+					coord.Log.Warn("notification delivery", attrs...)
 				}
 			}
 			writeNotificationSummary(cmd, coord.NotificationDiagnostics)

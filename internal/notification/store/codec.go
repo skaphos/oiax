@@ -200,6 +200,9 @@ func Validate(l *notification.LedgerV1) error {
 		if r.Code != "" && !notification.ValidOutcome(r.Code) {
 			return bad
 		}
+		if r.LastStatus != 0 && (r.LastStatus < 100 || r.LastStatus > 599) {
+			return bad
+		}
 		switch r.Status {
 		case notification.StatusPending:
 		case notification.StatusClaimed:

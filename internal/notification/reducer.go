@@ -3,6 +3,7 @@ package notification
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"slices"
 	"time"
 	"unicode/utf8"
@@ -257,13 +258,25 @@ func RenewClaim(l *LedgerV1, configOID, key, attemptID string, now time.Time) (*
 // RecordResult accepts no policy replacement. Only proven attempt IDs can record
 // results. Terminal success wins over stale failures, including late acceptance.
 func RecordResult(l *LedgerV1, key, attemptID string, result AttemptResult, now time.Time) (*LedgerV1, error) {
-	r, ok := l.Deliveries[key]
-	if !ok || !slices.Contains(r.AttemptIDs, attemptID) || !ValidOutcome(result.Code) || now.IsZero() {
-		return nil, ErrInvalidState
-	}
 	out := l.Clone()
+	if err := applyResult(out, key, attemptID, result, now); err != nil {
+		return nil, err
+	}
+	if err := CheckCapacity(out, false); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// applyResult reduces one attempt result in place on an already cloned ledger.
+// A destination lease is released only when it belongs to this attempt.
+func applyResult(out *LedgerV1, key, attemptID string, result AttemptResult, now time.Time) error {
+	r, ok := out.Deliveries[key]
+	if !ok || !slices.Contains(r.AttemptIDs, attemptID) || !ValidOutcome(result.Code) || now.IsZero() {
+		return ErrInvalidState
+	}
 	if r.Status == StatusDelivered {
-		return out, nil
+		return nil
 	}
 	if result.Code == OutcomeAccepted {
 		r.Status = StatusDelivered
@@ -272,11 +285,16 @@ func RecordResult(l *LedgerV1, key, attemptID string, result AttemptResult, now 
 		r.Code = result.Code
 	} else {
 		if r.Status == StatusSkipped || r.Lease.AttemptID != attemptID {
-			return out, nil
+			return nil
 		}
 		r.Status = StatusRetryable
 		r.Code = result.Code
 		r.NextAttemptAt = now.UTC().Add(RetryDelay(r.Attempts, result))
+	}
+	// Only a real HTTP status is retained; anything else records no exchange.
+	r.LastStatus = 0
+	if result.Status >= 100 && result.Status <= 599 {
+		r.LastStatus = result.Status
 	}
 	d := out.Destinations[r.Destination]
 	if d.Lease.AttemptID == attemptID {
@@ -285,6 +303,123 @@ func RecordResult(l *LedgerV1, key, attemptID string, result AttemptResult, now 
 	}
 	r.Lease = Lease{}
 	out.Deliveries[key] = r
+	return nil
+}
+
+// BatchID names the destination lease held by one run's batch. It is distinct
+// from every per-record attempt ID, so single-record transitions never release it.
+func BatchID(operationID, destination string) string {
+	return Digest("batch-v1", operationID, destination)
+}
+
+// ClaimBatch reserves a destination for one run and claims every listed record
+// that is individually due, returning the claimed keys in input order. A live
+// destination lease or pacing window fences the whole batch as not due; records
+// that are individually not due are skipped rather than failed, and a batch
+// that claims nothing is not due. Each claimed record carries its own attempt
+// ID so late results keep their evidence exactly as single claims do.
+func ClaimBatch(l *LedgerV1, configOID, destination, batchID string, keys []string, attempts map[string]string, now time.Time) (*LedgerV1, []string, error) {
+	if l.PolicyRevision.ConfigOID != configOID {
+		return nil, nil, ErrStaleRevision
+	}
+	if batchID == "" || len(batchID) > 128 || now.IsZero() {
+		return nil, nil, ErrInvalidState
+	}
+	d, ok := l.Destinations[destination]
+	if !ok || !d.Active || now.Before(d.Lease.Until) || now.Before(d.NextSendAt) {
+		return nil, nil, ErrNotDue
+	}
+	out := l.Clone()
+	var claimed []string
+	for _, key := range keys {
+		r, ok := out.Deliveries[key]
+		attemptID := attempts[key]
+		if !ok || r.Destination != destination || attemptID == "" || len(attemptID) > 128 {
+			return nil, nil, ErrInvalidState
+		}
+		e := out.Events[r.EventID]
+		_, subscribed := d.Subscriptions[SubscriptionKey(e.Kind, e.Request.Type)]
+		if r.Status == StatusDelivered || r.Status == StatusSkipped || d.Generation != r.Generation || !subscribed || r.Message == nil || now.Before(r.NextAttemptAt) || now.Before(r.Lease.Until) {
+			continue
+		}
+		if slices.Contains(r.AttemptIDs, attemptID) {
+			return nil, nil, ErrInvalidState
+		}
+		r.Status = StatusClaimed
+		r.Attempts++
+		r.AttemptIDs = append(r.AttemptIDs, attemptID)
+		r.Lease = Lease{AttemptID: attemptID, Until: now.UTC().Add(ClaimDuration)}
+		out.Deliveries[key] = r
+		claimed = append(claimed, key)
+	}
+	if len(claimed) == 0 {
+		return nil, nil, ErrNotDue
+	}
+	d.Lease = Lease{AttemptID: batchID, Until: now.UTC().Add(ClaimDuration)}
+	d.NextSendAt = now.UTC().Add(time.Second)
+	out.Destinations[d.Name] = d
+	if err := CheckCapacity(out, true); err != nil {
+		return nil, nil, err
+	}
+	return out, claimed, nil
+}
+
+// RenewBatch extends a still-live batch lease and every listed record that is
+// still claimed by its batch attempt. It never revives an expired or superseded
+// lease: a run whose batch lost its fence must stop sending.
+func RenewBatch(l *LedgerV1, configOID, destination, batchID string, attempts map[string]string, now time.Time) (*LedgerV1, error) {
+	if l.PolicyRevision.ConfigOID != configOID {
+		return nil, ErrStaleRevision
+	}
+	d, ok := l.Destinations[destination]
+	if !ok || !d.Active || d.Lease.AttemptID != batchID || !now.Before(d.Lease.Until) {
+		return nil, ErrNotDue
+	}
+	out := l.Clone()
+	until := now.UTC().Add(ClaimDuration)
+	for key, attemptID := range attempts {
+		r, ok := out.Deliveries[key]
+		if !ok || r.Status != StatusClaimed || r.Lease.AttemptID != attemptID || !now.Before(r.Lease.Until) || d.Generation != r.Generation {
+			continue
+		}
+		r.Lease.Until = until
+		out.Deliveries[key] = r
+	}
+	d.Lease.Until = until
+	out.Destinations[d.Name] = d
+	return out, nil
+}
+
+// AttemptReceipt pairs a record's batch attempt with the result to record.
+type AttemptReceipt struct {
+	AttemptID string
+	Result    AttemptResult
+}
+
+// RecordResults reduces every receipt of one batch with RecordResult's rules,
+// then releases the destination lease only if this batch still holds it. Every
+// claimed record must have a receipt: an attempt abandoned before its POST is
+// recorded as canceled so the ledger never keeps a stale earlier code.
+func RecordResults(l *LedgerV1, destination, batchID string, receipts map[string]AttemptReceipt, now time.Time) (*LedgerV1, error) {
+	if batchID == "" || now.IsZero() {
+		return nil, ErrInvalidState
+	}
+	out := l.Clone()
+	keys := slices.Sorted(maps.Keys(receipts))
+	for _, key := range keys {
+		receipt := receipts[key]
+		if r, ok := out.Deliveries[key]; !ok || r.Destination != destination {
+			return nil, ErrInvalidState
+		}
+		if err := applyResult(out, key, receipt.AttemptID, receipt.Result, now); err != nil {
+			return nil, err
+		}
+	}
+	if d, ok := out.Destinations[destination]; ok && d.Lease.AttemptID == batchID {
+		d.Lease = Lease{}
+		d.NextSendAt = now.UTC().Add(time.Second)
+		out.Destinations[d.Name] = d
+	}
 	if err := CheckCapacity(out, false); err != nil {
 		return nil, err
 	}
