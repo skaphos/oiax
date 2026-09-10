@@ -288,9 +288,16 @@ func applyResult(out *LedgerV1, key, attemptID string, result AttemptResult, now
 		if r.Status == StatusSkipped || r.Lease.AttemptID != attemptID {
 			return nil
 		}
-		r.Status = StatusRetryable
-		r.Code = result.Code
-		r.NextAttemptAt = now.UTC().Add(RetryDelay(r.Attempts, result))
+		if TerminalFailure(r.Attempts, result.Code) {
+			// Abandonment replaces the last transport code, so a reader cannot
+			// mistake an exhausted record for one still awaiting its backoff.
+			r.Status = StatusSkipped
+			r.Code = OutcomeAbandoned
+		} else {
+			r.Status = StatusRetryable
+			r.Code = result.Code
+			r.NextAttemptAt = now.UTC().Add(RetryDelay(r.Attempts, result))
+		}
 	}
 	// Only a real HTTP status is retained; anything else records no exchange.
 	r.LastStatus = 0
@@ -469,12 +476,35 @@ func RecordResults(l *LedgerV1, destination, batchID string, receipts map[string
 func RetryDelay(attempts int, result AttemptResult) time.Duration {
 	delay := time.Minute * time.Duration(1<<min(max(attempts-1, 0), 6))
 	delay = min(delay, time.Hour)
-	switch result.Code {
-	case OutcomeNetwork, OutcomeService, OutcomeRateLimited, OutcomeCanceled:
-	default:
+	if !TransientOutcome(result.Code) {
 		delay = time.Hour
 	}
 	return max(delay, min(max(result.RetryAfter, 0), 24*time.Hour))
+}
+
+// TransientOutcome reports whether an identical later attempt could plausibly
+// succeed without an operator change. Everything else is a deterministic
+// configuration, endpoint or size fault that repeats on every retry.
+func TransientOutcome(code OutcomeCode) bool {
+	switch code {
+	case OutcomeNetwork, OutcomeService, OutcomeRateLimited, OutcomeCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
+// TerminalFailure reports a failure that must stop consuming ledger budget. An
+// oversize payload is already bounded and truncated by the transport, so its
+// rejection is final; other non-transient faults keep a bounded attempt budget
+// so a receiver repaired the same day still recovers on its own. A transient
+// code is never terminal, so a record whose attempts were spent on canceled
+// claims is abandoned only once a receiver or endpoint actually refuses it.
+func TerminalFailure(attempts int, code OutcomeCode) bool {
+	if code == OutcomePayloadTooLarge {
+		return true
+	}
+	return !TransientOutcome(code) && attempts >= MaxAttempts
 }
 
 // CheckCapacity reserves metadata growth before admission/claim. Receipts consume

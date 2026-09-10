@@ -206,6 +206,11 @@ func TestNotificationLedgerFullStateValidation(t *testing.T) {
 			r.Status = notification.StatusSkipped
 			l.Deliveries[key] = r
 		}},
+		{"abandoned without attempts", func(l *notification.LedgerV1) {
+			r := l.Deliveries[key]
+			r.Status, r.Code, r.Attempts, r.AttemptIDs, r.Lease = notification.StatusSkipped, notification.OutcomeAbandoned, 0, nil, notification.Lease{}
+			l.Deliveries[key] = r
+		}},
 		{"unclaimed", func(l *notification.LedgerV1) { r := l.Deliveries[key]; r.Lease.AttemptID = ""; l.Deliveries[key] = r }},
 		{"invented attempt", func(l *notification.LedgerV1) {
 			r := l.Deliveries[key]
@@ -262,8 +267,19 @@ func TestNotificationLedgerFullStateValidation(t *testing.T) {
 			}
 		})
 	}
-	for _, result := range []notification.AttemptResult{{Code: notification.OutcomeAccepted}, {Code: notification.OutcomeNetwork}, {Code: notification.OutcomeConfiguration, Status: 400}, {Code: notification.OutcomeAccepted, Status: 202}} {
-		l, err := notification.RecordResult(baseline, key, "attempt", result, time.Date(2026, 9, 4, 18, 1, 0, 0, time.UTC))
+	for _, tc := range []struct {
+		result notification.AttemptResult
+		status notification.DeliveryStatus
+		code   notification.OutcomeCode
+	}{
+		{notification.AttemptResult{Code: notification.OutcomeAccepted}, notification.StatusDelivered, notification.OutcomeAccepted},
+		{notification.AttemptResult{Code: notification.OutcomeNetwork}, notification.StatusRetryable, notification.OutcomeNetwork},
+		{notification.AttemptResult{Code: notification.OutcomeConfiguration, Status: 400}, notification.StatusRetryable, notification.OutcomeConfiguration},
+		{notification.AttemptResult{Code: notification.OutcomeAccepted, Status: 202}, notification.StatusDelivered, notification.OutcomeAccepted},
+		// Terminal abandonment must survive the persisted boundary as well.
+		{notification.AttemptResult{Code: notification.OutcomePayloadTooLarge}, notification.StatusSkipped, notification.OutcomeAbandoned},
+	} {
+		l, err := notification.RecordResult(baseline, key, "attempt", tc.result, time.Date(2026, 9, 4, 18, 1, 0, 0, time.UTC))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -273,15 +289,18 @@ func TestNotificationLedgerFullStateValidation(t *testing.T) {
 		}
 		// A ledger that never saw an HTTP status stays byte-compatible with
 		// binaries that predate the field; a recorded status round-trips.
-		if bytes.Contains(data, []byte(`"lastStatus"`)) != (result.Status != 0) {
-			t.Fatalf("lastStatus presence for %+v: %s", result, data)
+		if bytes.Contains(data, []byte(`"lastStatus"`)) != (tc.result.Status != 0) {
+			t.Fatalf("lastStatus presence for %+v: %s", tc.result, data)
 		}
 		decoded, err := Decode(bytes.NewReader(data))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decoded.Deliveries[key].LastStatus != result.Status {
-			t.Fatalf("lastStatus = %d, want %d", decoded.Deliveries[key].LastStatus, result.Status)
+		if decoded.Deliveries[key].LastStatus != tc.result.Status {
+			t.Fatalf("lastStatus = %d, want %d", decoded.Deliveries[key].LastStatus, tc.result.Status)
+		}
+		if r := decoded.Deliveries[key]; r.Status != tc.status || r.Code != tc.code {
+			t.Fatalf("persisted %s/%s, want %s/%s", r.Status, r.Code, tc.status, tc.code)
 		}
 	}
 }

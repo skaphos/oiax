@@ -167,6 +167,10 @@ func composeNotificationPreview(policy *v1.NotificationPolicy, l *notification.L
 				switch {
 				case recorded && record.Status == notification.StatusDelivered:
 					item.Decision, item.Reason = "delivered", "durable-receipt"
+				// Abandonment keeps the existing inactive decision so the plan
+				// contract is unchanged, but reports its own safe reason.
+				case recorded && record.Status == notification.StatusSkipped && record.Code == notification.OutcomeAbandoned:
+					item.Decision, item.Reason = "subscription-not-active", "attempts-exhausted"
 				case !d.IsEnabled() || !ds.Active || recorded && record.Status == notification.StatusSkipped:
 					item.Decision, item.Reason = "subscription-not-active", "subscription-retired"
 				case !subscribed:

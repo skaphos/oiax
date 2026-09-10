@@ -7,6 +7,10 @@ import (
 	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
+// maxPayloadBytes bounds every outbound transport body. Receivers advertise no
+// common limit, so the cap is ours and is enforced before any send.
+const maxPayloadBytes = 24 << 10
+
 func encode(kind v1.NotificationTransport, p notification.DeliveryPayloadV1) ([]byte, error) {
 	if p.SchemaVersion != 1 {
 		return nil, notification.ErrInvalidState
@@ -18,7 +22,7 @@ func encode(kind v1.NotificationTransport, p notification.DeliveryPayloadV1) ([]
 	var value any
 	switch kind {
 	case v1.NotificationWebhook:
-		value = webhook(p, facts)
+		return webhookEnvelope(p, facts)
 	case v1.NotificationTeams:
 		value = teams(p, facts)
 	case v1.NotificationSlack:
@@ -30,10 +34,34 @@ func encode(kind v1.NotificationTransport, p notification.DeliveryPayloadV1) ([]
 	if err != nil {
 		return nil, notification.ErrInvalidState
 	}
-	if len(data) > 24<<10 {
+	if len(data) > maxPayloadBytes {
 		return nil, notification.ErrCapacity
 	}
 	return data, nil
+}
+
+// webhookEnvelope keeps the generic body inside the cap by dropping trailing
+// commit summaries and flagging the loss, because a merge large enough to
+// overflow is otherwise rejected deterministically on every later attempt. The
+// caller's payload is not mutated; only this copy is narrowed.
+func webhookEnvelope(p notification.DeliveryPayloadV1, facts string) ([]byte, error) {
+	all := p.Event.Snapshot.Commits
+	for kept := len(all); ; kept-- {
+		p.Event.Snapshot.Commits = all[:kept]
+		p.Event.Snapshot.CommitsTruncated = p.Event.Snapshot.CommitsTruncated || kept < len(all)
+		data, err := json.Marshal(webhook(p, facts))
+		if err != nil {
+			return nil, notification.ErrInvalidState
+		}
+		if len(data) <= maxPayloadBytes {
+			return data, nil
+		}
+		// Message, identity and fixed facts alone exceed the cap: no amount of
+		// commit truncation helps, and the failure is permanent.
+		if kept == 0 {
+			return nil, notification.ErrCapacity
+		}
+	}
 }
 
 func webhook(p notification.DeliveryPayloadV1, facts string) any {

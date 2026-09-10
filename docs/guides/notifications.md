@@ -148,9 +148,47 @@ One failed receiver does not block others or alter core reconcile exits 0/1/3.
 Runtime rendering overflow leaves only that record pending until corrected,
 without blocking the destination's other deliveries; validation failures still
 fail before core mutation. Payloads cap at 24 KiB and responses at 16 KiB.
-The ledger caps at 8 MiB and 50,000 delivery records; capacity exhaustion suspends
-new work without removing receipts. Review backlog and retention requirements
-before adopting high-volume use; no destructive automatic pruning is provided.
+A generic webhook body that would exceed the payload cap drops trailing commit
+summaries and sets `commitsTruncated` rather than failing; only presentation
+large enough to overflow on its own is rejected, and that rejection is terminal.
+
+A transient fault (`network-failure`, `service-failure`, `rate-limited`,
+`canceled`) retries with exponential backoff up to one hour, indefinitely. Every
+other outcome is deterministic: it retries hourly at most **24 times per record**,
+then the record becomes terminal with the reason `abandoned` and stops consuming
+ledger space. A repaired receiver therefore recovers on its own within a day;
+one left broken cannot fill the ledger and suspend every other destination.
+
+### Ledger budget
+
+The ledger caps at 8 MiB and 50,000 delivery records; capacity exhaustion
+suspends new work without removing receipts, so plan against the budget:
+
+| Merge shape (two destinations) | Ledger cost per merge | Merges per 8 MiB |
+| --- | --- | --- |
+| No commit summaries | ~3.0 KB | ~2,780 |
+| 30 commit summaries | ~12.2 KB | ~686 |
+| 100 commit summaries (the cap) | ~33 KB | ~252 |
+
+Delivered and terminal records are retained: the budget is cumulative history,
+not concurrent backlog. Recovery when the ledger approaches or reaches its cap:
+
+1. Read the current size with `git fetch origin
+   'refs/notes/oiax/notifications/v1/*:refs/notes/oiax/notifications/v1/*'` and
+   inspect the note for the graph key; the diagnostic reason is
+   `notification-capacity-exhausted`.
+2. Repair or remove failing destinations. Records against a removed destination
+   are retired, and records that exhausted their attempts are already terminal,
+   so neither keeps growing.
+3. To retire history deliberately, remove the destination in a **new descendant**
+   configuration commit and re-add it under a new name. The new name gets a fresh
+   cutoff and does not inherit old deliveries. This does not shrink the existing
+   note; it stops adding to it.
+4. Reducing the note itself means rewriting reviewed history and losing the
+   duplicate-prevention evidence for every event it contains. There is no
+   sanctioned automatic pruning, and deleting the notes ref is not a repair.
+
+Review backlog and retention requirements before adopting high-volume use.
 
 Use preview decisions and safe reason/action diagnostics:
 
@@ -158,10 +196,12 @@ Use preview decisions and safe reason/action diagnostics:
 | --- | --- |
 | `missing-secret` | Bind the configured variable in the reconcile job. |
 | `invalid-endpoint`, `redirect-rejected` | Check HTTPS, DNS, TLS and network policy. |
-| `configuration-failure` | The request reached the receiver and was refused; the warning and the ledger record (`lastStatus`) carry the integer HTTP status. Check the webhook URL and signature (400/401/403), that the flow still exists and is enabled (404/410), and that its trigger schema accepts the documented payload. |
+| `configuration-failure` | The request reached the receiver and was refused; the warning and the ledger record (`lastStatus`) carry the integer HTTP status. Check the webhook URL and signature (400/401/403), that the flow still exists and is enabled (404/410), and that its trigger schema accepts the documented payload. Left unrepaired, the record is abandoned after 24 attempts. |
 | `service-failure`, `rate-limited` | Restore the receiver and allow saved backoff to expire. |
 | `network-failure` | The exchange failed before a decisive answer: no status for connection or TLS failures, or (Slack only) the status received before its body read failed. Saved backoff retries automatically. |
-| `payload-too-large`, `response-too-large` | Reduce custom presentation, or (Slack only) the receiver's response size, then retry. |
+| `payload-too-large` | The body still exceeded the cap with no commit summaries left to drop. Reduce custom presentation. The record is terminal: an identical retry cannot succeed. |
+| `response-too-large` | (Slack only) Reduce the receiver's response size, then retry. |
+| `abandoned` | The record spent its 24-attempt budget on a fault no retry can fix and is terminal. The reported HTTP status and the earlier runs' reasons name the underlying cause. Repair the destination, then re-add it under a new name to resend. |
 | `canceled`, `notification-canceled` | The run's budget or cancellation ended the attempt; it retries on the next scheduled run. |
 | `subscription-retired` | A later configuration removed the destination or subscription; no retry is scheduled. |
 | `delivery-claim-lost` | Another attempt settled the record while this batch was sending; its durable receipt is authoritative. |
@@ -199,13 +239,16 @@ while still using a compatible binary), then downgrade. Older binaries reject
 unknown configuration fields, even disabled ones. Preserve notes and creation
 origin comments; do not reset history, release-managed files, or tags manually.
 
-The ledger only gains fields when a newer binary records them. Once any
-delivery record carries `lastStatus` (written after a receiver answered a
-request), binaries older than the release that introduced it reject the whole
-ledger as `invalid-notification-state` and suspend sends; ledgers never touched
-by such a response stay byte-for-byte compatible. Downgrade before enabling a
-destination on the newer release, or keep the newer release once a status has
-been recorded rather than editing notes by hand.
+The ledger only gains fields and values when a newer binary records them; its
+reader rejects any it does not recognize (ADR 0014). Two of them exist today:
+a delivery record carries `lastStatus` once a receiver has answered a request,
+and it carries the terminal code `abandoned` once a destination has spent its
+attempt budget or overflowed the payload cap. From the first of either, binaries
+older than the release that introduced it reject the whole ledger as
+`invalid-notification-state` and suspend sends; ledgers never touched by one
+stay byte-for-byte compatible. Downgrade before enabling a destination on the
+newer release, keep the newer release once either has been recorded rather than
+editing notes by hand, and do not run two binary versions against one graph.
 
 Live provider/recipient visibility and setup-time acceptance are deferred by the
 maintainer to post-release adoption testing. Automated local fixtures and CI are

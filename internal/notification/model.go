@@ -20,6 +20,12 @@ const (
 	MaxLedgerBytes = 8 << 20
 	MaxDeliveries  = 50000
 	MaxCommits     = 100
+	// MaxAttempts bounds the attempt IDs one delivery record may accumulate.
+	// Every claim appends one, so without a cap a permanently misconfigured
+	// destination grows forever at the hourly retry floor and exhausts the
+	// ledger byte budget for every other destination. Reaching the cap is
+	// terminal only when the result that reaches it is non-transient.
+	MaxAttempts = 24
 	// ClaimDuration is the concurrency fence for one claimed attempt or batch;
 	// it is not a throughput budget for a run.
 	ClaimDuration = 120 * time.Second
@@ -219,6 +225,10 @@ const (
 	OutcomeResponseTooLarge OutcomeCode = "response-too-large"
 	OutcomeCanceled         OutcomeCode = "canceled"
 	OutcomeRetired          OutcomeCode = "subscription-retired"
+	// OutcomeAbandoned is terminal and records that Oiax stopped attempting a
+	// deterministic failure. It is distinct from OutcomeRetired, which records
+	// a deliberate configuration change rather than an unrecoverable fault.
+	OutcomeAbandoned OutcomeCode = "abandoned"
 )
 
 // AttemptResult carries the receiver's integer HTTP status for post-exchange
@@ -341,7 +351,7 @@ func ValidOID(s string) bool {
 
 func ValidOutcome(code OutcomeCode) bool {
 	switch code {
-	case OutcomeAccepted, OutcomeNetwork, OutcomeRateLimited, OutcomeService, OutcomeConfiguration, OutcomeMissingSecret, OutcomeInvalidEndpoint, OutcomePayloadTooLarge, OutcomeRedirect, OutcomeResponseTooLarge, OutcomeCanceled, OutcomeRetired:
+	case OutcomeAccepted, OutcomeNetwork, OutcomeRateLimited, OutcomeService, OutcomeConfiguration, OutcomeMissingSecret, OutcomeInvalidEndpoint, OutcomePayloadTooLarge, OutcomeRedirect, OutcomeResponseTooLarge, OutcomeCanceled, OutcomeRetired, OutcomeAbandoned:
 		return true
 	default:
 		return false

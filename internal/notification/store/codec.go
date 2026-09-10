@@ -218,7 +218,15 @@ func Validate(l *notification.LedgerV1) error {
 				return bad
 			}
 		case notification.StatusSkipped:
-			if r.Code != notification.OutcomeRetired {
+			// Retirement is a policy decision and needs no attempt; abandonment
+			// is only reachable after the record has consumed real attempts.
+			switch r.Code {
+			case notification.OutcomeRetired:
+			case notification.OutcomeAbandoned:
+				if r.Attempts == 0 || r.Message == nil {
+					return bad
+				}
+			default:
 				return bad
 			}
 		default:

@@ -76,6 +76,8 @@ func NotificationProblem(err error) NotificationDiagnostic {
 				d.Action = "Reduce custom presentation or receiver response size, then retry."
 			case notification.OutcomeRetired:
 				d.Action = "This subscription was deliberately retired; no retry is scheduled."
+			case notification.OutcomeAbandoned:
+				d.Action = "Attempts are exhausted and the record is terminal; repair the destination, then start a new generation to resend."
 			default:
 				d.Action = "Retry when the saved backoff expires; the event ID and attempted payload remain unchanged."
 			}

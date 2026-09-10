@@ -4,7 +4,11 @@ The generic webhook sends an HTTPS POST with `Content-Type: application/json`.
 `X-Oiax-Event-ID` repeats the JSON `id` for receiver correlation/deduplication.
 The endpoint is supplied only by the configured runtime variable. Redirects are
 not followed. Any 2xx response is acceptance; response bodies are not interpreted
-as event data. Outbound JSON is limited to 24 KiB; responses to 16 KiB.
+as event data. Outbound JSON is limited to 24 KiB; responses to 16 KiB. A body
+that would exceed 24 KiB drops trailing `commits` entries and sets
+`commitsTruncated`; `commitCount` still reports the authoritative total. Only a
+body that overflows with no commits left is rejected, and that rejection is
+terminal rather than retried.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -18,7 +22,7 @@ as event data. Outbound JSON is limited to 24 KiB; responses to 16 KiB.
 | `commits` | array | Up to 100 `{sha, shortSha, subject}` records; optional URL is currently omitted. Never null. |
 | `commitCount` | integer | Authoritative total only when `commitCountKnown` is true. |
 | `commitCountKnown` | boolean | False means the total is unknown, not zero commits. |
-| `commitsTruncated` | boolean | Commit list or subjects have been bounded/truncated. |
+| `commitsTruncated` | boolean | Commit list or subjects have been bounded/truncated, by the provider cap or to fit the payload limit. |
 | `commitsUnavailable` | boolean | Exact event membership could not be established; consult the review link. |
 | `occurredAt` | string | Authoritative creation/merge time in RFC3339 UTC. |
 | `observedAt` | string | Original observation time in RFC3339 UTC. |

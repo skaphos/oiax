@@ -75,10 +75,16 @@ func TestNotificationPresentationRedactsAddresses(t *testing.T) {
 	if got := notification.SafeDisplayText("subject "+canary, true, ""); strings.Contains(got, "credential-canary") || !strings.Contains(got, "[redacted URL]") {
 		t.Fatal("address survived sanitization")
 	}
-	for _, code := range []notification.OutcomeCode{notification.OutcomeMissingSecret, notification.OutcomeNetwork, notification.OutcomeRateLimited, notification.OutcomePayloadTooLarge, notification.OutcomeRetired} {
+	for _, code := range []notification.OutcomeCode{notification.OutcomeMissingSecret, notification.OutcomeNetwork, notification.OutcomeRateLimited, notification.OutcomePayloadTooLarge, notification.OutcomeRetired, notification.OutcomeAbandoned} {
 		if d := NotificationProblem(errors.New(string(code))); d.Reason != string(code) || d.Action == "" {
 			t.Fatalf("outcome lost: %+v", d)
 		}
+	}
+	// A terminal record must not be reported with retry-when-backoff-expires
+	// advice, and abandonment is not the same event as a deliberate retirement.
+	abandoned := NotificationProblem(errors.New(string(notification.OutcomeAbandoned)))
+	if abandoned == NotificationProblem(errors.New(string(notification.OutcomeRetired))) || strings.Contains(abandoned.Action, "Retry when the saved backoff expires") {
+		t.Fatalf("abandonment is indistinguishable or suggests a retry: %+v", abandoned)
 	}
 }
 

@@ -293,7 +293,7 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 	// earlier attempt's code while waiting for its lease to expire.
 	receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notification.ReceiptWriteTimeout)
 	defer cancel()
-	_, writeErr := r.commit(receiptCtx, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
+	recorded, writeErr := r.commit(receiptCtx, func(_ context.Context, l *notification.LedgerV1) (*notification.LedgerV1, error) {
 		if l == nil {
 			return nil, notification.ErrAbsent
 		}
@@ -317,10 +317,26 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 			// diagnostic can still carry the outcome and status.
 			err = errors.Join(notification.OutcomeError{Code: result.Code, Status: result.Status}, writeErr)
 		case result.Code != notification.OutcomeAccepted:
-			err = notification.OutcomeError{Code: result.Code, Status: result.Status}
+			// The receiver's status stays attached to the terminal code, so an
+			// abandoned record still reports what the receiver last answered.
+			err = notification.OutcomeError{Code: recordedOutcome(recorded.Ledger, key, result.Code), Status: result.Status}
 		}
 		results <- deliveryOutcome{index: indexes[key], err: failure(err), destination: name}
 	}
+}
+
+// recordedOutcome prefers the durable terminal code over the transport code, so
+// an operator learns that no further attempt is scheduled instead of seeing the
+// same transport failure a twenty-fifth time. Earlier attempts already reported
+// the underlying cause, and the receiver's status is reported alongside it.
+func recordedOutcome(l *notification.LedgerV1, key string, sent notification.OutcomeCode) notification.OutcomeCode {
+	if l == nil {
+		return sent
+	}
+	if record, ok := l.Deliveries[key]; ok && record.Status == notification.StatusSkipped && record.Code == notification.OutcomeAbandoned {
+		return notification.OutcomeAbandoned
+	}
+	return sent
 }
 
 // logAttempt reports one attempt's cost and classification. Endpoints, payload
