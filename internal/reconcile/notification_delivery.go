@@ -317,24 +317,23 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 			// diagnostic can still carry the outcome and status.
 			err = errors.Join(notification.OutcomeError{Code: result.Code, Status: result.Status}, writeErr)
 		case result.Code != notification.OutcomeAccepted:
-			// The receiver's status stays attached to the terminal code, so an
-			// abandoned record still reports what the receiver last answered.
+			// The receiver's status stays attached to the durable terminal code,
+			// including exhaustion and an intrinsically oversize payload.
 			err = notification.OutcomeError{Code: recordedOutcome(recorded.Ledger, key, result.Code), Status: result.Status}
 		}
 		results <- deliveryOutcome{index: indexes[key], err: failure(err), destination: name}
 	}
 }
 
-// recordedOutcome prefers the durable terminal code over the transport code, so
-// an operator learns that no further attempt is scheduled instead of seeing the
-// same transport failure a twenty-fifth time. Earlier attempts already reported
-// the underlying cause, and the receiver's status is reported alongside it.
+// recordedOutcome prefers a durable terminal code over the transport code, so
+// diagnostics distinguish exhaustion while preserving an intrinsically terminal
+// transport result such as payload-too-large.
 func recordedOutcome(l *notification.LedgerV1, key string, sent notification.OutcomeCode) notification.OutcomeCode {
 	if l == nil {
 		return sent
 	}
-	if record, ok := l.Deliveries[key]; ok && record.Status == notification.StatusSkipped && record.Code == notification.OutcomeAbandoned {
-		return notification.OutcomeAbandoned
+	if record, ok := l.Deliveries[key]; ok && record.Status == notification.StatusSkipped && record.Code != notification.OutcomeRetired {
+		return record.Code
 	}
 	return sent
 }

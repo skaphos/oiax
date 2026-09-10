@@ -7,8 +7,11 @@ not followed. Any 2xx response is acceptance; response bodies are not interprete
 as event data. Outbound JSON is limited to 24 KiB; responses to 16 KiB. A body
 that would exceed 24 KiB drops trailing `commits` entries and sets
 `commitsTruncated`; `commitCount` still reports the authoritative total. Only a
-body that overflows with no commits left is rejected, and that rejection is
-terminal rather than retried.
+body that overflows with no commits left is rejected. This `payload-too-large`
+result is terminal on the first attempt and is persisted as a skipped delivery,
+rather than retried. The rendered payload is saved before delivery and retries
+use that same payload; changing a template cannot repair an already-saved event
+and affects only future events.
 
 | Field | Type | Meaning |
 | --- | --- | --- |

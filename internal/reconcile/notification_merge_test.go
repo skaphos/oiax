@@ -280,6 +280,50 @@ func TestNotificationDispatchAbandonsPermanentFailure(t *testing.T) {
 	}
 }
 
+func TestNotificationDispatchPreservesTerminalPayloadTooLarge(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC)
+	clock := notificationtest.NewClock(now)
+	policy := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "ops", Type: "webhook", EndpointEnv: "AUDIT"}}}
+	store := &notificationtest.MemoryStore{}
+	runtime := mergeRuntime(clock.Now, store, policy)
+	sender := &notificationtest.Recorder{Result: notification.AttemptResult{Code: notification.OutcomePayloadTooLarge}}
+	runtime.Sender = func(v1.NotificationDestination) notification.Sender {
+		return sender
+	}
+	var reported []NotificationDiagnostic
+	runtime.Report = func(d NotificationDiagnostic) { reported = append(reported, d) }
+	if err := runtime.Activate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Admit(context.Background(), []notification.EventV1{mergeEvent(runtime.Repository, "42", now)}); err != nil {
+		t.Fatal(err)
+	}
+	reported = nil // activation reports the establishment of the initial cutoff
+	if err := runtime.Dispatch(context.Background()); err == nil || !strings.Contains(err.Error(), string(notification.OutcomePayloadTooLarge)) {
+		t.Fatalf("dispatch = %v", err)
+	}
+	if len(reported) != 1 || reported[0].Reason != string(notification.OutcomePayloadTooLarge) || !strings.Contains(reported[0].Action, "not automatically resent") {
+		t.Fatalf("diagnostics = %+v", reported)
+	}
+	snapshot, err := store.Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, record := range snapshot.Ledger.Deliveries {
+		if record.Status != notification.StatusSkipped || record.Code != notification.OutcomePayloadTooLarge || record.Attempts != 1 {
+			t.Fatalf("%s did not preserve terminal payload outcome: %+v", key, record)
+		}
+	}
+	clock.Advance(48 * time.Hour)
+	if err := runtime.Dispatch(context.Background()); err != nil {
+		t.Fatal("terminal payload was retried", err)
+	}
+	if len(sender.Payloads()) != 1 {
+		t.Fatalf("terminal payload sent %d times", len(sender.Payloads()))
+	}
+}
+
 func TestNotificationDispatchCancellationAndDisabledBypass(t *testing.T) {
 	t.Parallel()
 	disabled := &NotificationRuntime{Policy: &v1.NotificationPolicy{}}

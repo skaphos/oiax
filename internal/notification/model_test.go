@@ -36,6 +36,21 @@ func modelEvent() EventV1 {
 	return EventV1{ID: EventID(modelRepo(), r.ID, "request-merged"), Kind: "request-merged", Repository: modelRepo(), Graph: "graph", Request: r, OccurredAt: modelTime(), ObservedAt: modelTime(), Snapshot: CommitSnapshot{CommitsUnavailable: true}}
 }
 
+func modelReadyDelivery(t *testing.T) (*LedgerV1, string) {
+	t.Helper()
+	l := modelLedger(t)
+	e := modelEvent()
+	var err error
+	if l, err = AdmitEvent(l, l.PolicyRevision.ConfigOID, e); err != nil {
+		t.Fatal(err)
+	}
+	key := DeliveryKey(e.ID, "ops", l.Destinations["ops"].Generation)
+	if l, err = SaveMessage(l, l.PolicyRevision.ConfigOID, key, RenderedMessageV1{Body: "saved"}); err != nil {
+		t.Fatal(err)
+	}
+	return l, key
+}
+
 func TestNotificationIdentity(t *testing.T) {
 	t.Parallel()
 	r := modelRepo()
@@ -456,17 +471,54 @@ func TestNotificationTerminalFailureClassification(t *testing.T) {
 	if l, err = RecordResult(l, key, "first", AttemptResult{Code: OutcomePayloadTooLarge}, modelTime().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if r := l.Deliveries[key]; r.Status != StatusSkipped || r.Code != OutcomeAbandoned {
+	if r := l.Deliveries[key]; r.Status != StatusSkipped || r.Code != OutcomePayloadTooLarge {
 		t.Fatalf("oversize payload retried: %s %s", r.Status, r.Code)
 	}
 	if _, err := Claim(l, rev, key, "second", modelTime().Add(48*time.Hour)); !errors.Is(err, ErrNotDue) {
 		t.Fatal("abandoned record claimed", err)
 	}
-	// Late acceptance for a proven attempt still wins over abandonment.
+	// Late acceptance for a proven attempt still wins over a terminal size
+	// failure.
 	if l, err = RecordResult(l, key, "first", AttemptResult{Code: OutcomeAccepted}, modelTime().Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if l.Deliveries[key].Status != StatusDelivered {
-		t.Fatal("late acceptance lost to abandonment")
+		t.Fatal("late acceptance lost to terminal size failure")
+	}
+}
+
+func TestNotificationAttemptRejectsTerminalLedgerOutcomes(t *testing.T) {
+	t.Parallel()
+	for _, code := range []OutcomeCode{OutcomeRetired, OutcomeAbandoned} {
+		t.Run(string(code), func(t *testing.T) {
+			t.Parallel()
+			l, key := modelReadyDelivery(t)
+			var err error
+			if l, err = Claim(l, l.PolicyRevision.ConfigOID, key, "single", modelTime()); err != nil {
+				t.Fatal(err)
+			}
+			before := l.Clone()
+			if _, err := RecordResult(l, key, "single", AttemptResult{Code: code}, modelTime().Add(time.Second)); !errors.Is(err, ErrInvalidState) {
+				t.Fatalf("single result = %v", err)
+			}
+			if !reflect.DeepEqual(l, before) {
+				t.Fatal("invalid single result mutated input")
+			}
+
+			l, key = modelReadyDelivery(t)
+			attempts := map[string]string{key: "batch-attempt"}
+			batchID := BatchID("operation", "ops")
+			if l, _, err = ClaimBatch(l, l.PolicyRevision.ConfigOID, "ops", batchID, []string{key}, attempts, modelTime()); err != nil {
+				t.Fatal(err)
+			}
+			before = l.Clone()
+			receipts := map[string]AttemptReceipt{key: {AttemptID: attempts[key], Result: AttemptResult{Code: code}}}
+			if _, err := RecordResults(l, "ops", batchID, receipts, modelTime().Add(time.Second)); !errors.Is(err, ErrInvalidState) {
+				t.Fatalf("batch result = %v", err)
+			}
+			if !reflect.DeepEqual(l, before) {
+				t.Fatal("invalid batch result mutated input")
+			}
+		})
 	}
 }

@@ -131,6 +131,12 @@ func TestNotificationPreviewDecisions(t *testing.T) {
 	if len(abandoned.Items) != 1 || abandoned.Items[0].Decision != "subscription-not-active" || abandoned.Items[0].Reason != "attempts-exhausted" {
 		t.Fatalf("abandoned preview: %+v", abandoned)
 	}
+	r.Code = notification.OutcomePayloadTooLarge
+	l.Deliveries[key] = r
+	oversize := composeNotificationPreview(policy, l, []notification.EventV1{e}, engine.Plan{}, now, "complete", "")
+	if len(oversize.Items) != 1 || oversize.Items[0].Decision != "subscription-not-active" || oversize.Items[0].Reason != string(notification.OutcomePayloadTooLarge) {
+		t.Fatalf("oversize preview: %+v", oversize)
+	}
 	r.Code = notification.OutcomeRetired
 	l.Deliveries[key] = r
 

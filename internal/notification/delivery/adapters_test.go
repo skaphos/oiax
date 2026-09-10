@@ -120,9 +120,11 @@ func TestNotificationWebhookTruncatesCommitsInsteadOfFailing(t *testing.T) {
 		t.Fatalf("envelope exceeds the transport cap: %d bytes", len(data))
 	}
 	var envelope struct {
+		ID               string                       `json:"id"`
 		Commits          []notification.CommitSummary `json:"commits"`
 		CommitCount      int                          `json:"commitCount"`
 		CommitsTruncated bool                         `json:"commitsTruncated"`
+		Facts            string                       `json:"facts"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		t.Fatal(err)
@@ -130,8 +132,11 @@ func TestNotificationWebhookTruncatesCommitsInsteadOfFailing(t *testing.T) {
 	if len(envelope.Commits) == 0 || len(envelope.Commits) >= notification.MaxCommits || !envelope.CommitsTruncated {
 		t.Fatalf("commits not truncated and flagged: kept %d, truncated %v", len(envelope.Commits), envelope.CommitsTruncated)
 	}
+	if !strings.Contains(envelope.Facts, "Commit details truncated; see the request for the full review.") || strings.Contains(envelope.Facts, "Commit count:") {
+		t.Fatalf("facts disagree with truncated snapshot: %q", envelope.Facts)
+	}
 	// The declared total and the caller's snapshot both survive truncation.
-	if envelope.CommitCount != notification.MaxCommits || payload.Event.Snapshot.Commits[0] != before || len(payload.Event.Snapshot.Commits) != notification.MaxCommits {
+	if envelope.ID != payload.Event.ID || envelope.CommitCount != notification.MaxCommits || payload.Event.Snapshot.CommitsTruncated || payload.Event.Snapshot.Commits[0] != before || len(payload.Event.Snapshot.Commits) != notification.MaxCommits {
 		t.Fatal("truncation lost the total or mutated the caller's payload")
 	}
 	// Presentation alone can still overflow; that failure remains permanent.

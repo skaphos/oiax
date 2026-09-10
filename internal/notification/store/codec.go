@@ -200,6 +200,12 @@ func Validate(l *notification.LedgerV1) error {
 		if r.Code != "" && !notification.ValidOutcome(r.Code) {
 			return bad
 		}
+		// Retirement and abandonment are terminal ledger facts, never an
+		// in-flight or retryable transport outcome. Payload-too-large was
+		// retryable in earlier v1 ledgers, so retain compatibility for that code.
+		if r.Status != notification.StatusSkipped && (r.Code == notification.OutcomeRetired || r.Code == notification.OutcomeAbandoned) {
+			return bad
+		}
 		if r.LastStatus != 0 && (r.LastStatus < 100 || r.LastStatus > 599) {
 			return bad
 		}
@@ -218,11 +224,11 @@ func Validate(l *notification.LedgerV1) error {
 				return bad
 			}
 		case notification.StatusSkipped:
-			// Retirement is a policy decision and needs no attempt; abandonment
-			// is only reachable after the record has consumed real attempts.
+			// Retirement is a policy decision and needs no attempt. Transport
+			// terminality and abandonment require a saved attempted message.
 			switch r.Code {
 			case notification.OutcomeRetired:
-			case notification.OutcomeAbandoned:
+			case notification.OutcomeAbandoned, notification.OutcomePayloadTooLarge:
 				if r.Attempts == 0 || r.Message == nil {
 					return bad
 				}

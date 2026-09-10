@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -206,6 +207,21 @@ func TestNotificationLedgerFullStateValidation(t *testing.T) {
 			r.Status = notification.StatusSkipped
 			l.Deliveries[key] = r
 		}},
+		{"pending abandoned", func(l *notification.LedgerV1) {
+			r := l.Deliveries[key]
+			r.Status, r.Code, r.Lease = notification.StatusPending, notification.OutcomeAbandoned, notification.Lease{}
+			l.Deliveries[key] = r
+		}},
+		{"claimed retired", func(l *notification.LedgerV1) {
+			r := l.Deliveries[key]
+			r.Code = notification.OutcomeRetired
+			l.Deliveries[key] = r
+		}},
+		{"retryable abandoned", func(l *notification.LedgerV1) {
+			r := l.Deliveries[key]
+			r.Status, r.Code, r.Lease, r.NextAttemptAt = notification.StatusRetryable, notification.OutcomeAbandoned, notification.Lease{}, time.Date(2026, 9, 4, 19, 0, 0, 0, time.UTC)
+			l.Deliveries[key] = r
+		}},
 		{"abandoned without attempts", func(l *notification.LedgerV1) {
 			r := l.Deliveries[key]
 			r.Status, r.Code, r.Attempts, r.AttemptIDs, r.Lease = notification.StatusSkipped, notification.OutcomeAbandoned, 0, nil, notification.Lease{}
@@ -276,8 +292,8 @@ func TestNotificationLedgerFullStateValidation(t *testing.T) {
 		{notification.AttemptResult{Code: notification.OutcomeNetwork}, notification.StatusRetryable, notification.OutcomeNetwork},
 		{notification.AttemptResult{Code: notification.OutcomeConfiguration, Status: 400}, notification.StatusRetryable, notification.OutcomeConfiguration},
 		{notification.AttemptResult{Code: notification.OutcomeAccepted, Status: 202}, notification.StatusDelivered, notification.OutcomeAccepted},
-		// Terminal abandonment must survive the persisted boundary as well.
-		{notification.AttemptResult{Code: notification.OutcomePayloadTooLarge}, notification.StatusSkipped, notification.OutcomeAbandoned},
+		// An intrinsically terminal outcome must survive the persisted boundary.
+		{notification.AttemptResult{Code: notification.OutcomePayloadTooLarge}, notification.StatusSkipped, notification.OutcomePayloadTooLarge},
 	} {
 		l, err := notification.RecordResult(baseline, key, "attempt", tc.result, time.Date(2026, 9, 4, 18, 1, 0, 0, time.UTC))
 		if err != nil {
@@ -302,6 +318,47 @@ func TestNotificationLedgerFullStateValidation(t *testing.T) {
 		if r := decoded.Deliveries[key]; r.Status != tc.status || r.Code != tc.code {
 			t.Fatalf("persisted %s/%s, want %s/%s", r.Status, r.Code, tc.status, tc.code)
 		}
+	}
+
+	// Attempt exhaustion has its own terminal code and round-trips independently
+	// of intrinsically terminal payload sizing.
+	exhausted := baseline.Clone()
+	r := exhausted.Deliveries[key]
+	r.Attempts = notification.MaxAttempts
+	r.AttemptIDs = []string{"attempt"}
+	for i := 1; i < notification.MaxAttempts; i++ {
+		r.AttemptIDs = append(r.AttemptIDs, fmt.Sprintf("prior-%d", i))
+	}
+	exhausted.Deliveries[key] = r
+	exhausted, err := notification.RecordResult(exhausted, key, "attempt", notification.AttemptResult{Code: notification.OutcomeConfiguration, Status: 401}, time.Date(2026, 9, 4, 18, 1, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := Encode(exhausted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := decoded.Deliveries[key]; r.Status != notification.StatusSkipped || r.Code != notification.OutcomeAbandoned || r.LastStatus != 401 {
+		t.Fatalf("persisted exhausted record = %+v", r)
+	}
+
+	// Earlier schema-v1 writers could persist payload-too-large as retryable.
+	// It remains readable until a future attempt reduces it under current rules.
+	legacy := baseline.Clone()
+	r = legacy.Deliveries[key]
+	r.Status, r.Code, r.Lease = notification.StatusRetryable, notification.OutcomePayloadTooLarge, notification.Lease{}
+	r.NextAttemptAt = time.Date(2026, 9, 4, 19, 0, 0, 0, time.UTC)
+	legacy.Deliveries[key] = r
+	data, err = Encode(legacy)
+	if err != nil {
+		t.Fatal("legacy retryable payload-too-large rejected", err)
+	}
+	if _, err := Decode(bytes.NewReader(data)); err != nil {
+		t.Fatal("legacy retryable payload-too-large did not round trip", err)
 	}
 }
 

@@ -72,12 +72,14 @@ func NotificationProblem(err error) NotificationDiagnostic {
 				}
 			case notification.OutcomeInvalidEndpoint, notification.OutcomeRedirect:
 				d.Action = "Review endpoint HTTPS, TLS, DNS and private-network policy, then retry."
-			case notification.OutcomePayloadTooLarge, notification.OutcomeResponseTooLarge:
-				d.Action = "Reduce custom presentation or receiver response size, then retry."
+			case notification.OutcomePayloadTooLarge:
+				d.Action = "This record is terminal and is not automatically resent; reduce custom presentation for future messages."
+			case notification.OutcomeResponseTooLarge:
+				d.Action = "Reduce receiver response size, then retry."
 			case notification.OutcomeRetired:
 				d.Action = "This subscription was deliberately retired; no retry is scheduled."
 			case notification.OutcomeAbandoned:
-				d.Action = "Attempts are exhausted and the record is terminal; repair the destination, then start a new generation to resend."
+				d.Action = "Attempts are exhausted and this record is terminal; it is not automatically resent. Repair the destination for future messages."
 			default:
 				d.Action = "Retry when the saved backoff expires; the event ID and attempted payload remain unchanged."
 			}

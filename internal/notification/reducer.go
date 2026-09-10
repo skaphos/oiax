@@ -273,7 +273,7 @@ func RecordResult(l *LedgerV1, key, attemptID string, result AttemptResult, now 
 // A destination lease is released only when it belongs to this attempt.
 func applyResult(out *LedgerV1, key, attemptID string, result AttemptResult, now time.Time) error {
 	r, ok := out.Deliveries[key]
-	if !ok || !slices.Contains(r.AttemptIDs, attemptID) || !ValidOutcome(result.Code) || now.IsZero() {
+	if !ok || !slices.Contains(r.AttemptIDs, attemptID) || !validAttemptOutcome(result.Code) || now.IsZero() {
 		return ErrInvalidState
 	}
 	if r.Status == StatusDelivered {
@@ -289,10 +289,14 @@ func applyResult(out *LedgerV1, key, attemptID string, result AttemptResult, now
 			return nil
 		}
 		if TerminalFailure(r.Attempts, result.Code) {
-			// Abandonment replaces the last transport code, so a reader cannot
-			// mistake an exhausted record for one still awaiting its backoff.
 			r.Status = StatusSkipped
-			r.Code = OutcomeAbandoned
+			// An intrinsically terminal transport result retains its diagnostic.
+			// Exhaustion of the bounded retry policy is a distinct terminal fact.
+			if result.Code == OutcomePayloadTooLarge {
+				r.Code = result.Code
+			} else {
+				r.Code = OutcomeAbandoned
+			}
 		} else {
 			r.Status = StatusRetryable
 			r.Code = result.Code
@@ -312,6 +316,13 @@ func applyResult(out *LedgerV1, key, attemptID string, result AttemptResult, now
 	r.Lease = Lease{}
 	out.Deliveries[key] = r
 	return nil
+}
+
+// validAttemptOutcome excludes terminal ledger facts that no transport may
+// return as a receipt. Retirement is produced only by policy acceptance and
+// abandonment only by the reducer after exhausting deterministic failures.
+func validAttemptOutcome(code OutcomeCode) bool {
+	return ValidOutcome(code) && code != OutcomeRetired && code != OutcomeAbandoned
 }
 
 // BatchID names the destination lease held by one run's batch. It is distinct

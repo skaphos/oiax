@@ -20,11 +20,10 @@ const (
 	MaxLedgerBytes = 8 << 20
 	MaxDeliveries  = 50000
 	MaxCommits     = 100
-	// MaxAttempts bounds the attempt IDs one delivery record may accumulate.
-	// Every claim appends one, so without a cap a permanently misconfigured
-	// destination grows forever at the hourly retry floor and exhausts the
-	// ledger byte budget for every other destination. Reaching the cap is
-	// terminal only when the result that reaches it is non-transient.
+	// MaxAttempts is the abandonment threshold for non-transient failures.
+	// Every claim appends an attempt ID, so a permanently misconfigured
+	// destination must eventually stop growing and consuming the shared ledger
+	// budget. Transient failures may continue past this threshold.
 	MaxAttempts = 24
 	// ClaimDuration is the concurrency fence for one claimed attempt or batch;
 	// it is not a throughput budget for a run.

@@ -49,7 +49,15 @@ func webhookEnvelope(p notification.DeliveryPayloadV1, facts string) ([]byte, er
 	for kept := len(all); ; kept-- {
 		p.Event.Snapshot.Commits = all[:kept]
 		p.Event.Snapshot.CommitsTruncated = p.Event.Snapshot.CommitsTruncated || kept < len(all)
-		data, err := json.Marshal(webhook(p, facts))
+		envelopeFacts := facts
+		if kept < len(all) {
+			var err error
+			envelopeFacts, err = notification.FixedFacts(p.Event)
+			if err != nil {
+				return nil, err
+			}
+		}
+		data, err := json.Marshal(webhook(p, envelopeFacts))
 		if err != nil {
 			return nil, notification.ErrInvalidState
 		}

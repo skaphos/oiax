@@ -83,8 +83,12 @@ func TestNotificationPresentationRedactsAddresses(t *testing.T) {
 	// A terminal record must not be reported with retry-when-backoff-expires
 	// advice, and abandonment is not the same event as a deliberate retirement.
 	abandoned := NotificationProblem(errors.New(string(notification.OutcomeAbandoned)))
-	if abandoned == NotificationProblem(errors.New(string(notification.OutcomeRetired))) || strings.Contains(abandoned.Action, "Retry when the saved backoff expires") {
+	if abandoned == NotificationProblem(errors.New(string(notification.OutcomeRetired))) || strings.Contains(abandoned.Action, "Retry when the saved backoff expires") || strings.Contains(abandoned.Action, "new generation") || !strings.Contains(abandoned.Action, "not automatically resent") || !strings.Contains(abandoned.Action, "future messages") {
 		t.Fatalf("abandonment is indistinguishable or suggests a retry: %+v", abandoned)
+	}
+	payload := NotificationProblem(errors.New(string(notification.OutcomePayloadTooLarge)))
+	if !strings.Contains(payload.Action, "terminal") || !strings.Contains(payload.Action, "not automatically resent") || !strings.Contains(payload.Action, "future messages") {
+		t.Fatalf("payload terminality is unclear: %+v", payload)
 	}
 }
 
