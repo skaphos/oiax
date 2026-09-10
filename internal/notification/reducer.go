@@ -204,6 +204,8 @@ func SaveMessage(l *LedgerV1, configOID, key string, message RenderedMessageV1) 
 
 // Claim reserves both an event and a destination. Expired leases can be replaced,
 // but cannot fence a suspended HTTP sender; late results retain their attempt IDs.
+// Claims are not capped because no terminal decision is safe until a result is
+// durably recorded.
 func Claim(l *LedgerV1, configOID, key, attemptID string, now time.Time) (*LedgerV1, error) {
 	if l.PolicyRevision.ConfigOID != configOID {
 		return nil, ErrStaleRevision
@@ -337,6 +339,8 @@ func BatchID(operationID, destination string) string {
 // that are individually not due are skipped rather than failed, and a batch
 // that claims nothing is not due. Each claimed record carries its own attempt
 // ID so late results keep their evidence exactly as single claims do.
+// Claim counts remain unrestricted when the prior attempt's result is unknown;
+// only RecordResults can make a terminal decision from durable evidence.
 func ClaimBatch(l *LedgerV1, configOID, destination, batchID string, keys []string, attempts map[string]string, now time.Time) (*LedgerV1, []string, error) {
 	if l.PolicyRevision.ConfigOID != configOID {
 		return nil, nil, ErrStaleRevision
@@ -505,12 +509,13 @@ func TransientOutcome(code OutcomeCode) bool {
 	}
 }
 
-// TerminalFailure reports a failure that must stop consuming ledger budget. An
-// oversize payload is already bounded and truncated by the transport, so its
-// rejection is final; other non-transient faults keep a bounded attempt budget
-// so a receiver repaired the same day still recovers on its own. A transient
-// code is never terminal, so a record whose attempts were spent on canceled
-// claims is abandoned only once a receiver or endpoint actually refuses it.
+// TerminalFailure reports whether a durably recorded failure must stop consuming
+// ledger budget. An oversize payload is already bounded and truncated by the
+// transport, so its recorded rejection is final; other non-transient faults keep
+// a bounded attempt budget before a recorded result abandons the delivery. A
+// transient code is never terminal, so a record whose attempts were spent on
+// canceled claims is abandoned only once a receiver or endpoint actually refuses
+// it and that refusal is persisted.
 func TerminalFailure(attempts int, code OutcomeCode) bool {
 	if code == OutcomePayloadTooLarge {
 		return true

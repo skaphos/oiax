@@ -1,5 +1,38 @@
 # Implementation validation evidence
 
+## PR #101 terminal-outcome correction — 2026-09-10
+
+ADR 0018 and the implementation now distinguish terminal state from an attempted
+but unpersisted result. A first persisted `payload-too-large` receipt records
+`skipped/payload-too-large`; another deterministic result persisted at 24 or more
+total claimed attempts records `skipped/abandoned`. Transient network, service,
+rate-limit and cancellation outcomes remain retryable. Receipt-write failures
+remain recoverable, preserve safe underlying outcome/status evidence, and do not
+create a universal attempt-ID bound. A proven late acceptance can still win a
+skipped state. Runtime render failures remain pending before saved-message/claim
+state, and required identity is not truncated. Preview continues to use
+`subscription-not-active` with `attempts-exhausted` or `payload-too-large`.
+
+Focused coverage includes
+`TestNotificationFailedPayloadReceiptRemainsClaimedAndReportsNonDurable`,
+`TestNotificationUnpersistedFailuresDoNotPrematurelySettle`,
+`TestNotificationDispatchAbandonsPermanentFailure`,
+`TestNotificationRefusedWithoutReceiptKeepsReceiverStatus`, and
+`TestNotificationDiagnosticsKeepStatusWhenReceiptWriteFails`.
+
+Verification reported for the integrated PR #101 checkout:
+
+| Check | Result |
+| --- | --- |
+| `go -C tools tool task test` | PASS |
+| `go -C tools tool task notifications:verify` | PASS: notification 93.23%, delivery 90.48%, store 87.56%; race/shuffle/integration and per-package 85% gates |
+| `go -C tools tool task lint` | PASS, zero issues |
+| `go -C tools tool task verify-generated` | PASS |
+
+These local automated results do not add live recipient-visibility or setup-time
+evidence; T076/T077 remain deferred as recorded below. The original 80-task count
+and completion boxes are unchanged.
+
 ## Platform-policy rebase — 2026-09-05
 
 PR #77 is rebased onto `ec43b8e`, the merged PR #78 platform-support decision

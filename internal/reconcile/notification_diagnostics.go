@@ -53,6 +53,13 @@ func NotificationProblem(err error) NotificationDiagnostic {
 		d.Reason, d.Action = "notification-discovery-incomplete", "Retry reconciliation to resume bounded discovery; existing eligible deliveries can proceed."
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		d.Reason, d.Action = "notification-canceled", "Retry on the next scheduled run; saved receipts and payloads are retained."
+	case errors.Is(err, notification.ErrReceiptNotPersisted):
+		d.Reason = "delivery-receipt-not-persisted"
+		if code, _ := notificationOutcome(err); code != "" {
+			d.Action = fmt.Sprintf("Attempt result (%s) was not persisted; restore ledger access. This record may be attempted again after lease expiry.", code)
+		} else {
+			d.Action = "Attempt result was not persisted; restore ledger access. This record may be attempted again after lease expiry."
+		}
 	}
 	// Compare complete leaf codes, never interpolate an arbitrary error string.
 	if d.Reason == "notification-deferred" {

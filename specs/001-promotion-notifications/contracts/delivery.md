@@ -15,9 +15,11 @@ The shared client owns HTTPS validation, connection-time address policy, timeout
 redirect refusal, bounded reads, and redaction. Pure adapters encode payloads
 and interpret responses. Raw HTTP errors/responses are never persisted or logged.
 Response bodies are capped at 16 KiB; outbound messages at 24 KiB. If required
-identity cannot fit, record `payload-too-large` and keep the delivery pending.
-Do not silently truncate a branch or request identity. Optional content may be
-omitted to stay under the limit.
+identity cannot fit after optional content is omitted, return
+`payload-too-large`; do not silently truncate repository, branch, request or
+event identity. The coordinator persists that first result as
+`skipped/payload-too-large`. A runtime render failure occurs earlier, before the
+message is saved or an attempt is claimed, and leaves the record pending.
 
 ## Generic webhook schema v1
 
@@ -99,12 +101,27 @@ necessary even with one-second per-destination pacing.
 | Accepted but receipt commit fails | uncertain; correlation ID retained |
 | Timeout/network failure/408/5xx | retryable; exponential spacing |
 | 429 | retryable; honor bounded Retry-After |
-| 3xx | rejected redirect; no follow; retry after endpoint correction |
-| Other 4xx or unexpected success body | safe configuration/service diagnostic; delayed retry |
-| Missing secret/invalid endpoint/payload too large | no HTTP; diagnostic; delayed retry |
+| Canceled before a decisive result | retryable |
+| First payload-too-large result whose receipt commits | terminal `skipped/payload-too-large` |
+| Other deterministic result whose receipt commits before 24 total claimed attempts | retryable with delayed retry |
+| Other deterministic result whose receipt commits at 24+ total claimed attempts | terminal `skipped/abandoned` |
+| Nonaccepted result whose receipt commit fails | recoverable after lease expiry; underlying safe outcome/status retained |
 | Disabled/retired subscription | skipped; never reroute |
 
+The deterministic group is `configuration-failure`, `missing-secret`,
+`invalid-endpoint`, `redirect-rejected`, and `response-too-large`, plus the
+first-result `payload-too-large` special case. Redirects are never followed.
 All failures preserve core exit semantics. No retry is performed inline for the
-same event/destination during one invocation. Never claim exactly-once delivery
-for ambiguous sends or recovered leases. Use [the model](../data-model.md) for
-durable transitions and [research](../research.md) for source evidence and bounds.
+same event/destination during one invocation. Transient network, service,
+rate-limit and cancellation outcomes remain retryable at any attempt count.
+Receipt-write failure cannot establish a terminal outcome and may allow the total
+claimed-attempt count and attempt-ID list to exceed 24; there is no universal
+attempt-ID bound or v1 compaction. A late acceptance for any proven attempt may
+replace a skipped outcome with delivered. Preview keeps the existing
+`subscription-not-active` decision for both terminal outcomes, using
+`attempts-exhausted` or `payload-too-large` as the reason. Never claim
+exactly-once delivery for ambiguous sends or recovered leases. Use
+[the model](../data-model.md) for durable transitions,
+[research](../research.md) for source evidence and bounds, and
+[ADR 0018](../../../docs/adr/0018-notification-terminal-outcome-rollout.md) for
+the coordinated one-way state rollout.

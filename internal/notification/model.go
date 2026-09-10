@@ -21,9 +21,8 @@ const (
 	MaxDeliveries  = 50000
 	MaxCommits     = 100
 	// MaxAttempts is the abandonment threshold for non-transient failures.
-	// Every claim appends an attempt ID, so a permanently misconfigured
-	// destination must eventually stop growing and consuming the shared ledger
-	// budget. Transient failures may continue past this threshold.
+	// A persisted non-transient result at or above this claim count abandons the
+	// delivery. Transient outcomes and unpersisted receipts can exceed it.
 	MaxAttempts = 24
 	// ClaimDuration is the concurrency fence for one claimed attempt or batch;
 	// it is not a throughput budget for a run.

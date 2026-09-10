@@ -220,7 +220,7 @@ Setup/foundation production interfaces are shared; do not mark their implementat
 | FR-011 uncertain acceptance retains ID | T009, T031, T034, T062, T066, T071 |
 | FR-012 no historical backfill | T005, T009, T023, T030, T049, T052, T067 |
 | FR-013 destination isolation | T019, T029, T031–T034, T063, T068–T070 |
-| FR-014 nonfatal failures and later retry | T019, T029, T031–T034, T047, T063, T068–T070 |
+| FR-014 nonfatal failures and retry/terminal treatment | T019, T029, T031–T034, T047, T063, T068–T070 |
 | FR-015 safe distinguishable outcomes | T008, T061–T070 |
 | FR-016 runtime-only secret values | T004, T007, T011, T015, T017, T025, T062–T063, T065–T068 |
 | FR-017 inert untrusted text | T017–T018, T024–T028, T035, T050, T058–T059, T062, T073, T076 |
@@ -251,6 +251,27 @@ Setup/foundation production interfaces are shared; do not mark their implementat
 5. Keep changes reviewable; commits/PRs require separate authorization and must follow the repository's signed Conventional Commit/DCO policy. Rollback removes optional pinned configuration before binary downgrade; retain durable receipts and origin.
 
 **Count**: 80 tasks — Setup 3, Foundation 12, US1 23, US2 10, US3 12, US4 10, Polish 10. There are 22 `[P]` tasks across bounded batches. All 26 functional requirements and eight success criteria are mapped above.
+
+## PR #101 terminal-outcome follow-up
+
+This correction is follow-up work on the completed implementation and does not
+add an 81st feature task or change any original task checkbox. ADR 0018 defines
+the one-way v1 rollout. The implementation must keep payload overflow terminal
+only after its first persisted receipt, abandon another deterministic outcome
+only when a receipt persists at 24 or more total claimed attempts, keep transient
+outcomes retryable, preserve recovery after receipt-write failure, and allow a
+late accepted proven attempt to win a skipped outcome. Runtime rendering failure
+remains pending before message persistence and claim; required identity is never
+truncated. Preview retains `subscription-not-active` with
+`attempts-exhausted`/`payload-too-large` reasons.
+
+Evidence for this follow-up is recorded in
+[implementation-validation.md](checklists/implementation-validation.md). Focused
+regressions include `TestNotificationFailedPayloadReceiptRemainsClaimedAndReportsNonDurable`,
+`TestNotificationUnpersistedFailuresDoNotPrematurelySettle`,
+`TestNotificationDispatchAbandonsPermanentFailure`,
+`TestNotificationRefusedWithoutReceiptKeepsReceiverStatus`, and
+`TestNotificationDiagnosticsKeepStatusWhenReceiptWriteFails`.
 
 The seven analysis findings are tracked in [remediation.md](checklists/remediation.md).
 That document records specification changes, not completed implementation tests;

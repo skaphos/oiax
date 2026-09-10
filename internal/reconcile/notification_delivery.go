@@ -303,19 +303,27 @@ func (r *NotificationRuntime) dispatchBatch(ctx context.Context, operationID str
 		result := receipts[key].Result
 		err, sent := attempted[key]
 		switch {
-		case !sent && errors.Is(stop, notification.ErrNotDue):
-			err = notification.OutcomeError{Code: notification.OutcomeCanceled}
-		case !sent:
-			err = stop
-		case err != nil:
 		case writeErr != nil && result.Code == notification.OutcomeAccepted:
 			// The receiver's status is kept so the uncertainty diagnostic can
 			// still say what the receiver answered.
 			err = errors.Join(notification.ErrReceiptUncertain, notification.OutcomeError{Code: result.Code, Status: result.Status}, writeErr)
 		case writeErr != nil:
-			// The receiver's verdict is kept alongside the write failure so the
-			// diagnostic can still carry the outcome and status.
-			err = errors.Join(notification.OutcomeError{Code: result.Code, Status: result.Status}, writeErr)
+			// A non-accepted result is only an observed attempt outcome until its
+			// receipt is durable. Preserve any reason the send was not attempted,
+			// the safe outcome/status and the underlying storage failure without
+			// claiming that the outcome is terminal or successfully recorded.
+			var prior error
+			if !sent {
+				prior = stop
+			} else {
+				prior = err
+			}
+			err = errors.Join(prior, notification.ErrReceiptNotPersisted, notification.OutcomeError{Code: result.Code, Status: result.Status}, writeErr)
+		case !sent && errors.Is(stop, notification.ErrNotDue):
+			err = notification.OutcomeError{Code: notification.OutcomeCanceled}
+		case !sent:
+			err = stop
+		case err != nil:
 		case result.Code != notification.OutcomeAccepted:
 			// The receiver's status stays attached to the durable terminal code,
 			// including exhaustion and an intrinsically oversize payload.

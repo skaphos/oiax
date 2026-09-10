@@ -122,6 +122,11 @@ Messages are saved per destination before the first attempt. A retry uses the
 same event ID, facts and wording even after template edits. A committed success
 receipt is terminal. An HTTP acceptance followed by a failed receipt write is
 **uncertain**, not durable success: retry can duplicate recipient visibility.
+If a nonaccepted result cannot be persisted, Oiax reports
+`delivery-receipt-not-persisted` when no higher-priority state, storage or
+cancellation diagnostic applies, while retaining the underlying safe outcome
+and HTTP status, when present. That attempt remains recoverable after its lease
+expires; no terminal guarantee applies until its receipt is durable.
 There is no exactly-once guarantee and no claim that HTTP acceptance proves a
 person could see the message.
 
@@ -145,22 +150,27 @@ with the destination, reason, HTTP status (when an exchange completed) and
 elapsed milliseconds; endpoints and payload text are never logged. Backoff and
 bounded Retry-After survive runs.
 One failed receiver does not block others or alter core reconcile exits 0/1/3.
-Runtime rendering overflow leaves only that record pending until corrected,
-without blocking the destination's other deliveries; validation failures still
-fail before core mutation. Payloads cap at 24 KiB and responses at 16 KiB.
+Runtime rendering overflow occurs before the message is saved, leaving only that record
+pending without claiming an attempt or blocking the destination's other
+deliveries; validation failures still fail before core mutation. Payloads cap
+at 24 KiB and responses at 16 KiB.
 A generic webhook body that would exceed the payload cap drops trailing commit
-summaries and sets `commitsTruncated` rather than failing; only presentation
-large enough to overflow on its own is rejected, and that rejection is terminal.
+summaries and sets `commitsTruncated` rather than failing. If the entire envelope
+is still too large after all optional commit summaries are dropped, the attempt
+fails without truncating required repository, branch, request or event identity.
 
 A transient fault (`network-failure`, `service-failure`, `rate-limited`,
-`canceled`) retries with exponential backoff up to one hour, indefinitely. These
-faults can therefore continue appending attempt IDs until the ledger reaches its
-capacity. Deterministic failures stop when a record reaches **24 total
-attempts**. Transient outcomes may continue past that threshold. When the
-deterministic budget is exhausted, the record is terminal with reason
-`abandoned`. A payload that still exceeds its transport cap after any supported
-truncation is terminal on the first result and is persisted as skipped with
-reason `payload-too-large`; it does not receive retry attempts.
+`canceled`) remains retryable with exponential backoff up to one hour, including
+after 24 claimed attempts. A persisted `payload-too-large` receipt makes the
+record terminal on its first such result as `skipped/payload-too-large`. Any
+other deterministic result persisted when the ledger records at least **24
+total claimed attempts** makes the record terminal as `skipped/abandoned`.
+Missing or unpersisted receipts remain recoverable and can lead to more than 24
+claims. There is no universal attempt-ID bound and no receipt compaction; the
+practical bound is ledger capacity. A late accepted receipt for any proven
+attempt may still replace a skipped terminal outcome with durable delivery.
+These one-way v1 state extensions and their coordinated rollout are recorded in
+[ADR 0018](../adr/0018-notification-terminal-outcome-rollout.md).
 
 ### Ledger budget
 
@@ -202,12 +212,12 @@ Use preview decisions and safe reason/action diagnostics:
 | --- | --- |
 | `missing-secret` | Bind the configured variable in the reconcile job. |
 | `invalid-endpoint`, `redirect-rejected` | Check HTTPS, DNS, TLS and network policy. |
-| `configuration-failure` | With an HTTP status, the receiver refused the request; without one, the payload could not be encoded and no exchange occurred. Check the webhook URL and signature (400/401/403), that the flow still exists and is enabled (404/410), and that its trigger schema accepts the documented payload. Left unrepaired, the record is abandoned after 24 total attempts. |
+| `configuration-failure` | With an HTTP status, the receiver refused the request; without one, the payload could not be encoded and no exchange occurred. Check the webhook URL and signature (400/401/403), that the flow still exists and is enabled (404/410), and that its trigger schema accepts the documented payload. A receipt persisted at or after 24 total claimed attempts abandons the record. |
 | `service-failure`, `rate-limited` | Restore the receiver and allow saved backoff to expire. |
 | `network-failure` | The exchange failed before a decisive answer: no status for connection or TLS failures, or (Slack only) the status received before its body read failed. Saved backoff retries automatically. |
-| `payload-too-large` | The encoded body exceeded the transport cap after any supported truncation (generic webhooks may drop trailing commit summaries; other transports do not). Reduce custom presentation for future events; changing the template cannot repair this saved event. The first result is terminal and persisted as a skipped record; an identical retry cannot succeed. |
+| `payload-too-large` | The entire encoded envelope exceeded the transport cap after supported optional content was dropped; required identity is never truncated. Reduce custom presentation for future events; changing the template cannot repair this saved event. Its first successfully persisted receipt makes the record terminal and skipped. |
 | `response-too-large` | (Slack only) Reduce the receiver's response size, then retry. |
-| `abandoned` | The record reached the attempt threshold on a deterministic failure and is terminal. Use the reported HTTP status, when present, and earlier reasons to diagnose the cause. Repair the destination for future events; this record is not automatically resent, including under a new destination name. |
+| `abandoned` | A deterministic failure receipt persisted when the record had at least 24 total claimed attempts, so the record is terminal. Use the reported HTTP status, when present, and earlier reasons to diagnose the cause. Repair the destination for future events; this record is not automatically resent, including under a new destination name. |
 | `canceled`, `notification-canceled` | The run's budget or cancellation ended the attempt; it retries on the next scheduled run. |
 | `subscription-retired` | A later configuration removed the destination or subscription; no retry is scheduled. |
 | `delivery-claim-lost` | Another attempt settled the record while this batch was sending; its durable receipt is authoritative. |
@@ -215,6 +225,7 @@ Use preview decisions and safe reason/action diagnostics:
 | `notification-ledger-absent` | The next reconcile establishes a current cutoff; restore lost notes first if prior receipts must be retained. |
 | `notification-deferred` | A provider or notes failure deferred notification work; retry and inspect provider and notes permissions. |
 | `accepted-receipt-uncertain` | Correlate by event ID; a retry may repeat visibility. |
+| `delivery-receipt-not-persisted` | When no higher-priority state, storage or cancellation diagnostic applies, the nonaccepted outcome and HTTP status, when present, are reported, but its receipt is not durable. Repair notes persistence; the attempt remains recoverable and cannot establish terminality until a receipt is saved. |
 | `notification-discovery-incomplete` | Run scheduled repair; bounded scans retain progress. |
 | `invalid-notification-state` | Preserve notes; review corruption/version compatibility before restoring valid history. |
 | `notification-ledger-initialized` | A current cutoff was established. If notes were lost, prior receipts require operator recovery. |
@@ -253,7 +264,8 @@ by failures before a network exchange, so they do not necessarily have a
 `lastStatus`. Once any of these newer fields or values has been recorded,
 binaries older than the release that introduced it reject the whole ledger as
 `invalid-notification-state` and suspend sends; ledgers never touched by one
-stay byte-for-byte compatible. Downgrade before enabling a destination on the
+stay byte-for-byte compatible. This one-way rollout is specified by
+[ADR 0018](../adr/0018-notification-terminal-outcome-rollout.md). Downgrade before enabling a destination on the
 newer release, keep the newer release once newer state has been recorded rather
 than editing notes by hand, and do not run two binary versions against one graph.
 

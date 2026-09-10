@@ -7,9 +7,10 @@ not followed. Any 2xx response is acceptance; response bodies are not interprete
 as event data. Outbound JSON is limited to 24 KiB; responses to 16 KiB. A body
 that would exceed 24 KiB drops trailing `commits` entries and sets
 `commitsTruncated`; `commitCount` still reports the authoritative total. Only a
-body that overflows with no commits left is rejected. This `payload-too-large`
-result is terminal on the first attempt and is persisted as a skipped delivery,
-rather than retried. The rendered payload is saved before delivery and retries
+body that remains too large with no commits left is rejected; required identity
+is never truncated. Its first successfully persisted `payload-too-large` receipt
+makes the delivery terminal as skipped, rather than retryable. The rendered
+payload is saved before delivery and retries
 use that same payload; changing a template cannot repair an already-saved event
 and affects only future events.
 
@@ -45,6 +46,15 @@ further intentional delivery. Acceptance without a saved receipt can result in
 duplicates, so acknowledge only after your receiver durably accepts/deduplicates
 the event. Oiax provides no payload signing header or exactly-once guarantee in
 this version; secure the endpoint through HTTPS and its runtime secret address.
+
+Transient `network-failure`, `service-failure`, `rate-limited`, and `canceled`
+receipts remain retryable. Other deterministic outcomes become
+`skipped/abandoned` when their receipt is persisted at or after 24 total claimed
+attempts. A failed receipt write leaves the claim recoverable after lease expiry,
+so claims and attempt IDs can exceed that threshold; there is no universal
+attempt-ID bound or receipt compaction. A late accepted receipt for a proven
+attempt may still establish delivery after a skipped outcome. See
+[ADR 0018](../adr/0018-notification-terminal-outcome-rollout.md).
 
 See [setup and recovery](../guides/notifications.md), [templates](templates.md#notification-templates),
 and the [golden wire example](../../internal/notification/delivery/testdata/webhook.golden.json).

@@ -11,7 +11,7 @@ import (
 )
 
 func TestNotificationDiagnosticsAreSafe(t *testing.T) {
-	for _, err := range []error{errors.New("https://receiver.invalid/credential-canary"), notification.ErrReceiptUncertain, notification.ErrStaleRevision, notification.ErrUnorderedRevision, notification.ErrInvalidState, notification.ErrCapacity} {
+	for _, err := range []error{errors.New("https://receiver.invalid/credential-canary"), notification.ErrReceiptUncertain, notification.ErrReceiptNotPersisted, notification.ErrStaleRevision, notification.ErrUnorderedRevision, notification.ErrInvalidState, notification.ErrCapacity} {
 		d := NotificationProblem(err)
 		if d.Reason == "" || d.Action == "" || strings.Contains(d.Reason+d.Action, "credential-canary") || strings.Contains(d.Action, "delete") {
 			t.Fatalf("unsafe or unactionable: %+v", d)
@@ -148,11 +148,11 @@ func TestNotificationConfigurationActionDistinguishesExchangedRequests(t *testin
 
 func TestNotificationDiagnosticsKeepStatusWhenReceiptWriteFails(t *testing.T) {
 	t.Parallel()
-	refused := NotificationProblem(errors.Join(notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 400}, notification.ErrUnavailable))
-	if refused.Reason != "configuration-failure" || refused.Status != 400 {
+	refused := NotificationProblem(errors.Join(notification.ErrReceiptNotPersisted, notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 400}, notification.ErrUnavailable))
+	if refused.Reason != "delivery-receipt-not-persisted" || refused.Status != 400 || !strings.Contains(refused.Action, string(notification.OutcomeConfiguration)) || strings.Contains(refused.Action, "terminal") {
 		t.Fatalf("refused with failed receipt = %+v", refused)
 	}
-	capacity := NotificationProblem(errors.Join(notification.OutcomeError{Code: notification.OutcomeService, Status: 503}, notification.ErrCapacity))
+	capacity := NotificationProblem(errors.Join(notification.ErrReceiptNotPersisted, notification.OutcomeError{Code: notification.OutcomeService, Status: 503}, notification.ErrCapacity))
 	if capacity.Reason != "notification-capacity-exhausted" || capacity.Status != 503 {
 		t.Fatalf("sentinel outranks outcome but must keep the status: %+v", capacity)
 	}

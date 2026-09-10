@@ -252,6 +252,9 @@ func TestNotificationDispatchAbandonsPermanentFailure(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("cycle %d dispatch = %v, want %s", cycle, err, want)
 		}
+		if len(reported) != len(events) {
+			t.Fatalf("cycle %d reported %d diagnostics, want %d", cycle, len(reported), len(events))
+		}
 		for _, d := range reported {
 			// The receiver's status stays attached through abandonment, so the
 			// terminal diagnostic still names what the receiver last answered.
