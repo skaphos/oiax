@@ -112,13 +112,11 @@ func (r *NotificationRuntime) preview(ctx context.Context, plan engine.Plan) *No
 		add(req)
 	}
 	for _, kind := range []v1.NotificationEvent{v1.NotificationRequestCreated, v1.NotificationRequestMerged} {
-		from := now
-		for _, d := range l.Destinations {
-			for _, sub := range d.Subscriptions {
-				if sub.Event == kind && sub.Cutoff.Before(from) {
-					from = sub.Cutoff
-				}
-			}
+		// The preview looks exactly as far back as observation does: no older
+		// occurrence could be admitted on the projected policy.
+		from, subscribed := notification.EarliestAdmissibleTime(l, kind)
+		if !subscribed {
+			from = now
 		}
 		q := forge.LifecycleQuery{Graph: r.Graph, Kind: kind, From: from, Through: now, Limit: 100}
 		for page := 0; page < 2; page++ {
