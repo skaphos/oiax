@@ -101,6 +101,46 @@ request promoted; the `logMessage` of the merge commit, or the request's own
 commit list on the forge, will tell you which one it was. The warning names
 the offending value and the request it came from.
 
+## Notifications defer every run with `config-revision-unreachable`
+
+**Symptom.** Every `reconcile` reports the same notification diagnostic and
+nothing is ever delivered:
+
+```
+notification delivery ... reason=config-revision-unreachable
+```
+
+**Cause.** The configuration revision recorded as accepted in the notification
+ledger names a commit that no longer exists. Oiax advances notification policy
+only onto a revision it can prove descends from the accepted one, and
+`git merge-base --is-ancestor` cannot answer for a commit the repository does not
+have. A force-push, a branch rewrite or a GC of the configuration branch strands
+the record permanently: it never heals on its own, and both ordinary exits are
+closed — there is nothing left to commit a descendant onto, and deleting the
+notes ref would destroy the receipts that stop notifications being sent twice.
+
+**Fix.** First rule out a checkout that simply lacks the object, which looks
+identical from inside the repository:
+
+```bash
+git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+git cat-file -e <accepted-oid>^{commit}   # succeeds? then just re-run; nothing is wrong
+```
+
+If the commit is really gone, record an audited acceptance of the revision you
+are pinning now:
+
+```bash
+oiax notifications reset --accept-revision "$(git rev-parse origin/main)"
+```
+
+The command refuses in a shallow clone and while the accepted commit still
+resolves. It preserves every event, delivery and receipt, and appends a
+permanent record of the override to the ledger. See
+[Recovering an unreachable configuration revision](notifications.md#recovering-an-unreachable-configuration-revision)
+for what the override gives up, and treat the record as a prompt to find out
+what rewrote the configuration branch.
+
 ## `git 2.45 or newer is required`
 
 **Symptom.** `plan` or `reconcile` fails immediately with:

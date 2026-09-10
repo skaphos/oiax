@@ -107,6 +107,7 @@ update, and recompute evidence after each CAS conflict:
 | Strict descendant with verified ancestry | Advance `policyRevision` and apply subscription changes atomically |
 | Strict ancestor | Defer with `stale-config-revision`; never recreate a retired generation |
 | Divergent history or ancestry cannot be proven | Defer with `config-revision-unordered`; never reset state or choose by timestamp |
+| Accepted commit is definitively absent | Defer with `config-revision-unreachable` (a narrowing of the above, so the deferral is identical); recover only through an explicit `oiax notifications reset`, which records the override in the ledger |
 
 Missing ancestry may be fetched within notification budgets; if still unknown,
 defer. A config content revert in a new descendant commit is a valid change; an

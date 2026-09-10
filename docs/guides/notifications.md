@@ -186,12 +186,65 @@ Use preview decisions and safe reason/action diagnostics:
 | `notification-ledger-initialized` | A current cutoff was established. If notes were lost, prior receipts require operator recovery. |
 | `notification-capacity-exhausted` | Preserve receipts; review pending volume and capacity before retrying. |
 | stale/unordered/mismatched revision | Use a reviewed descendant configuration commit and its pinned files. |
+| `config-revision-unreachable` | The accepted configuration commit is gone. See [Recovering an unreachable configuration revision](#recovering-an-unreachable-configuration-revision). |
 
 To revert configuration content, commit the revert as a **new descendant**. Do
 not pin an old SHA or select a competing revision by timestamp. Never delete the
 notes ref to clear a warning: that loses duplicate-prevention evidence. Missing
 notes cannot be distinguished automatically from first activation, so protect and
 back up the ref using your repository's normal reviewed recovery process.
+
+## Recovering an unreachable configuration revision
+
+Policy only advances onto a revision Oiax can prove is a descendant of the
+accepted one. If the configuration branch is force-pushed, rewritten or garbage
+collected, the accepted commit stops existing: `git merge-base --is-ancestor`
+can no longer answer, and every run defers with `config-revision-unreachable`.
+Both ordinary exits are closed — there is nothing left to commit a descendant
+*onto*, and deleting the notes ref destroys the receipts that prevent duplicate
+sends.
+
+`oiax notifications reset` is the sanctioned recovery. It records an explicit,
+operator-authorized acceptance of the pinned revision:
+
+```bash
+# 1. Make sure this is not simply a checkout that lacks the object.
+git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+git cat-file -e <accepted-oid>^{commit}    # must fail: the commit is really gone
+
+# 2. Resolve the configuration commit you are accepting, and name it.
+git rev-parse origin/main
+oiax notifications reset --accept-revision <that-oid>
+```
+
+The command is deliberately narrow, and each refusal is load-bearing:
+
+- It **refuses while the accepted commit still resolves**. Ordering is decidable
+  there, so the ordinary rule applies; this is not a way around it.
+- It **refuses in a shallow clone**. A shallow or partial checkout is simply
+  missing objects the remote still has, so "not here" is not evidence of "gone".
+  Fetch full history first — this is the step that keeps a routine CI checkout
+  from ever looking like a rewritten history.
+- `--accept-revision` must equal the commit `--config-ref` resolves to. That
+  value changes on every configuration commit, so the flag cannot be pinned once
+  in a workflow and quietly keep authorizing acceptances.
+- It **deletes nothing**. Events, deliveries and delivery receipts carry across
+  untouched, so no message is re-sent.
+- It **appends an immutable record** to the ledger naming the abandoned commit
+  and the accepted one (`revisionOverrides`), so the gap in the ordering chain
+  stays auditable. Re-running it afterwards is a no-op.
+
+To accept a revision other than the default branch head, pin both:
+
+```bash
+oiax notifications reset --config-ref <sha> --accept-revision <sha>
+```
+
+What you give up is real, and it is why this is a human decision rather than an
+automatic repair: the accepted revision may have been *newer* than the one being
+pinned, and nothing can prove otherwise once its commit is gone. Review the
+policy at the accepted revision before running the command, and treat an
+override record as a prompt to find out what rewrote the configuration branch.
 
 ## Changing destination identity and rollback
 
@@ -218,6 +271,13 @@ ledger as `invalid-notification-state` and suspend sends; ledgers never touched
 by such a response stay byte-for-byte compatible. Downgrade before enabling a
 destination on the newer release, or keep the newer release once a status has
 been recorded rather than editing notes by hand.
+
+`revisionOverrides` behaves the same way, and rejection is the safe outcome
+there: the field appears only after an
+[`oiax notifications reset`](#recovering-an-unreachable-configuration-revision),
+so an older binary refuses the note instead of reading a repaired ordering
+history as an unbroken one. An untouched ledger is unaffected. Disable
+notifications before downgrading past the release that introduced the command.
 
 Live provider/recipient visibility and setup-time acceptance are deferred by the
 maintainer to post-release adoption testing. Automated local fixtures and CI are

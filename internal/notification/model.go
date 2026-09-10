@@ -20,6 +20,12 @@ const (
 	MaxLedgerBytes = 8 << 20
 	MaxDeliveries  = 50000
 	MaxCommits     = 100
+	// MaxRevisionOverrides bounds the append-only audit of operator-authorized
+	// revision resets. Each one is a deliberate human act on a repository whose
+	// configuration history was rewritten; a ledger accumulating dozens of them
+	// is reporting a process problem, not a capacity need. The records are never
+	// pruned, so the bound also keeps them from displacing delivery receipts.
+	MaxRevisionOverrides = 32
 	// ClaimDuration is the concurrency fence for one claimed attempt or batch;
 	// it is not a throughput budget for a run.
 	ClaimDuration = 120 * time.Second
@@ -163,6 +169,19 @@ type PolicyRevisionV1 struct {
 	PolicyDigest string `json:"policyDigest"`
 }
 
+// RevisionOverrideV1 is the durable audit record of an operator-authorized
+// revision reset: the one way a policy revision advances without proven
+// ancestry. PriorOID is the accepted configuration commit that could no longer
+// be found, AcceptedOID the pinned commit accepted in its place. The records
+// are append-only and never pruned, so a reader can always tell an ordinary
+// revision history from one that a human had to repair by hand.
+type RevisionOverrideV1 struct {
+	Version     int       `json:"version"`
+	PriorOID    string    `json:"priorOID"`
+	AcceptedOID string    `json:"acceptedOID"`
+	RecordedAt  time.Time `json:"recordedAt"`
+}
+
 type RenderedMessageV1 struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
@@ -277,6 +296,12 @@ type LedgerV1 struct {
 	KnownRequests  map[string]LifecycleRequest `json:"knownRequests"`
 	Scans          map[string]ScanProgress     `json:"scans"`
 	Deliveries     map[string]DeliveryRecord   `json:"deliveries"`
+	// RevisionOverrides is omitted entirely until an operator authorizes a
+	// reset, so an untouched ledger stays byte-identical to one written by a
+	// binary that predates the field. Once present, an older binary rejects the
+	// note as invalid state rather than silently reading a repaired history as
+	// an ordinary one — see ADR 0014 on rollback.
+	RevisionOverrides []RevisionOverrideV1 `json:"revisionOverrides,omitempty"`
 }
 
 func NewLedger(repo RepositoryIdentity, graph, anchor string) *LedgerV1 {
@@ -306,6 +331,7 @@ func (l *LedgerV1) Clone() *LedgerV1 {
 			out.KnownRequests[k] = r
 		}
 	}
+	out.RevisionOverrides = slices.Clone(l.RevisionOverrides)
 	out.Scans = maps.Clone(l.Scans)
 	out.Deliveries = maps.Clone(l.Deliveries)
 	for k, d := range out.Deliveries {

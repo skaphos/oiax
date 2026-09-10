@@ -107,19 +107,23 @@ type notificationBinaryFixture struct {
 	t                        *testing.T
 	binary, dir, remote, ca  string
 	provider, transport, oid string
-	server                   *httptest.Server
-	mu                       sync.Mutex
-	seeds                    []forgetest.LifecycleSeed
-	bodies                   map[int]string
-	received                 []notificationReceived
-	failDelivery             bool
-	missingEndpoint          bool
-	failMetadata             bool
-	failDiscovery            bool
-	failDetails              bool
-	failTarget               string
-	createdTargets           []string
-	lifecycleReads           int
+	// configRef overrides the pinned configuration commit every invocation is
+	// run against. Empty means oid — the commit the fixture graph was created
+	// at — which is what every test but the revision-recovery one wants.
+	configRef       string
+	server          *httptest.Server
+	mu              sync.Mutex
+	seeds           []forgetest.LifecycleSeed
+	bodies          map[int]string
+	received        []notificationReceived
+	failDelivery    bool
+	missingEndpoint bool
+	failMetadata    bool
+	failDiscovery   bool
+	failDetails     bool
+	failTarget      string
+	createdTargets  []string
+	lifecycleReads  int
 }
 
 func newNotificationBinaryFixture(t *testing.T, binary, provider, transport string, extraDestinations ...string) *notificationBinaryFixture {
@@ -150,7 +154,11 @@ func (f *notificationBinaryFixture) run(want int, args ...string) (string, strin
 	f.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	args = append(args, "--config-ref", f.oid, "--output", "json")
+	configRef := f.configRef
+	if configRef == "" {
+		configRef = f.oid
+	}
+	args = append(args, "--config-ref", configRef, "--output", "json")
 	cmd := exec.CommandContext(ctx, f.binary, args...)
 	cmd.Dir = f.dir
 	cmd.Env = append(gittest.Env(),
@@ -178,8 +186,11 @@ func (f *notificationBinaryFixture) run(want int, args ...string) (string, strin
 	if ctx.Err() != nil || code != want {
 		f.t.Fatalf("%v: exit %d, want %d (context %v)\nstdout: %s\nstderr: %s", args, code, want, ctx.Err(), out.String(), stderr.String())
 	}
-	if !json.Valid(out.Bytes()) {
-		f.t.Fatalf("stdout is not a single JSON plan: %s", out.String())
+	// The guarantee is that stdout carries one JSON document and nothing else —
+	// no annotations, no log lines. A command that fails at the flag boundary
+	// writes nothing there, and empty output cannot be polluted.
+	if out.Len() > 0 && !json.Valid(out.Bytes()) {
+		f.t.Fatalf("stdout is not a single JSON document: %s", out.String())
 	}
 	for _, canary := range []string{"fixture-forge-canary", "endpoint-canary", "healthy-canary"} {
 		if strings.Contains(out.String()+stderr.String(), canary) {

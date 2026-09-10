@@ -166,6 +166,16 @@ func Validate(l *notification.LedgerV1) error {
 	if len(l.Deliveries) > notification.MaxDeliveries {
 		return notification.ErrCapacity
 	}
+	if len(l.RevisionOverrides) > notification.MaxRevisionOverrides {
+		return notification.ErrCapacity
+	}
+	for _, o := range l.RevisionOverrides {
+		// A record that does not name two distinct real object ids documents
+		// nothing, and an audit entry nobody can act on is worse than none.
+		if o.Version != 1 || !notification.ValidOID(o.PriorOID) || !notification.ValidOID(o.AcceptedOID) || o.PriorOID == o.AcceptedOID || o.RecordedAt.IsZero() {
+			return bad
+		}
+	}
 	for name, d := range l.Destinations {
 		if name != d.Name || name == "" || len(name) > 63 || !safeText(name, 63) || !notification.ValidDigest(d.Fingerprint) || !notification.ValidDigest(d.Generation) || d.ActivatedAt.IsZero() || d.Subscriptions == nil || len(d.Lease.AttemptID) > 128 {
 			return bad

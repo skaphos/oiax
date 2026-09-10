@@ -80,6 +80,14 @@ func (s *Store) Commit(ctx context.Context, expected string, transition notifica
 			if accepted.ConfigOID != incoming.ConfigOID && s.VerifyRevision != nil {
 				relation, verifyErr := s.VerifyRevision(ctx, accepted.ConfigOID, incoming.ConfigOID)
 				if verifyErr != nil {
+					// Every verification failure fails closed. A verifier that
+					// has positively established the accepted commit is gone
+					// says so, and that answer is preserved: it wraps
+					// ErrUnorderedRevision, so this still defers, but the
+					// diagnostic can name the one case with a recovery.
+					if errors.Is(verifyErr, notification.ErrRevisionUnreachable) {
+						return notification.Snapshot{}, notification.ErrRevisionUnreachable
+					}
 					return notification.Snapshot{}, notification.ErrUnorderedRevision
 				}
 				evidence.Relation = relation
@@ -118,6 +126,18 @@ func validateAppend(old, next *notification.LedgerV1) error {
 	}
 	for id, event := range old.Events {
 		if !reflect.DeepEqual(next.Events[id], event) {
+			return notification.ErrInvalidState
+		}
+	}
+	// The revision-override audit is append-only prefix-wise: a transition may
+	// add a record but can never drop, reorder or rewrite one. Erasing the
+	// evidence that ordering was once repaired by hand would make a repaired
+	// ledger indistinguishable from an unbroken one.
+	if len(next.RevisionOverrides) < len(old.RevisionOverrides) {
+		return notification.ErrInvalidState
+	}
+	for i, record := range old.RevisionOverrides {
+		if next.RevisionOverrides[i] != record {
 			return notification.ErrInvalidState
 		}
 	}

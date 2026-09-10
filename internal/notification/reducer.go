@@ -3,6 +3,7 @@ package notification
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"time"
@@ -19,6 +20,22 @@ var (
 	ErrClaimLost         = errors.New("delivery-claim-lost")
 	ErrInvalidState      = errors.New("invalid-notification-state")
 	ErrCapacity          = errors.New("notification-capacity-exhausted")
+
+	// ErrRevisionUnreachable narrows ErrUnorderedRevision to the one unordered
+	// case that has a recovery: the accepted configuration commit is not in the
+	// repository at all, so `merge-base --is-ancestor` cannot answer and never
+	// will while the ledger keeps naming it. It WRAPS ErrUnorderedRevision, so
+	// every caller that already defers on an unorderable revision still defers,
+	// byte for byte; only the diagnostic layer distinguishes it, to name the
+	// operator recovery instead of asking for a descendant commit that cannot
+	// be produced.
+	ErrRevisionUnreachable = fmt.Errorf("config-revision-unreachable: %w", ErrUnorderedRevision)
+
+	// ErrRevisionReachable refuses an operator-authorized reset for a ledger
+	// whose accepted commit is still present. Ordering is decidable there, so
+	// the ordinary rule applies — commit a reviewed descendant — and the reset
+	// must not become a general way around the ordering guarantee.
+	ErrRevisionReachable = errors.New("config-revision-reachable")
 )
 
 type RevisionRelation string
@@ -28,6 +45,13 @@ const (
 	RevisionDescendant RevisionRelation = "descendant"
 	RevisionAncestor   RevisionRelation = "ancestor"
 	RevisionDivergent  RevisionRelation = "divergent"
+	// RevisionOverride is not a relation Git can report. It is an operator's
+	// explicit authorization to accept the incoming revision without ancestry,
+	// and it is produced by exactly one code path — the `oiax notifications
+	// reset` verifier, which yields it only for an accepted commit it has
+	// positively established is absent. No automatic verifier returns it, so a
+	// scheduled run can never advance policy on this evidence.
+	RevisionOverride RevisionRelation = "override"
 )
 
 // RevisionEvidence binds a verified relation to both exact OIDs. A coordinator
@@ -54,13 +78,52 @@ func CheckRevision(accepted, incoming PolicyRevisionV1, evidence RevisionEvidenc
 		return ErrUnorderedRevision
 	}
 	switch evidence.Relation {
-	case RevisionDescendant:
+	case RevisionDescendant, RevisionOverride:
 		return nil
 	case RevisionAncestor:
 		return ErrStaleRevision
 	default:
 		return ErrUnorderedRevision
 	}
+}
+
+// OverrideRevision is the operator-authorized recovery for a ledger whose
+// accepted configuration commit no longer exists: nothing can be proved a
+// descendant of an object the repository does not have, so every subsequent run
+// defers forever and the documented fix ("commit a reviewed descendant") is
+// impossible. It advances policy exactly as AcceptPolicy does — receipts,
+// events and delivery evidence are preserved, never reset — and additionally
+// appends an immutable record naming both OIDs, so the gap in the ordering
+// chain stays visible in the ledger forever rather than being papered over.
+//
+// It is deliberately not reachable from a scheduled run: the caller must supply
+// RevisionOverride evidence, which only the reset verifier produces.
+func OverrideRevision(l *LedgerV1, incoming PolicyRevisionV1, policy *v1.NotificationPolicy, now time.Time, evidence RevisionEvidence) (*LedgerV1, error) {
+	if l == nil || now.IsZero() || !policy.IsEnabled() {
+		return nil, ErrInvalidState
+	}
+	if evidence.Relation != RevisionOverride || evidence.AcceptedOID != l.PolicyRevision.ConfigOID || evidence.IncomingOID != incoming.ConfigOID {
+		return nil, ErrInvalidState
+	}
+	// An empty or identical accepted OID needs no override; refusing here keeps
+	// the audit free of records that document nothing.
+	if !ValidOID(l.PolicyRevision.ConfigOID) || l.PolicyRevision.ConfigOID == incoming.ConfigOID {
+		return nil, ErrInvalidState
+	}
+	if len(l.RevisionOverrides) >= MaxRevisionOverrides {
+		return nil, ErrCapacity
+	}
+	out, err := AcceptPolicy(l, incoming, policy, now, evidence)
+	if err != nil {
+		return nil, err
+	}
+	out.RevisionOverrides = append(slices.Clone(out.RevisionOverrides), RevisionOverrideV1{
+		Version: 1, PriorOID: l.PolicyRevision.ConfigOID, AcceptedOID: incoming.ConfigOID, RecordedAt: now.UTC(),
+	})
+	if err := CheckCapacity(out, true); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func SubscriptionKey(event v1.NotificationEvent, kind v1.NotificationRequestType) string {

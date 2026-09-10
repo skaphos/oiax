@@ -168,7 +168,8 @@ stable. No endpoint values, environment values, volatile attempt IDs, or raw
 HTTP errors appear. Capture time is an explicit observation input, not a hidden
 clock inside the selector. CLI text and CI summaries carry equivalent meaning.
 Preview also distinguishes `stale-config-revision`, `config-revision-unordered`,
-and `policy-revision-mismatch`; it does not advance the accepted revision.
+`config-revision-unreachable`, and `policy-revision-mismatch`; it does not
+advance the accepted revision.
 
 `plan --detailed-exitcode` still depends only on core branch actions/divergence;
 pending notifications alone do not produce exit 2. `reconcile` preserves the

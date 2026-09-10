@@ -37,6 +37,11 @@ func NotificationProblem(err error) NotificationDiagnostic {
 		d.Reason, d.Action = "delivery-claim-lost", "Another attempt settled this record while the batch was sending; its durable receipt is authoritative and no send was made."
 	case errors.Is(err, notification.ErrStaleRevision):
 		d.Reason, d.Action = "stale-config-revision", "Run the latest reviewed descendant configuration commit."
+	// Ordered before the general unordered case: ErrRevisionUnreachable wraps
+	// ErrUnorderedRevision, and it is the only member of that family whose
+	// documented action ("commit a descendant") is impossible to perform.
+	case errors.Is(err, notification.ErrRevisionUnreachable):
+		d.Reason, d.Action = "config-revision-unreachable", "The accepted configuration commit is not in this repository. Fetch full history and confirm it is really gone, then run 'oiax notifications reset --accept-revision <oid>'; preserve notification notes."
 	case errors.Is(err, notification.ErrUnorderedRevision):
 		d.Reason, d.Action = "config-revision-unordered", "Restore a reviewed descendant configuration commit; preserve notification notes."
 	case errors.Is(err, notification.ErrPolicyMismatch):
