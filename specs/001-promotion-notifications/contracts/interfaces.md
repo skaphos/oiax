@@ -67,7 +67,10 @@ The provider writes a second, non-templatable block outside the v1 ownership mar
 ```
 
 The origin also contains `sourceOID` and `baseOID` for the creation snapshot
-(omitted in this abbreviated example). JSON-escape `<`, `>`, and `&` to prevent comment termination; bound block bytes
+(omitted in this abbreviated example). The block is request text a reviewer can
+edit, so those OIDs are pre-POST hints: a provider must confirm them against the
+forge's own view of the request and take commit membership and totals from the
+forge, never from the block. JSON-escape `<`, `>`, and `&` to prevent comment termination; bound block bytes
 at 4 KiB. Reject duplicate origin blocks and malformed fields. Never use origin
 alone to grant ownership. Azure may mirror it in `oiax.notificationOrigin.v1`
 properties after creation, but the original full body remains the crash-recovery

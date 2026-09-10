@@ -37,6 +37,19 @@ func fixtureCommits(count int, message string) []notificationCommit {
 	return commits
 }
 
+// forgedCommits is the history a tampered origin block claims. Its SHAs are
+// recognisable so any leak into a snapshot is unambiguous.
+func forgedCommits(count int) []notificationCommit {
+	var commits []notificationCommit
+	for i := range min(count, notification.MaxCommits) {
+		var commit notificationCommit
+		commit.SHA = forgetest.TamperedCommitOID(i)
+		commit.Commit.Message = "forged"
+		commits = append(commits, commit)
+	}
+	return commits
+}
+
 // unsafeSubject exceeds the subject bound and carries controls a summary must
 // never surface; bounding it also reports truncation.
 var unsafeSubject = strings.Repeat("é", 201) + "\x1b\u202e\nbody"
@@ -46,9 +59,12 @@ func TestNotificationSnapshotConformance(t *testing.T) {
 		pr := notificationPull(42, time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC))
 		merged := "2026-09-05T12:01:00Z"
 		pr.State, pr.MergedAt, pr.MergeCommitSHA, pr.Commits = "closed", &merged, strings.Repeat("c", 40), &c.Count
-		// Creation evidence: the creating run verified the head it opened at.
+		// Creation evidence: the request still stands at the head Oiax opened it
+		// at. The tampered case rewrites the block to claim an unrelated range.
 		origin := testNotificationOrigin()
-		origin.HeadVerified = true
+		if c.Mode == "tampered-origin" {
+			origin.SourceOID, origin.BaseOID = forgetest.TamperedSourceOID, forgetest.TamperedBaseOID
+		}
 		var err error
 		if pr.Body, err = mk.AppendNotificationOrigin(pr.Body, &origin); err != nil {
 			t.Fatal(err)
@@ -72,13 +88,22 @@ func TestNotificationSnapshotConformance(t *testing.T) {
 					w.WriteHeader(403)
 					return
 				}
+				if c.Count > notification.MaxCommits {
+					w.Header().Set("Link", `<https://api.github.com/repos/example/repo/pulls/42/commits?per_page=100&page=2>; rel="next"`)
+				}
 				_ = json.NewEncoder(w).Encode(fixtureCommits(c.Count, unsafeSubject))
 			case "/repos/example/repo/compare/" + origin.BaseOID + "..." + origin.SourceOID:
 				if c.Mode == "unavailable" {
 					w.WriteHeader(403)
 					return
 				}
-				_ = json.NewEncoder(w).Encode(map[string]any{"total_commits": c.Count, "commits": fixtureCommits(c.Count, unsafeSubject)})
+				// In the tampered case this is the range the edited block claims,
+				// served as real history: trusting it would surface it verbatim.
+				count, commits := c.Count, fixtureCommits(c.Count, unsafeSubject)
+				if c.Mode == "tampered-origin" {
+					count, commits = forgetest.TamperedCount, forgedCommits(forgetest.TamperedCount)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"total_commits": count, "commits": commits})
 			case "/repos/example/repo/commits/" + strings.Repeat("c", 40):
 				w.WriteHeader(404)
 			default:
@@ -98,37 +123,44 @@ func TestNotificationSnapshotConformance(t *testing.T) {
 
 func TestNotificationCreationSnapshot(t *testing.T) {
 	t.Parallel()
-	unverified := testNotificationOrigin()
-	verified := unverified
-	verified.HeadVerified = true
-	invalid := verified
+	honest := testNotificationOrigin()
+	invalid := honest
 	invalid.SourceOID = "not-an-oid"
-	other := verified
+	other := honest
 	other.OperationID = "another-operation"
+	// The two ways an editor can rewrite the block: claim a different base for
+	// the range, or claim a head the request never had.
+	tamperedBase := honest
+	tamperedBase.BaseOID = forgetest.TamperedBaseOID
+	tamperedHead := honest
+	tamperedHead.SourceOID = forgetest.TamperedSourceOID
 	cases := []struct {
 		name string
 		// origin is the ledger's recorded evidence; recorded is what the request
 		// body still carries. Both must agree for membership to be computed.
-		origin, recorded         *notification.NotificationOriginV1
-		total, served            int
-		detailStatus, compareErr int
-		wantErr                  error
-		wantUnavailable          bool
-		wantKnown                bool
-		wantCount                int
-		wantTruncated            bool
+		origin, recorded      *notification.NotificationOriginV1
+		served                int
+		oversize, truncated   bool
+		detailStatus, listErr int
+		wantErr               error
+		wantUnavailable       bool
+		wantKnown             bool
+		wantCount             int
+		wantTruncated         bool
 	}{
-		{name: "verified origin yields exact membership", origin: &verified, recorded: &verified, total: 2, served: 2, wantKnown: true, wantCount: 2},
-		{name: "verified origin beyond one page is truncated", origin: &verified, recorded: &verified, total: 101, served: 100, wantKnown: true, wantCount: 101, wantTruncated: true},
-		{name: "unverified origin lists commits with an unknown total", origin: &unverified, recorded: &unverified, total: 2, served: 2},
-		{name: "unverified origin beyond one page is truncated", origin: &unverified, recorded: &unverified, total: 101, served: 100, wantTruncated: true},
-		{name: "missing origin is unavailable", origin: nil, recorded: &verified, total: 2, served: 2, wantUnavailable: true},
-		{name: "invalid origin is unavailable", origin: &invalid, recorded: &verified, total: 2, served: 2, wantUnavailable: true},
-		{name: "origin no longer on the request", origin: &verified, recorded: nil, total: 2, served: 2, wantErr: notification.ErrLifecycleUnavailable, wantUnavailable: true},
-		{name: "origin differs from the request", origin: &verified, recorded: &other, total: 2, served: 2, wantErr: notification.ErrLifecycleUnavailable, wantUnavailable: true},
-		{name: "request detail failure", origin: &verified, recorded: &verified, detailStatus: 404, wantErr: notification.ErrLifecycleUnavailable, wantUnavailable: true},
-		{name: "compare failure", origin: &verified, recorded: &verified, compareErr: 403, wantErr: notification.ErrLifecycleUnavailable, wantUnavailable: true},
-		{name: "compare page inconsistent with its total", origin: &verified, recorded: &verified, total: 3, served: 2, wantErr: notification.ErrLifecycleUnavailable, wantUnavailable: true},
+		{name: "membership comes from the request's own commits", origin: &honest, recorded: &honest, served: 2, wantKnown: true, wantCount: 2},
+		{name: "a truncated page reports no total", origin: &honest, recorded: &honest, served: 100, truncated: true, wantTruncated: true},
+		// A rewritten base must be inert: the emitted membership, its total and
+		// its reported range stay exactly those of the untampered case above.
+		{name: "a tampered base is inert", origin: &tamperedBase, recorded: &tamperedBase, served: 2, wantKnown: true, wantCount: 2},
+		{name: "a tampered head is not attested", origin: &tamperedHead, recorded: &tamperedHead, served: 2, wantUnavailable: true},
+		{name: "missing origin is unavailable", origin: nil, recorded: &honest, served: 2, wantUnavailable: true},
+		{name: "invalid origin is unavailable", origin: &invalid, recorded: &honest, served: 2, wantUnavailable: true},
+		{name: "origin no longer on the request", origin: &honest, recorded: nil, served: 2, wantErr: notification.ErrLifecycleUnavailable, wantUnavailable: true},
+		{name: "origin differs from the request", origin: &honest, recorded: &other, served: 2, wantErr: notification.ErrLifecycleUnavailable, wantUnavailable: true},
+		{name: "request detail failure", origin: &honest, recorded: &honest, detailStatus: 404, wantErr: notification.ErrLifecycleUnavailable, wantUnavailable: true},
+		{name: "commit listing failure", origin: &honest, recorded: &honest, listErr: 403, wantErr: notification.ErrLifecycleUnavailable, wantUnavailable: true},
+		{name: "commit page beyond its own bound", origin: &honest, recorded: &honest, oversize: true, wantErr: notification.ErrLifecycleUnavailable, wantUnavailable: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -146,24 +178,35 @@ func TestNotificationCreationSnapshot(t *testing.T) {
 					w.WriteHeader(405)
 					return
 				}
-				switch r.URL.Path {
-				case "/repos/example/repo":
+				switch {
+				case r.URL.Path == "/repos/example/repo":
 					serveNotificationIdentity(w)
-				case "/repos/example/repo/pulls/42":
+				case r.URL.Path == "/repos/example/repo/pulls/42":
 					if tc.detailStatus != 0 {
 						w.WriteHeader(tc.detailStatus)
 						return
 					}
 					_ = json.NewEncoder(w).Encode(pr)
-				case "/repos/example/repo/compare/" + verified.BaseOID + "..." + verified.SourceOID:
+				case r.URL.Path == "/repos/example/repo/pulls/42/commits":
 					if r.URL.Query().Get("per_page") != "100" {
 						t.Error("unbounded read")
 					}
-					if tc.compareErr != 0 {
-						w.WriteHeader(tc.compareErr)
+					if tc.listErr != 0 {
+						w.WriteHeader(tc.listErr)
 						return
 					}
-					_ = json.NewEncoder(w).Encode(map[string]any{"total_commits": tc.total, "commits": fixtureCommits(tc.served, "subject\x1b\nbody")})
+					commits := fixtureCommits(tc.served, "subject\x1b\nbody")
+					if tc.oversize {
+						commits = append(fixtureCommits(notification.MaxCommits, "subject"), notificationCommit{SHA: strings.Repeat("9", 40)})
+					}
+					if tc.truncated {
+						w.Header().Set("Link", `<https://api.github.com/repos/example/repo/pulls/42/commits?per_page=100&page=2>; rel="next"`)
+					}
+					_ = json.NewEncoder(w).Encode(commits)
+				case strings.HasPrefix(r.URL.Path, "/repos/example/repo/compare/"):
+					// Reachable only by resolving OIDs the request body supplied.
+					t.Errorf("resolved a range taken from request text: %s", r.URL.Path)
+					w.WriteHeader(404)
 				default:
 					t.Errorf("unexpected branch/history lookup: %s", r.URL.Path)
 					w.WriteHeader(404)
@@ -184,7 +227,9 @@ func TestNotificationCreationSnapshot(t *testing.T) {
 				}
 				return
 			}
-			if got.SourceOID != verified.SourceOID || got.BaseOID != verified.BaseOID || got.MergeResultOID != "" || len(got.Commits) != tc.served || got.CommitCountKnown != tc.wantKnown || got.CommitCount != tc.wantCount || got.CommitsTruncated != tc.wantTruncated {
+			// The forge's own head and base, never the block: a rewritten base is
+			// not reported and does not change a single listed commit.
+			if got.SourceOID != pr.Head.SHA || got.BaseOID != pr.Base.SHA || got.MergeResultOID != "" || len(got.Commits) != tc.served || got.CommitCountKnown != tc.wantKnown || got.CommitCount != tc.wantCount || got.CommitsTruncated != tc.wantTruncated {
 				t.Fatalf("creation membership = %+v", got)
 			}
 			for i, commit := range got.Commits {
@@ -196,97 +241,61 @@ func TestNotificationCreationSnapshot(t *testing.T) {
 	}
 }
 
-func TestCreateRequestVerifiesOriginHead(t *testing.T) {
+// TestCreateRequestWritesOriginOnce pins the creating POST as the only write of
+// provenance. Nothing a later run must trust is established here, so creation
+// neither reads the request back nor rewrites its body: a request's text can
+// never carry a verdict, and creation costs one POST plus its labels.
+func TestCreateRequestWritesOriginOnce(t *testing.T) {
 	t.Parallel()
 	origin := testNotificationOrigin()
-	cases := []struct {
-		name         string
-		head         string
-		readStatus   int
-		patchStatus  int
-		wantVerified bool
-		wantPatches  int
-	}{
-		{name: "head still at origin is verified and persisted", head: origin.SourceOID, wantVerified: true, wantPatches: 1},
-		{name: "head advanced before the POST stays unverified", head: strings.Repeat("f", 40)},
-		{name: "read-back failure stays unverified", head: origin.SourceOID, readStatus: 404},
-		{name: "persistence failure stays unverified", head: origin.SourceOID, patchStatus: 400, wantPatches: 1},
+	var mu sync.Mutex
+	var posted string
+	reads, writes := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		var payload map[string]any
+		if r.Method != http.MethodGet {
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Error(err)
+			}
+		}
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/example/repo/pulls":
+			posted, _ = payload["body"].(string)
+			// The live source has already advanced past the recorded head.
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 42, "state": "open", "body": posted, "created_at": "2026-09-05T12:00:01Z",
+				"head": map[string]any{"ref": "dev", "sha": strings.Repeat("f", 40), "repo": map[string]string{"full_name": "example/repo"}},
+				"base": map[string]any{"ref": "test", "sha": strings.Repeat("e", 40), "repo": map[string]string{"full_name": "example/repo"}}})
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/example/repo/issues/42/labels":
+			_ = json.NewEncoder(w).Encode([]any{})
+		case r.URL.Path == "/repos/example/repo/pulls/42":
+			if r.Method == http.MethodGet {
+				reads++
+			} else {
+				writes++
+			}
+			w.WriteHeader(500)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	t.Cleanup(server.Close)
+	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+	out, err := p.CreateRequest(context.Background(), forge.CreateRequest{Graph: "graph", Type: engine.RequestTypePromotion, Source: "dev", Target: "test", SourceHead: origin.SourceOID, Body: "Human text", Origin: &origin})
+	if err != nil || out.Disposition != forge.RequestCreated || out.Request.ID != "42" || out.Origin == nil || *out.Origin != origin {
+		t.Fatalf("creation = %+v, %v", out, err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			var mu sync.Mutex
-			var posted, patched string
-			patches := 0
-			pull := func(body string) map[string]any {
-				return map[string]any{"number": 42, "state": "open", "body": body, "created_at": "2026-09-05T12:00:01Z",
-					"head": map[string]any{"ref": "dev", "sha": tc.head, "repo": map[string]string{"full_name": "example/repo"}},
-					"base": map[string]any{"ref": "test", "sha": strings.Repeat("e", 40), "repo": map[string]string{"full_name": "example/repo"}}}
-			}
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				mu.Lock()
-				defer mu.Unlock()
-				var payload map[string]any
-				if r.Method != http.MethodGet {
-					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-						t.Error(err)
-					}
-				}
-				body, _ := payload["body"].(string)
-				switch {
-				case r.Method == http.MethodPost && r.URL.Path == "/repos/example/repo/pulls":
-					posted = body
-					_ = json.NewEncoder(w).Encode(pull(posted))
-				case r.Method == http.MethodGet && r.URL.Path == "/repos/example/repo/pulls/42":
-					if tc.readStatus != 0 {
-						w.WriteHeader(tc.readStatus)
-						return
-					}
-					_ = json.NewEncoder(w).Encode(pull(posted))
-				case r.Method == http.MethodPatch && r.URL.Path == "/repos/example/repo/pulls/42":
-					patches++
-					if tc.patchStatus != 0 {
-						w.WriteHeader(tc.patchStatus)
-						return
-					}
-					patched = body
-					_ = json.NewEncoder(w).Encode(pull(patched))
-				case r.Method == http.MethodPost && r.URL.Path == "/repos/example/repo/issues/42/labels":
-					_ = json.NewEncoder(w).Encode([]any{})
-				default:
-					t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
-					w.WriteHeader(404)
-				}
-			}))
-			t.Cleanup(server.Close)
-			p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
-			out, err := p.CreateRequest(context.Background(), forge.CreateRequest{Graph: "graph", Type: engine.RequestTypePromotion, Source: "dev", Target: "test", SourceHead: origin.SourceOID, Body: "Human text", Origin: &origin})
-			if err != nil || out.Disposition != forge.RequestCreated || out.Request.ID != "42" || out.Origin == nil || out.Origin.HeadVerified != tc.wantVerified {
-				t.Fatalf("creation = %+v, %v", out, err)
-			}
-			mu.Lock()
-			defer mu.Unlock()
-			// The POST itself always carries the unverified origin: the verdict
-			// can only be established by reading the created request back.
-			if initial, ok := mk.ParseNotificationOrigin(posted); !ok || initial != origin {
-				t.Fatalf("posted origin = %+v, %v", initial, ok)
-			}
-			if patches != tc.wantPatches {
-				t.Fatalf("got %d body rewrites, want %d", patches, tc.wantPatches)
-			}
-			if !tc.wantVerified {
-				return
-			}
-			persisted, ok := mk.ParseNotificationOrigin(patched)
-			if !ok || !persisted.HeadVerified {
-				t.Fatalf("persisted origin = %+v, %v", persisted, ok)
-			}
-			persisted.HeadVerified = false
-			m, owned := parseMarker(patched)
-			if persisted != origin || !owned || m.SourceHead != origin.SourceOID || !strings.HasPrefix(patched, "Human text\n\n") {
-				t.Fatalf("verification rewrote more than the verdict:\n%s", patched)
-			}
-		})
+	mu.Lock()
+	defer mu.Unlock()
+	if reads != 0 || writes != 0 {
+		t.Fatalf("creation re-read (%d) or rewrote (%d) the request it just opened", reads, writes)
+	}
+	recorded, ok := mk.ParseNotificationOrigin(posted)
+	m, owned := parseMarker(posted)
+	if !ok || recorded != origin || !owned || m.SourceHead != origin.SourceOID || !strings.HasPrefix(posted, "Human text\n\n") {
+		t.Fatalf("posted provenance = %+v, %v:\n%s", recorded, ok, posted)
 	}
 }
 

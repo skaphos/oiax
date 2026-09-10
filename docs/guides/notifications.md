@@ -103,12 +103,15 @@ facts cannot be removed. Text is inert on Teams and Slack. Non-request HTTP(S)
 addresses are redacted from free-form text to avoid exposing secret-bearing URLs.
 
 Commit membership describes the event, never a later moving branch. GitHub merge
-summaries use completed review membership. GitHub creation membership comes from
-the origin Oiax wrote when it opened the request: the commits reachable from the
-origin's source OID but not from its base OID. Right after the POST, Oiax reads
-the request back; when its head still equals the origin's source OID the origin
-is marked verified (`headVerified`) and the commit total is exact. Otherwise the
-same commits are listed with an unknown total. Requests without an origin
+summaries use completed review membership. GitHub creation membership is the
+request's own commit list as GitHub reports it, read while the request still
+stands at the source OID recorded in the origin Oiax wrote when it opened it. The
+origin block lives in the request body, which anyone with write access can edit,
+so it decides only whether this is still that request: no OID it carries selects
+commits, and no flag in it makes a total exact. A complete page is an exact
+total; a truncated one reports truncation and no total. A head that has moved on
+since creation leaves creation membership unavailable rather than describing a
+later range. Requests without an origin
 (opened before notifications were enabled, or adopted rather than created)
 produce no `request-created` event at all. Azure uses first-iteration OIDs for creation and
 completed last-merge OIDs for merges.

@@ -65,10 +65,14 @@ func AppendNotificationOrigin(body string, origin *notification.NotificationOrig
 // ParseNotificationOrigin accepts one closed, bounded block with exact field
 // names. Decode each field independently to reject duplicate keys, case aliases,
 // unknown fields and trailing JSON instead of encoding/json's last-key-wins.
-// headVerified is the only optional field: blocks written before it existed
-// still parse and remain unverified.
+// The block is request text anyone with write access can edit, so a parsed
+// origin identifies an operation and never attests commit membership.
 func ParseNotificationOrigin(body string) (notification.NotificationOriginV1, bool) {
 	var origin notification.NotificationOriginV1
+	// headVerified was a trust hint an interim build persisted here. It is still
+	// accepted so those bodies parse, and deliberately discarded: no verdict a
+	// request's own text carries can be evidence.
+	var discardedVerdict bool
 	block, count, complete := originBlock(body)
 	if !complete || count != 1 || !utf8.ValidString(block) {
 		return origin, false
@@ -87,7 +91,7 @@ func ParseNotificationOrigin(body string) (notification.NotificationOriginV1, bo
 		"configOID": &origin.ConfigOID, "observedAt": &origin.ObservedAt,
 		"logicalSource": &origin.LogicalSource, "logicalTarget": &origin.LogicalTarget,
 		"sourceOID": &origin.SourceOID, "baseOID": &origin.BaseOID,
-		"headVerified": &origin.HeadVerified,
+		"headVerified": &discardedVerdict,
 	}
 	for d.More() {
 		key, err := d.Token()
@@ -118,6 +122,9 @@ func ParseNotificationOrigin(body string) (notification.NotificationOriginV1, bo
 // NotificationOriginMatches requires already established ownership and checks
 // only origin/marker consistency. Backflow's logical source is deliberately not
 // inferred from its actual candidate branch; topology validation comes later.
+// A match binds the block to this request's marker, nothing more: the OIDs it
+// carries stay unverified until the forge's own view of the request confirms
+// them, so no caller may build commit membership out of a match alone.
 func NotificationOriginMatches(origin notification.NotificationOriginV1, m Marker) bool {
 	if !notification.ValidOrigin(origin) || !VersionPattern.MatchString(m.Version) || Validate(m) != nil ||
 		m.Graph != origin.Graph || m.Destination != origin.LogicalTarget || m.Source == "" {
