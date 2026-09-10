@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/skaphos/oiax/compare/v2.0.2...v2.1.0) (2026-09-10)
+
+
+### Features
+
+* **cli:** add an audited recovery for an unreachable accepted config revision ([#103](https://github.com/skaphos/oiax/issues/103)) ([2d40abe](https://github.com/skaphos/oiax/commit/2d40abe206c0e9102cac474f0fcd77ad560d68eb))
+
 ## [2.0.2](https://github.com/skaphos/oiax/compare/v2.0.1...v2.0.2) (2026-09-10)
 
 
