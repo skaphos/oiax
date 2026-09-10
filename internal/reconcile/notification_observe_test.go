@@ -151,6 +151,68 @@ func TestNotificationObserveRetainsUnknownOpenRequestAndContinuesScanning(t *tes
 	}
 }
 
+// A first scan must not walk history that no subscription can ever admit (#93):
+// AdmitEvent discards anything older than the activation cutoff, so scanning it
+// only costs provider calls and fills the ledger with requests that can never
+// produce a delivery. Later scans resume from their own completed watermark.
+func TestNotificationObserveBoundsFirstScanByActivationCutoff(t *testing.T) {
+	t.Parallel()
+	activatedAt := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	clock := notificationtest.NewClock(activatedAt)
+	policy := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "ops", Type: v1.NotificationWebhook, EndpointEnv: "ENDPOINT", Events: []v1.NotificationEvent{v1.NotificationRequestCreated, v1.NotificationRequestMerged}}}}
+	store := &notificationtest.MemoryStore{}
+	runtime := mergeRuntime(clock.Now, store, policy)
+	runtime.Topology = observationGraph()
+	// A managed request from long before activation. A provider that honors the
+	// query interval never reports it, so nothing about it reaches the ledger.
+	historic := lifecycleMerge(runtime.Repository, "7", activatedAt.Add(-365*24*time.Hour), activatedAt.Add(-364*24*time.Hour))
+	windows := map[v1.NotificationEvent]forge.LifecycleQuery{}
+	runtime.Reader = &observationReader{
+		identity: runtime.Repository,
+		get: func(forge.RequestID) (notification.LifecycleRequest, error) {
+			return notification.LifecycleRequest{}, notification.ErrRequestMissing
+		},
+		list: func(query forge.LifecycleQuery) (forge.LifecyclePage, error) {
+			windows[query.Kind] = query
+			page := forge.LifecyclePage{Progress: notification.ScanProgress{Version: 1, From: query.From, Through: query.Through, Complete: true}, Pages: 1}
+			if !historic.MergedAt.Before(query.From) {
+				page.Requests = append(page.Requests, historic)
+			}
+			return page, nil
+		},
+	}
+	if err := runtime.Activate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(time.Minute)
+	if err := runtime.Observe(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []v1.NotificationEvent{v1.NotificationRequestCreated, v1.NotificationRequestMerged} {
+		// One second below the cutoff, because same-second creation evidence can
+		// move admission that far past a recorded occurrence (EventAdmissionTime).
+		if want := activatedAt.Add(-time.Second); !windows[kind].From.Equal(want) {
+			t.Fatalf("%s first scan from %s, want the activation cutoff %s", kind, windows[kind].From, want)
+		}
+	}
+	snapshot, err := store.Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Ledger.KnownRequests) != 0 || len(snapshot.Ledger.Events) != 0 || len(snapshot.Ledger.Deliveries) != 0 {
+		t.Fatalf("first activation persisted unadmittable history: %+v", snapshot.Ledger)
+	}
+	clock.Advance(time.Minute)
+	if err := runtime.Observe(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []v1.NotificationEvent{v1.NotificationRequestCreated, v1.NotificationRequestMerged} {
+		if want := activatedAt.Add(time.Minute); !windows[kind].From.Equal(want) {
+			t.Fatalf("%s resumed from %s, want its completed watermark %s", kind, windows[kind].From, want)
+		}
+	}
+}
+
 func TestNotificationObserveBoundsProviderPagesAndRetainsCursor(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)

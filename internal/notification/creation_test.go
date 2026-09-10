@@ -45,3 +45,28 @@ func TestCreationEventRequiresOriginalProvenance(t *testing.T) {
 		})
 	}
 }
+
+func TestEarliestAdmissibleTimeTracksActiveCutoffs(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	l := NewLedger(RepositoryIdentity{Provider: "github", Host: "github.com", ID: "123"}, "graph", strings.Repeat("a", 40))
+	if _, ok := EarliestAdmissibleTime(l, v1.NotificationRequestMerged); ok {
+		t.Fatal("unsubscribed kind reported a scan bound")
+	}
+	sub := func(event v1.NotificationEvent, cutoff time.Time) map[string]Subscription {
+		return map[string]Subscription{SubscriptionKey(event, v1.NotificationPromotion): {Event: event, RequestType: v1.NotificationPromotion, Cutoff: cutoff}}
+	}
+	l.Destinations["retired"] = DestinationState{Name: "retired", Subscriptions: sub(v1.NotificationRequestMerged, now.Add(-72*time.Hour))}
+	l.Destinations["late"] = DestinationState{Name: "late", Active: true, Subscriptions: sub(v1.NotificationRequestMerged, now)}
+	l.Destinations["early"] = DestinationState{Name: "early", Active: true, Subscriptions: sub(v1.NotificationRequestMerged, now.Add(-time.Hour))}
+	l.Destinations["other"] = DestinationState{Name: "other", Active: true, Subscriptions: sub(v1.NotificationRequestCreated, now.Add(-48*time.Hour))}
+	bound, ok := EarliestAdmissibleTime(l, v1.NotificationRequestMerged)
+	// The earliest active cutoff for the kind wins; a retired destination's
+	// cutoff and another kind's cutoff never widen the scan.
+	if want := now.Add(-time.Hour - time.Second); !ok || !bound.Equal(want) {
+		t.Fatalf("merged bound = (%s, %v), want %s", bound, ok, want)
+	}
+	if bound, ok := EarliestAdmissibleTime(l, v1.NotificationRequestCreated); !ok || !bound.Equal(now.Add(-48*time.Hour-time.Second)) {
+		t.Fatalf("created bound = (%s, %v)", bound, ok)
+	}
+}

@@ -55,3 +55,32 @@ func EventAdmissionTime(l *LedgerV1, event EventV1) time.Time {
 	}
 	return when
 }
+
+// EarliestAdmissibleTime reports the earliest occurrence an event of kind could
+// still be admitted at, and whether any active subscription accepts that kind at
+// all. AdmitEvent drops anything below every active cutoff, and a subscription
+// created later carries the cutoff of its own acceptance, so a discovery scan
+// that starts here can never lose an admissible event — it only stops paying for
+// history that is already unreachable. The one-second allowance covers
+// EventAdmissionTime: whole-second creation evidence can move eligibility up to
+// a second past the recorded occurrence, never earlier.
+func EarliestAdmissibleTime(l *LedgerV1, kind v1.NotificationEvent) (time.Time, bool) {
+	var earliest time.Time
+	for _, d := range l.Destinations {
+		if !d.Active {
+			continue
+		}
+		for _, sub := range d.Subscriptions {
+			if sub.Event != kind {
+				continue
+			}
+			if earliest.IsZero() || sub.Cutoff.Before(earliest) {
+				earliest = sub.Cutoff
+			}
+		}
+	}
+	if earliest.IsZero() {
+		return time.Time{}, false
+	}
+	return earliest.UTC().Add(-time.Second), true
+}

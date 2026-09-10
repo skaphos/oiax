@@ -236,13 +236,25 @@ func (r *NotificationRuntime) Observe(ctx context.Context) error {
 		name := string(kind)
 		previous := snapshot.Ledger.Scans[name]
 		q := forge.LifecycleQuery{Graph: r.Graph, Kind: kind, Limit: 100, Through: now}
-		if previous.Version != 0 {
-			if previous.Complete {
+		if previous.Version != 0 && !previous.Complete {
+			// A frozen interval already in progress is resumed exactly as
+			// recorded; only its cursor advances.
+			q.From, q.Through, q.Cursor = previous.From, previous.Through, previous.Cursor
+		} else {
+			if previous.Version != 0 {
 				q.From = previous.Through
-			} else {
-				q.From = previous.From
-				q.Through = previous.Through
-				q.Cursor = previous.Cursor
+			}
+			// A new interval never starts below the earliest cutoff that could
+			// still admit this kind: AdmitEvent discards everything older, so
+			// scanning it only buys provider calls and known-request bytes for
+			// events that can never be delivered. With no subscription for the
+			// kind at all, only what happens from here on can ever qualify.
+			bound, subscribed := notification.EarliestAdmissibleTime(snapshot.Ledger, kind)
+			if !subscribed {
+				bound = q.Through
+			}
+			if q.From.Before(bound) {
+				q.From = bound
 			}
 		}
 		for pages < 98 {
