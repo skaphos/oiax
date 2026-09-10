@@ -209,7 +209,8 @@ operator-authorized acceptance of the pinned revision:
 
 ```bash
 # 1. Make sure this is not simply a checkout that lacks the object.
-git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+git remote set-branches origin '*'
+git fetch --prune origin
 git cat-file -e <accepted-oid>^{commit}    # must fail: the commit is really gone
 
 # 2. Resolve the configuration commit you are accepting, and name it.
@@ -221,10 +222,20 @@ The command is deliberately narrow, and each refusal is load-bearing:
 
 - It **refuses while the accepted commit still resolves**. Ordering is decidable
   there, so the ordinary rule applies; this is not a way around it.
-- It **refuses in a shallow clone**. A shallow or partial checkout is simply
-  missing objects the remote still has, so "not here" is not evidence of "gone".
-  Fetch full history first — this is the step that keeps a routine CI checkout
-  from ever looking like a rewritten history.
+- It **refuses from a checkout scoped to part of origin**, because a commit
+  missing from such a checkout says nothing about origin. Two states are
+  detected and rejected: a **shallow** clone (history truncated), and a
+  **single-branch** checkout, where a non-wildcard fetch refspec means other
+  branches were never fetched. The second is `actions/checkout`'s default and
+  reports itself as *not* shallow, so testing for shallowness alone would let it
+  through. A **partial** clone (`--filter=blob:none`, `--filter=tree:0`) is
+  accepted: it keeps complete commit reachability and lazily fetches filtered
+  objects, so it cannot produce this false positive.
+
+  What the guard rules out is the systematic case — a checkout structurally
+  incapable of holding the commit. It cannot rule out a merely *stale* one, so
+  step 1 above is still yours to perform: widen the refspec, fetch, and confirm
+  the commit is genuinely gone before you record an override asserting it.
 - `--accept-revision` must equal the commit `--config-ref` resolves to. That
   value changes on every configuration commit, so the flag cannot be pinned once
   in a workflow and quietly keep authorizing acceptances.

@@ -123,7 +123,8 @@ notes ref would destroy the receipts that stop notifications being sent twice.
 identical from inside the repository:
 
 ```bash
-git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+git remote set-branches origin '*'
+git fetch --prune origin
 git cat-file -e <accepted-oid>^{commit}   # succeeds? then just re-run; nothing is wrong
 ```
 
@@ -134,9 +135,12 @@ are pinning now:
 oiax notifications reset --accept-revision "$(git rev-parse origin/main)"
 ```
 
-The command refuses in a shallow clone and while the accepted commit still
-resolves. It preserves every event, delivery and receipt, and appends a
-permanent record of the override to the ledger. See
+The command refuses while the accepted commit still resolves, and from any
+checkout scoped to part of origin — a shallow clone, or a single-branch one
+whose fetch refspec never brought the other branches down (`actions/checkout`'s
+default, which is *not* shallow). Run it from a complete clone. It preserves
+every event, delivery and receipt, and appends a permanent record of the
+override to the ledger. See
 [Recovering an unreachable configuration revision](notifications.md#recovering-an-unreachable-configuration-revision)
 for what the override gives up, and treat the record as a prompt to find out
 what rewrote the configuration branch.

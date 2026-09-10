@@ -350,9 +350,15 @@ This command is the sanctioned way out, and it is deliberately narrow:
   * It refuses while the accepted commit is still resolvable. Ordering is
     decidable there, so the ordinary rule applies and this is not a general
     way around it.
-  * It refuses in a shallow repository. A shallow or partial checkout is
-    missing objects the remote still has, so a missing commit is not evidence
-    the commit is gone. Fetch full history first and confirm.
+  * It refuses from an object database that is scoped to part of origin,
+    because a commit missing from such a checkout says nothing about origin:
+    a shallow clone (truncated history) and a single-branch checkout
+    (actions/checkout's default, where other branches were never fetched)
+    are both rejected. A partial clone (--filter=blob:none) is accepted: it
+    keeps complete commit reachability and lazily fetches what it lacks.
+    The guard rules out those systematic false positives; confirming the
+    commit is genuinely gone from origin, rather than merely not fetched
+    yet, is still the operator's step (see the notifications guide).
   * --accept-revision must name the configuration commit this invocation
     resolved, so the acceptance is an explicit act and cannot be a hard-coded
     step in a workflow that silently keeps working as configuration moves.

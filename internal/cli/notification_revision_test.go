@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -149,6 +151,53 @@ func TestNotificationUnreachableRevisionRecovery(t *testing.T) {
 	_, refusal := f.run(1, "notifications", "reset", "--accept-revision", f.configRef)
 	if !strings.Contains(refusal, "config-revision-reachable") {
 		t.Fatalf("reset was not refused for a resolvable accepted commit: %s", refusal)
+	}
+}
+
+// A checkout scoped to part of origin cannot tell a rewritten commit from one
+// it simply never fetched, so the reset must refuse before it records an
+// override attesting to something it cannot know. actions/checkout produces
+// exactly this state by default, and it is NOT shallow.
+func TestNotificationResetRefusesIncompleteCheckout(t *testing.T) {
+	t.Parallel()
+	binary := buildNotificationBinary(t)
+	f := newNotificationBinaryFixture(t, binary, "github", "webhook")
+	f.run(0, "reconcile")
+
+	for _, tc := range []struct {
+		name, want string
+		scope      func()
+	}{
+		{
+			name: "single-branch checkout",
+			want: "single-branch checkout",
+			// Narrow the refspec the way `git clone --single-branch` and
+			// actions/checkout do. The repository stays non-shallow.
+			scope: func() {
+				gittest.Run(t, f.dir, "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main")
+			},
+		},
+		{
+			name:  "shallow checkout",
+			want:  "shallow clone",
+			scope: func() { writeNotificationFixture(t, filepath.Join(f.dir, ".git", "shallow"), []byte(f.oid+"\n")) },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			original := gittest.Run(t, f.dir, "config", "--get", "remote.origin.fetch")
+			tc.scope()
+			t.Cleanup(func() {
+				gittest.Run(t, f.dir, "config", "remote.origin.fetch", original)
+				_ = os.Remove(filepath.Join(f.dir, ".git", "shallow"))
+			})
+			_, refusal := f.run(1, "notifications", "reset", "--accept-revision", f.oid)
+			if !strings.Contains(refusal, tc.want) {
+				t.Fatalf("refusal did not name the scope (%s): %s", tc.want, refusal)
+			}
+			if !strings.Contains(refusal, "not evidence") {
+				t.Fatalf("refusal did not explain why absence proves nothing: %s", refusal)
+			}
+		})
 	}
 }
 

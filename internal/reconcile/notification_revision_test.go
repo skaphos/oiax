@@ -290,6 +290,71 @@ func TestNotificationResetRevisionRefusesWithoutOverrideEvidence(t *testing.T) {
 	}
 }
 
+// The no-op path compares the whole PolicyRevision, not just its OID. A
+// matching OID carrying a different digest is the mixed-binary-version state
+// that Activate rejects as ErrPolicyMismatch; a recovery command that reported
+// clean success there would be the one path certifying a ledger every ordinary
+// run refuses.
+func TestNotificationResetRevisionDoesNotMaskAPolicyMismatch(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	oid := strings.Repeat("a", 40)
+	seedPolicy := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "ops", Type: v1.NotificationWebhook, EndpointEnv: "FIRST"}}}
+	// Same configuration commit, different policy content: the digests differ
+	// while the OIDs match.
+	otherPolicy := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "ops", Type: v1.NotificationWebhook, EndpointEnv: "CHANGED"}}}
+
+	store := &notificationtest.MemoryStore{}
+	seeded, _ := revisionResetRuntime(t, store, seedPolicy, now, oid)
+	if err := seeded.Activate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Establish the asymmetry this guards: Activate refuses this exact state.
+	ordinary, _ := revisionResetRuntime(t, store, otherPolicy, now.Add(time.Minute), oid)
+	if err := ordinary.Activate(context.Background()); !errors.Is(err, notification.ErrPolicyMismatch) {
+		t.Fatalf("activation = %v, want ErrPolicyMismatch", err)
+	}
+
+	reset, reported := revisionResetRuntime(t, store, otherPolicy, now.Add(2*time.Minute), oid)
+	reset.VerifyRevision = func(context.Context, string, string) (notification.RevisionRelation, error) {
+		t.Fatal("ancestry was verified for an identical configuration OID")
+		return notification.RevisionUnknown, nil
+	}
+	record, err := reset.ResetRevision(context.Background())
+	if !errors.Is(err, notification.ErrPolicyMismatch) {
+		t.Fatalf("reset = %v, want ErrPolicyMismatch", err)
+	}
+	if record != nil {
+		t.Fatalf("a mismatched policy produced an override record: %+v", record)
+	}
+	if len(*reported) != 0 {
+		t.Fatalf("a refused reset reported %+v", *reported)
+	}
+	after, err := store.Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Ledger.PolicyRevision != before.Ledger.PolicyRevision || len(after.Ledger.RevisionOverrides) != 0 {
+		t.Fatal("a refused reset mutated durable state")
+	}
+
+	// The genuine no-op — identical OID and digest — still succeeds silently,
+	// and reaches that answer without consulting ancestry at all.
+	same, _ := revisionResetRuntime(t, store, seedPolicy, now.Add(3*time.Minute), oid)
+	same.VerifyRevision = func(context.Context, string, string) (notification.RevisionRelation, error) {
+		t.Fatal("ancestry was verified for an already-accepted revision")
+		return notification.RevisionUnknown, nil
+	}
+	if record, err := same.ResetRevision(context.Background()); err != nil || record != nil {
+		t.Fatalf("identical revision reset = %+v, %v; want a silent no-op", record, err)
+	}
+}
+
 // Nothing exists to repair before the first activation, and inventing a ledger
 // here would establish a cutoff an operator did not ask for.
 func TestNotificationResetRevisionRequiresALedger(t *testing.T) {

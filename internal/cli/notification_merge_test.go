@@ -186,9 +186,13 @@ func (f *notificationBinaryFixture) run(want int, args ...string) (string, strin
 	if ctx.Err() != nil || code != want {
 		f.t.Fatalf("%v: exit %d, want %d (context %v)\nstdout: %s\nstderr: %s", args, code, want, ctx.Err(), out.String(), stderr.String())
 	}
-	// The guarantee is that stdout carries one JSON document and nothing else —
-	// no annotations, no log lines. A command that fails at the flag boundary
-	// writes nothing there, and empty output cannot be polluted.
+	// The guarantee is that stdout carries exactly one JSON document and nothing
+	// else — no annotations, no log lines. A successful invocation must always
+	// produce that document; only a command that failed before reaching its
+	// renderer is allowed to have written nothing.
+	if want == 0 && out.Len() == 0 {
+		f.t.Fatalf("%v exited 0 but wrote no JSON document to stdout\nstderr: %s", args, stderr.String())
+	}
 	if out.Len() > 0 && !json.Valid(out.Bytes()) {
 		f.t.Fatalf("stdout is not a single JSON document: %s", out.String())
 	}

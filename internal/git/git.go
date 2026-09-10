@@ -296,6 +296,90 @@ func (r *Runner) IsShallowRepository(ctx context.Context) (bool, error) {
 	return out == "true", nil
 }
 
+// Reasons reported by IncompleteObjectDatabase. They are phrased for an
+// operator error message, and are compared by identity in tests rather than by
+// their wording.
+const (
+	DatabaseShallow      = "this is a shallow clone, so history is truncated"
+	DatabaseSingleBranch = "this is a single-branch checkout, so origin's other branches were never fetched"
+)
+
+// IncompleteObjectDatabase reports why the local object database is known to
+// hold only part of what origin has, or "" when no such limit is detectable.
+//
+// It exists for the one decision that turns a local absence into a claim about
+// the remote. `oiax notifications reset` records an audited override on the
+// strength of "this commit is gone", and that inference only holds when the
+// checkout would have the commit if origin still did.
+//
+// Two conditions break the inference:
+//
+//   - A shallow clone truncates history, so a commit on the very branch that
+//     was fetched can be absent simply because it predates the fetch depth.
+//   - A single-branch checkout — `git clone --single-branch`, and
+//     actions/checkout by default — configures a non-wildcard fetch refspec, so
+//     a commit reachable only from a branch that was never fetched is absent
+//     locally while entirely alive on origin. It reports
+//     `--is-shallow-repository=false`, which is why testing for shallowness
+//     alone does not cover it.
+//
+// A partial ("promisor") clone is deliberately NOT reported, because the
+// failure mode cannot arise there: `--filter=blob:none` and `--filter=tree:0`
+// both retain complete commit reachability, and a filtered object is lazily
+// fetched on demand, so CommitExists answers "present" for a commit origin
+// still has. Reporting it would refuse the partial-clone setup the guides
+// recommend for large repositories and buy nothing.
+//
+// Only origin is consulted: every other ref lookup in this package resolves
+// through refs/remotes/origin, so it is the remote the rest of Oiax reasons
+// about. A repository with no origin has no remote to be incomplete against.
+func (r *Runner) IncompleteObjectDatabase(ctx context.Context) (string, error) {
+	shallow, err := r.IsShallowRepository(ctx)
+	if err != nil {
+		return "", err
+	}
+	if shallow {
+		return DatabaseShallow, nil
+	}
+	refspecs, err := r.configValues(ctx, "remote.origin.fetch")
+	if err != nil {
+		return "", err
+	}
+	if len(refspecs) == 0 {
+		return "", nil
+	}
+	for _, spec := range refspecs {
+		if strings.Contains(spec, "*") {
+			return "", nil
+		}
+	}
+	return DatabaseSingleBranch, nil
+}
+
+// configValues reads every value of a multi-valued configuration key. A key
+// that is simply unset (exit 1) is an empty result, not an error, so a caller
+// can tell "not configured" from "git failed" — the same distinction
+// BranchExists and CommitExists draw. key is a compile-time constant, never
+// caller data, so it needs no `--` separator (git config does not accept one
+// before the key).
+func (r *Runner) configValues(ctx context.Context, key string) ([]string, error) {
+	out, err := r.run(ctx, "config", "--get-all", key)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var values []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			values = append(values, line)
+		}
+	}
+	return values, nil
+}
+
 // CheckRefFormat rejects names that are not well-formed branch names.
 // Every configured branch name passes through here before being used in
 // any other git invocation.

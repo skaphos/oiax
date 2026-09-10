@@ -193,6 +193,11 @@ func (r *NotificationRuntime) Activate(ctx context.Context) error {
 // answers ErrRevisionReachable there, so ordinary ordering still governs an
 // ordinary ledger); and it is a no-op returning a nil record when the pinned
 // revision is already the accepted one, so a retried recovery is safe.
+//
+// "Already accepted" means the whole PolicyRevision, not just its OID. A
+// matching OID carrying a different digest is ErrPolicyMismatch to every
+// ordinary run, and a recovery command must not be the one path that reports
+// success on a ledger the rest of the system refuses.
 func (r *NotificationRuntime) ResetRevision(ctx context.Context) (*notification.RevisionOverrideV1, error) {
 	if !r.Policy.IsEnabled() || r.Store == nil || r.VerifyRevision == nil || !notification.ValidOID(r.ConfigOID) {
 		return nil, notification.ErrInvalidState
@@ -209,17 +214,28 @@ func (r *NotificationRuntime) ResetRevision(ctx context.Context) (*notification.
 			// ledger here would establish a cutoff nobody asked for.
 			return nil, notification.ErrAbsent
 		}
-		accepted := current.PolicyRevision.ConfigOID
-		if accepted == "" || accepted == r.ConfigOID {
-			// Already accepted: return the snapshot untouched so a re-run of the
-			// recovery writes nothing and records no second override.
+		accepted := current.PolicyRevision
+		if accepted == revision {
+			// Already accepted, digest and all: a re-run of the recovery writes
+			// nothing and records no second override.
 			return current, nil
 		}
-		evidence := notification.RevisionEvidence{AcceptedOID: accepted, IncomingOID: r.ConfigOID}
+		if accepted.ConfigOID == r.ConfigOID {
+			// Same commit, different policy digest — the mixed-binary-version
+			// state, not an unreachable revision. CheckRevision calls it
+			// ErrPolicyMismatch and Activate refuses it; a recovery command that
+			// reported success here would certify a ledger that every ordinary
+			// run rejects.
+			return nil, notification.ErrPolicyMismatch
+		}
+		if !notification.ValidOID(accepted.ConfigOID) {
+			return nil, notification.ErrInvalidState
+		}
+		evidence := notification.RevisionEvidence{AcceptedOID: accepted.ConfigOID, IncomingOID: r.ConfigOID}
 		// Recomputed against this attempt's snapshot, exactly as an ordinary
 		// activation recomputes it: a concurrent worker that repaired the
 		// revision first must make this reset fail, not replay stale evidence.
-		relation, verifyErr := r.VerifyRevision(ctx, accepted, r.ConfigOID)
+		relation, verifyErr := r.VerifyRevision(ctx, accepted.ConfigOID, r.ConfigOID)
 		if verifyErr != nil {
 			return nil, verifyErr
 		}

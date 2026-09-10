@@ -68,9 +68,15 @@ This command is the sanctioned way out, and it is deliberately narrow:
   * It refuses while the accepted commit is still resolvable. Ordering is
     decidable there, so the ordinary rule applies and this is not a general
     way around it.
-  * It refuses in a shallow repository. A shallow or partial checkout is
-    missing objects the remote still has, so a missing commit is not evidence
-    the commit is gone. Fetch full history first and confirm.
+  * It refuses from an object database that is scoped to part of origin,
+    because a commit missing from such a checkout says nothing about origin:
+    a shallow clone (truncated history) and a single-branch checkout
+    (actions/checkout's default, where other branches were never fetched)
+    are both rejected. A partial clone (--filter=blob:none) is accepted: it
+    keeps complete commit reachability and lazily fetches what it lacks.
+    The guard rules out those systematic false positives; confirming the
+    commit is genuinely gone from origin, rather than merely not fetched
+    yet, is still the operator's step (see the notifications guide).
   * --accept-revision must name the configuration commit this invocation
     resolved, so the acceptance is an explicit act and cannot be a hard-coded
     step in a workflow that silently keeps working as configuration moves.
@@ -111,14 +117,17 @@ To accept a revision other than the repository default branch's head, pin it:
 			if acceptRevision != loaded.ConfigOID {
 				return fmt.Errorf("notifications reset: --accept-revision %q does not name the resolved configuration commit %s; pass that value to confirm the revision you are accepting", acceptRevision, loaded.ConfigOID)
 			}
-			// The whole recovery rests on "this commit is gone", and a shallow
-			// clone makes that observation meaningless.
-			shallow, err := runner.IsShallowRepository(cmd.Context())
+			// The whole recovery rests on "this commit is gone from the
+			// remote", which is inferred from a local absence. That inference
+			// is only sound when this checkout would hold the commit if origin
+			// still did, so refuse every object database known to be scoped to
+			// a subset of origin — not just a shallow one.
+			incomplete, err := runner.IncompleteObjectDatabase(cmd.Context())
 			if err != nil {
 				return err
 			}
-			if shallow {
-				return errors.New("notifications reset: this is a shallow clone, so a missing commit is not evidence that the commit is gone; fetch full history (git fetch --unshallow) and re-run")
+			if incomplete != "" {
+				return fmt.Errorf("notifications reset: %s, so a commit missing here is not evidence that it is gone from origin; re-run from a complete checkout (git fetch --unshallow; git remote set-branches origin '*'; git fetch --prune origin)", incomplete)
 			}
 			coord, err := buildCoordinator(cmd, loaded, runner)
 			if err != nil {
@@ -151,6 +160,8 @@ func notificationResetError(err error, configOID string) error {
 		return fmt.Errorf("notifications reset: the accepted configuration commit is present in this repository, so its ordering against %s is decidable; commit a reviewed descendant instead: %w", configOID, err)
 	case errors.Is(err, notification.ErrAbsent):
 		return fmt.Errorf("notifications reset: there is no notification ledger to repair; the next reconcile establishes a cutoff: %w", err)
+	case errors.Is(err, notification.ErrPolicyMismatch):
+		return fmt.Errorf("notifications reset: the ledger already accepts %s but records a different policy digest, which is a policy mismatch rather than an unreachable revision; run the pinned configuration and template files from that same commit with a compatible binary: %w", configOID, err)
 	}
 	return fmt.Errorf("notifications reset: %w", err)
 }

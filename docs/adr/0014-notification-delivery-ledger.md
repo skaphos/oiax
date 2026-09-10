@@ -87,11 +87,21 @@ an acceptable price for convenience.
 authority. Local absence still decides nothing on its own; a human does, and the
 command bounds the false positive rather than ignoring it. It refuses while the
 accepted commit resolves (ordinary ordering governs an ordinary ledger); it
-refuses in a shallow repository, where a missing object is not evidence of a
-missing commit; and `--accept-revision` must equal the commit this invocation
-resolved, so the authorization cannot be pinned once into a workflow and keep
-applying as configuration moves. The advance carries a distinct evidence value
-that no automatic verifier produces, so a scheduled run can never reach it.
+refuses from any object database known to be scoped to part of origin, since a
+commit missing from such a checkout is not evidence of a commit missing from
+origin; and `--accept-revision` must equal the commit this invocation resolved,
+so the authorization cannot be pinned once into a workflow and keep applying as
+configuration moves. The advance carries a distinct evidence value that no
+automatic verifier produces, so a scheduled run can never reach it.
+
+The scoping test is behavioural, not nominal. A shallow clone truncates history;
+a single-branch checkout configures a non-wildcard fetch refspec and therefore
+lacks whole branches while reporting itself *not* shallow — the common CI
+default, and the case a shallowness test alone would wave through. A partial
+(promisor) clone is deliberately allowed: `--filter=blob:none` and
+`--filter=tree:0` retain complete commit reachability and lazily fetch filtered
+objects, so the false positive cannot arise there and refusing it would only
+break the partial-clone setup recommended for large repositories.
 
 The recovery is non-destructive: events, deliveries and receipts are carried
 across unchanged, so nothing is re-sent. It appends an immutable
