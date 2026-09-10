@@ -72,9 +72,9 @@ claims or writes remote refs. Its preview cannot confirm receiver credentials or
 visibility. Notification-only backlog does not cause detailed exit 2.
 
 The first enabled reconcile establishes a current cutoff before core request
-creation. It does not replay historical merges, and it neither reads the detail
-of nor records requests from below that cutoff — nothing there could be
-delivered. Requests opened before activation still notify when they merge
+creation. It does not replay historical merges. Discovery starts one second before
+  the cutoff to account for whole-second creation evidence; requests in that narrow
+  boundary are checked, but only events admitted at or after the cutoff are delivered.
 afterwards, which is why the scan cannot stop at the cutoff: on GitHub it still
 pages the request index in creation order from the beginning of history, because
 a request opened years ago can merge today. Budget roughly one index page read
