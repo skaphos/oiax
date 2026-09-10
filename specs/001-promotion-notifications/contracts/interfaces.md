@@ -113,7 +113,14 @@ Per-destination leases and per-event claims are 120 seconds, with a 10-second
 send deadline. CAS conflicts, expired ownership, and stage cancellation prevent
 new sends. Recheck ownership/config revision/generation immediately before dispatch; persist
 results through monotone reduction. An accepted response with a failed receipt
-write is uncertain, not confirmed delivery. Recovery semantics are in
+write is uncertain, not confirmed delivery. A nonaccepted result with a failed
+receipt write remains recoverable and uses `delivery-receipt-not-persisted` when
+no higher-priority state, storage or cancellation diagnostic applies; retain the
+safe underlying outcome and integer HTTP status. Terminal failure semantics
+depend on the receipt commit: first persisted `payload-too-large` skips, another
+deterministic result persisted at 24 or more total claimed attempts abandons,
+and transient network/service/rate-limit/canceled outcomes remain retryable.
+Recovery semantics are in
 [data-model.md](../data-model.md#delivery-and-claims).
 
 Policy transitions persist the accepted config OID/digest and subscription changes
@@ -141,6 +148,9 @@ resolved endpoint and context, and returns `AttemptResult`. It cannot call the
 renderer or store. Contract tests supply two different persisted messages for
 one event and assert each adapter uses the right one without mutating the shared
 event, then repeat after a template edit to verify stored-message reuse.
+A runtime render error occurs before persistence and claim, leaving the record
+pending. Adapters may omit optional commit presentation to meet their envelope
+limit but cannot truncate required identity.
 
 ## CLI and plan preview
 
@@ -170,6 +180,9 @@ clock inside the selector. CLI text and CI summaries carry equivalent meaning.
 Preview also distinguishes `stale-config-revision`, `config-revision-unordered`,
 `config-revision-unreachable`, and `policy-revision-mismatch`; it does not
 advance the accepted revision.
+Terminal delivery failures do not add preview decisions: both remain
+`subscription-not-active`, with reason `attempts-exhausted` for abandonment or
+`payload-too-large` for transport overflow.
 
 `plan --detailed-exitcode` still depends only on core branch actions/divergence;
 pending notifications alone do not produce exit 2. `reconcile` preserves the

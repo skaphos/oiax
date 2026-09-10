@@ -11,7 +11,7 @@ import (
 )
 
 func TestNotificationDiagnosticsAreSafe(t *testing.T) {
-	for _, err := range []error{errors.New("https://receiver.invalid/credential-canary"), notification.ErrReceiptUncertain, notification.ErrStaleRevision, notification.ErrUnorderedRevision, notification.ErrInvalidState, notification.ErrCapacity} {
+	for _, err := range []error{errors.New("https://receiver.invalid/credential-canary"), notification.ErrReceiptUncertain, notification.ErrReceiptNotPersisted, notification.ErrStaleRevision, notification.ErrUnorderedRevision, notification.ErrInvalidState, notification.ErrCapacity} {
 		d := NotificationProblem(err)
 		if d.Reason == "" || d.Action == "" || strings.Contains(d.Reason+d.Action, "credential-canary") || strings.Contains(d.Action, "delete") {
 			t.Fatalf("unsafe or unactionable: %+v", d)
@@ -75,10 +75,20 @@ func TestNotificationPresentationRedactsAddresses(t *testing.T) {
 	if got := notification.SafeDisplayText("subject "+canary, true, ""); strings.Contains(got, "credential-canary") || !strings.Contains(got, "[redacted URL]") {
 		t.Fatal("address survived sanitization")
 	}
-	for _, code := range []notification.OutcomeCode{notification.OutcomeMissingSecret, notification.OutcomeNetwork, notification.OutcomeRateLimited, notification.OutcomePayloadTooLarge, notification.OutcomeRetired} {
+	for _, code := range []notification.OutcomeCode{notification.OutcomeMissingSecret, notification.OutcomeNetwork, notification.OutcomeRateLimited, notification.OutcomePayloadTooLarge, notification.OutcomeRetired, notification.OutcomeAbandoned} {
 		if d := NotificationProblem(errors.New(string(code))); d.Reason != string(code) || d.Action == "" {
 			t.Fatalf("outcome lost: %+v", d)
 		}
+	}
+	// A terminal record must not be reported with retry-when-backoff-expires
+	// advice, and abandonment is not the same event as a deliberate retirement.
+	abandoned := NotificationProblem(errors.New(string(notification.OutcomeAbandoned)))
+	if abandoned == NotificationProblem(errors.New(string(notification.OutcomeRetired))) || strings.Contains(abandoned.Action, "Retry when the saved backoff expires") || strings.Contains(abandoned.Action, "new generation") || !strings.Contains(abandoned.Action, "not automatically resent") || !strings.Contains(abandoned.Action, "future messages") {
+		t.Fatalf("abandonment is indistinguishable or suggests a retry: %+v", abandoned)
+	}
+	payload := NotificationProblem(errors.New(string(notification.OutcomePayloadTooLarge)))
+	if !strings.Contains(payload.Action, "terminal") || !strings.Contains(payload.Action, "not automatically resent") || !strings.Contains(payload.Action, "future messages") {
+		t.Fatalf("payload terminality is unclear: %+v", payload)
 	}
 }
 
@@ -138,11 +148,11 @@ func TestNotificationConfigurationActionDistinguishesExchangedRequests(t *testin
 
 func TestNotificationDiagnosticsKeepStatusWhenReceiptWriteFails(t *testing.T) {
 	t.Parallel()
-	refused := NotificationProblem(errors.Join(notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 400}, notification.ErrUnavailable))
-	if refused.Reason != "configuration-failure" || refused.Status != 400 {
+	refused := NotificationProblem(errors.Join(notification.ErrReceiptNotPersisted, notification.OutcomeError{Code: notification.OutcomeConfiguration, Status: 400}, notification.ErrUnavailable))
+	if refused.Reason != "delivery-receipt-not-persisted" || refused.Status != 400 || !strings.Contains(refused.Action, string(notification.OutcomeConfiguration)) || strings.Contains(refused.Action, "terminal") {
 		t.Fatalf("refused with failed receipt = %+v", refused)
 	}
-	capacity := NotificationProblem(errors.Join(notification.OutcomeError{Code: notification.OutcomeService, Status: 503}, notification.ErrCapacity))
+	capacity := NotificationProblem(errors.Join(notification.ErrReceiptNotPersisted, notification.OutcomeError{Code: notification.OutcomeService, Status: 503}, notification.ErrCapacity))
 	if capacity.Reason != "notification-capacity-exhausted" || capacity.Status != 503 {
 		t.Fatalf("sentinel outranks outcome but must keep the status: %+v", capacity)
 	}

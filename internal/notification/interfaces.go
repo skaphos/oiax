@@ -14,6 +14,7 @@ var (
 	ErrRequestMissing       = errors.New("notification-request-missing")
 	ErrDiscoveryIncomplete  = errors.New("notification-discovery-incomplete")
 	ErrReceiptUncertain     = errors.New("notification-accepted-receipt-uncertain")
+	ErrReceiptNotPersisted  = errors.New("notification-delivery-receipt-not-persisted")
 )
 
 type Snapshot struct {

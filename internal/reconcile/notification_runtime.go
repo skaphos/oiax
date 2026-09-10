@@ -193,10 +193,12 @@ func (c *Coordinator) classifyRevisionFailure(ctx context.Context, accepted stri
 // the state that has no other exit. Whenever the commit is present, ordering is
 // decidable and the ordinary rules are applied unchanged, so the reset can never
 // be used to install a stale or divergent revision over a healthy ledger. Local
-// absence alone is weak evidence (a shallow or partial checkout simply lacks
-// objects the remote still has), which is why the command layer refuses to run
-// in a shallow repository and requires the operator to name the revision being
-// accepted; this function is reached only after a human has attested to both.
+// absence alone is weak evidence: the command layer establishes only that the
+// checkout is non-shallow and configured to fetch every origin branch head,
+// without negative refspecs or a commit-omitting partial-clone filter. It cannot
+// prove that fetch is current or that the object is absent remotely, so the
+// operator remains responsible for a successful current full fetch and for
+// naming the revision being accepted.
 func (c *Coordinator) notificationRevisionOverride(ctx context.Context, accepted, incoming string) (notification.RevisionRelation, error) {
 	present, err := c.Git.CommitExists(ctx, accepted)
 	if err != nil {

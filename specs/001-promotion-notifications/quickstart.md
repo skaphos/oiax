@@ -121,6 +121,9 @@ live tests require opt-in disposable resources.
 | Workers initialize/claim concurrently | One expected-tip winner; loser rereads; no ordinary duplicate |
 | New config commits before an older worker resumes or retries CAS | Old worker cannot restore policy/admit events/claim sends; late attempt results remain monotone |
 | Equal OID/different policy digest, divergent or unknown config ancestry | Safe mismatch/unordered diagnostic; no policy reset or new send; core result preserved |
+| Accepted config OID absent only from a shallow, scoped, excluded, stale or commit-filtered checkout | Ordinary run defers; reset refuses known-incomplete scope, and operator refresh/confirmation remains required after a structurally complete fetch |
+| Audited reset after confirmed history rewrite | Same schema-v1 notes ref; immutable events and attempt/receipt evidence retained; pinned policy generations/subscriptions/cutoffs applied; one override appended; no HTTP send |
+| Older graph participant after an override exists, or the 33rd/full-ledger override | Fail closed; no field deletion, notes rewrite, partial recovery or downgrade reinterpretation |
 | Settings reverted in a new descendant commit | Valid ordered policy update; pinning an old OID instead reports stale revision |
 | Termination after PR POST | Initial origin recovers the same created event |
 | Timeout after receiver acceptance | Same ID on retry, explicit uncertainty |

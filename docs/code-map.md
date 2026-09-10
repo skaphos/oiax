@@ -148,7 +148,9 @@ reference](reference/configuration.md).
 
 `notifications reset` is the only operator-driven repair in the tree; it
 recovers a delivery ledger whose accepted configuration commit was
-rewritten out of existence (ADR 0014, and the
+rewritten out of existence. It records an audited revision override, preserves
+event and receipt evidence, and applies the pinned policy's normal subscription
+transition ([ADR 0019](adr/0019-audited-notification-revision-recovery.md) and the
 [notifications guide](guides/notifications.md#recovering-an-unreachable-configuration-revision)).
 
 ## `internal/cienv`

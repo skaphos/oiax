@@ -107,7 +107,7 @@ update, and recompute evidence after each CAS conflict:
 | Strict descendant with verified ancestry | Advance `policyRevision` and apply subscription changes atomically |
 | Strict ancestor | Defer with `stale-config-revision`; never recreate a retired generation |
 | Divergent history or ancestry cannot be proven | Defer with `config-revision-unordered`; never reset state or choose by timestamp |
-| Accepted commit is definitively absent | Defer with `config-revision-unreachable` (a narrowing of the above, so the deferral is identical); recover only through an explicit `oiax notifications reset`, which records the override in the ledger |
+| Accepted commit is absent locally | Defer with `config-revision-unreachable` (a narrowing of the above, so the deferral is identical); local absence is not proof of remote deletion, and recovery requires an explicit `oiax notifications reset` after operator refresh/confirmation |
 
 Missing ancestry may be fetched within notification budgets; if still unknown,
 defer. A config content revert in a new descendant commit is a valid change; an
@@ -121,6 +121,19 @@ An older worker may record a result for its already dispatched attempt through
 monotone reduction, but cannot change policy, admit events, or start another send.
 CAS ordering alone is not configuration ordering. These checks apply across
 different `--config-ref` spellings through their resolved OIDs.
+
+If the accepted commit no longer exists, reset records a versioned override and
+accepts the pinned policy without ancestry. It preserves immutable event facts
+and existing attempt/receipt evidence, but applies the normal policy transition:
+generations, subscriptions and cutoffs may change, and ineligible nonterminal
+deliveries may become `subscription-retired`. Schema version 1 and the existing
+notes ref remain authoritative. Every graph reader/writer must support the
+optional `revisionOverrides` field before it is first written; there is no
+downgrade by deleting that field or rewriting notes. See
+[ADR 0019](../../docs/adr/0019-audited-notification-revision-recovery.md).
+At most 32 override records are retained, subject also to the ledger's 8 MiB
+bound. A full audit refuses recovery without mutation; it does not authorize
+pruning events, deliveries, receipts or earlier overrides.
 
 ### Subscription generations and all-disabled behavior
 
@@ -186,22 +199,37 @@ claim records exactly which send may have reached the network.
 | absent | eligible event admitted by expected-tip write | pending |
 | pending/retryable | due; destination lease and event claim acquired | claimed |
 | claimed | endpoint accepts and success receipt persists | delivered |
-| claimed | failed attempt and result persists | retryable |
+| claimed | transient failure receipt persists | retryable |
+| claimed | first payload-too-large receipt persists | skipped/payload-too-large |
+| claimed | other deterministic receipt persists at 24+ total claimed attempts | skipped/abandoned |
+| claimed | other deterministic receipt persists before 24 total claimed attempts | retryable |
+| claimed | nonaccepted result receipt does not persist | claimed until lease expiry, then recoverable |
 | claimed | process lost or lease expires | uncertain, then retryable |
 | any nonterminal | subscription retired | skipped |
+| skipped | proven earlier attempt is later accepted and receipt persists | delivered |
 | delivered | repeat observation or stale failure | delivered, no send |
 | skipped | old generation observed again | skipped, no send |
 
 Never report `delivered` until the success receipt is durable. A response accepted
-without a stored receipt is `accepted-receipt-uncertain`. A stale failure cannot
-overwrite success. A late acceptance may record terminal success for the same
-event/generation even after claim expiry, but cannot undo a retry already sent.
+without a stored receipt is `accepted-receipt-uncertain`. A nonaccepted result
+whose receipt cannot be stored is `delivery-receipt-not-persisted`; retain its
+safe underlying outcome and HTTP status, when present, while higher-priority
+state, storage or cancellation diagnostics may lead. Neither failure establishes
+terminal state. A stale failure cannot overwrite success. A late acceptance for
+any proven attempt may record terminal success for the same event/generation even
+after claim expiry or a skipped outcome, but cannot undo a retry already sent.
 No lease can fence Teams or Slack; these are the documented ambiguity cases.
 
 Run limits and retry spacing are in [research](research.md#4-retry-policy-and-bounded-work).
-Pending events do not expire automatically. Reserve ledger space for claim/result
-transitions at admission; reaching capacity must not knowingly prevent recording
-an already admitted send. Terminal receipts are never silently removed.
+Transient network, service, rate-limit and cancellation results remain retryable
+regardless of attempt count. Terminal failure thresholds depend on successful
+receipt persistence: missing/unpersisted receipts recover after lease expiry and
+may take the total claimed-attempt count above 24. Attempt IDs have no independent
+universal bound. Pending events do not expire automatically. Reserve ledger space
+for claim/result transitions at admission; reaching capacity must not knowingly
+prevent recording an already admitted send. Terminal receipts are never silently
+removed, and v1 provides no compaction. See
+[ADR 0018](../../docs/adr/0018-notification-terminal-outcome-rollout.md).
 
 ## Scan progress
 

@@ -3,15 +3,19 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/skaphos/oiax/v2/internal/git"
 	"github.com/skaphos/oiax/v2/internal/gittest"
+	"github.com/skaphos/oiax/v2/internal/notification"
 	"github.com/skaphos/oiax/v2/internal/reconcile"
+	"github.com/spf13/cobra"
 )
 
 // strandConfigRevision advances the ledger onto a second configuration commit
@@ -121,9 +125,9 @@ func TestNotificationUnreachableRevisionRecovery(t *testing.T) {
 		t.Fatalf("ledger audit = %+v", repaired.RevisionOverrides)
 	}
 	// Non-destructive: the same receipts, so no message is sent twice.
-	if len(repaired.Events) != len(seeded.Events) || len(repaired.Deliveries) != len(seeded.Deliveries) {
-		t.Fatalf("recovery discarded delivery evidence: %d/%d events, %d/%d deliveries",
-			len(repaired.Events), len(seeded.Events), len(repaired.Deliveries), len(seeded.Deliveries))
+	if !reflect.DeepEqual(repaired.Events, seeded.Events) || !reflect.DeepEqual(repaired.Deliveries, seeded.Deliveries) {
+		t.Fatalf("recovery changed preserved delivery evidence:\nbefore events: %#v\nafter events: %#v\nbefore deliveries: %#v\nafter deliveries: %#v",
+			seeded.Events, repaired.Events, seeded.Deliveries, repaired.Deliveries)
 	}
 
 	// Runs work again, nothing is re-delivered, and the audit record survives.
@@ -163,18 +167,33 @@ func TestNotificationResetRefusesIncompleteCheckout(t *testing.T) {
 	binary := buildNotificationBinary(t)
 	f := newNotificationBinaryFixture(t, binary, "github", "webhook")
 	f.run(0, "reconcile")
+	strandConfigRevision(t, f)
+	notesRef := "refs/notes/oiax/notifications/v1/" + notification.GraphKey(f.identity(), "graph")
 
 	for _, tc := range []struct {
 		name, want string
 		scope      func()
 	}{
 		{
-			name: "single-branch checkout",
-			want: "single-branch checkout",
-			// Narrow the refspec the way `git clone --single-branch` and
-			// actions/checkout do. The repository stays non-shallow.
+			name: "narrow wildcard checkout",
+			want: "does not include every branch head",
 			scope: func() {
-				gittest.Run(t, f.dir, "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main")
+				gittest.Run(t, f.dir, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/release/*:refs/remotes/origin/release/*")
+			},
+		},
+		{
+			name: "full mapping with exclusion",
+			want: "without exclusions",
+			scope: func() {
+				gittest.Run(t, f.dir, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+				gittest.Run(t, f.dir, "config", "--add", "remote.origin.fetch", "^refs/heads/private")
+			},
+		},
+		{
+			name: "origin without fetch mapping",
+			want: "does not include every branch head",
+			scope: func() {
+				gittest.Run(t, f.dir, "config", "--unset-all", "remote.origin.fetch")
 			},
 		},
 		{
@@ -187,9 +206,10 @@ func TestNotificationResetRefusesIncompleteCheckout(t *testing.T) {
 			original := gittest.Run(t, f.dir, "config", "--get", "remote.origin.fetch")
 			tc.scope()
 			t.Cleanup(func() {
-				gittest.Run(t, f.dir, "config", "remote.origin.fetch", original)
+				gittest.Run(t, f.dir, "config", "--replace-all", "remote.origin.fetch", original)
 				_ = os.Remove(filepath.Join(f.dir, ".git", "shallow"))
 			})
+			beforeTip := gittest.Run(t, f.remote, "rev-parse", notesRef)
 			_, refusal := f.run(1, "notifications", "reset", "--accept-revision", f.oid)
 			if !strings.Contains(refusal, tc.want) {
 				t.Fatalf("refusal did not name the scope (%s): %s", tc.want, refusal)
@@ -197,7 +217,30 @@ func TestNotificationResetRefusesIncompleteCheckout(t *testing.T) {
 			if !strings.Contains(refusal, "not evidence") {
 				t.Fatalf("refusal did not explain why absence proves nothing: %s", refusal)
 			}
+			if afterTip := gittest.Run(t, f.remote, "rev-parse", notesRef); afterTip != beforeTip {
+				t.Fatalf("refused reset changed notes tip from %s to %s", beforeTip, afterTip)
+			}
 		})
+	}
+}
+
+type notificationResetErrorWriter struct{}
+
+func (notificationResetErrorWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+func TestRenderNotificationResetReportsTextWriteErrors(t *testing.T) {
+	t.Parallel()
+	for _, record := range []*notification.RevisionOverrideV1{
+		nil,
+		{PriorOID: strings.Repeat("1", 40), AcceptedOID: strings.Repeat("2", 40)},
+	} {
+		cmd := &cobra.Command{}
+		cmd.SetOut(notificationResetErrorWriter{})
+		if err := renderNotificationReset(cmd, &options{}, record); err == nil || !strings.Contains(err.Error(), "write failed") {
+			t.Fatalf("renderNotificationReset error = %v, want output failure", err)
+		}
 	}
 }
 

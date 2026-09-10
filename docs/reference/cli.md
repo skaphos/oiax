@@ -347,23 +347,24 @@ notes ref would destroy the receipts that prevent duplicate sends.
 
 This command is the sanctioned way out, and it is deliberately narrow:
 
-  * It refuses while the accepted commit is still resolvable. Ordering is
-    decidable there, so the ordinary rule applies and this is not a general
-    way around it.
-  * It refuses from an object database that is scoped to part of origin,
-    because a commit missing from such a checkout says nothing about origin:
-    a shallow clone (truncated history) and a single-branch checkout
-    (actions/checkout's default, where other branches were never fetched)
-    are both rejected. A partial clone (--filter=blob:none) is accepted: it
-    keeps complete commit reachability and lazily fetches what it lacks.
-    The guard rules out those systematic false positives; confirming the
-    commit is genuinely gone from origin, rather than merely not fetched
-    yet, is still the operator's step (see the notifications guide).
+  * It refuses to replace a different accepted commit while that commit is
+    still resolvable. Ordering is decidable there, so the ordinary rule
+    applies and this is not a general way around it. If the ledger already
+    accepts the pinned revision, the command is a no-op.
+  * It refuses unless origin is configured to fetch every branch head with
+    no exclusions, and rejects shallow clones and filters that may omit
+    commits. Common blob/tree partial-clone filters (--filter=blob:none,
+    --filter=blob:limit=<n>, and --filter=tree:<depth>) are accepted because
+    they retain commit reachability. The guard establishes configured scope,
+    not freshness: confirming a current full fetch completed successfully and
+    the commit is genuinely gone from origin is still the operator's step
+    (see the notifications guide).
   * --accept-revision must name the configuration commit this invocation
     resolved, so the acceptance is an explicit act and cannot be a hard-coded
     step in a workflow that silently keeps working as configuration moves.
-  * It never deletes, resets or backfills anything. Events, deliveries and
-    delivery receipts are carried across untouched.
+  * It preserves immutable event, attempt and receipt evidence and sends
+    nothing itself. Accepting the new policy applies its cutoffs and may retire
+    pending work that is no longer eligible.
   * It appends an immutable record of the override to the ledger, naming the
     abandoned commit and the accepted one, so the gap in the ordering chain
     stays auditable forever.

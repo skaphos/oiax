@@ -10,6 +10,7 @@ import (
 
 	"github.com/skaphos/oiax/v2/internal/git"
 	"github.com/skaphos/oiax/v2/internal/notification"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 func seededNotes(t *testing.T, l *notification.LedgerV1) *conflictNotes {
@@ -80,9 +81,9 @@ func TestNotificationStoreRevisionOverridesAreAppendOnly(t *testing.T) {
 		{name: "reorder by prepending", mutate: func(l *notification.LedgerV1) {
 			l.RevisionOverrides = append([]notification.RevisionOverrideV1{{Version: 1, PriorOID: strings.Repeat("f", 40), AcceptedOID: strings.Repeat("a", 40), RecordedAt: recorded.RecordedAt}}, l.RevisionOverrides...)
 		}, wantErr: true},
-		{name: "append", mutate: func(l *notification.LedgerV1) {
+		{name: "spurious append", mutate: func(l *notification.LedgerV1) {
 			l.RevisionOverrides = append(l.RevisionOverrides, notification.RevisionOverrideV1{Version: 1, PriorOID: strings.Repeat("f", 40), AcceptedOID: strings.Repeat("a", 40), RecordedAt: recorded.RecordedAt})
-		}},
+		}, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -105,6 +106,95 @@ func TestNotificationStoreRevisionOverridesAreAppendOnly(t *testing.T) {
 				t.Fatalf("appending a record = %v", err)
 			}
 		})
+	}
+}
+
+func TestNotificationStoreCouplesOverrideToRevisionAdvance(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	policy := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "ops", Type: "slack", EndpointEnv: "SLACK"}}}
+	incoming := notification.PolicyRevisionV1{ConfigOID: strings.Repeat("b", 40), PolicyDigest: strings.Repeat("b", 64)}
+	for _, tc := range []struct {
+		name       string
+		relation   notification.RevisionRelation
+		transition notification.Transition
+		wantErr    bool
+	}{
+		{name: "valid audited override", relation: notification.RevisionOverride, transition: func(_ context.Context, latest *notification.LedgerV1) (*notification.LedgerV1, error) {
+			return notification.OverrideRevision(latest, incoming, policy, now, notification.RevisionEvidence{AcceptedOID: latest.PolicyRevision.ConfigOID, IncomingOID: incoming.ConfigOID, Relation: notification.RevisionOverride})
+		}},
+		{name: "missing audit", relation: notification.RevisionOverride, transition: func(_ context.Context, latest *notification.LedgerV1) (*notification.LedgerV1, error) {
+			latest.PolicyRevision = incoming
+			return latest, nil
+		}, wantErr: true},
+		{name: "mismatched audit", relation: notification.RevisionOverride, transition: func(_ context.Context, latest *notification.LedgerV1) (*notification.LedgerV1, error) {
+			latest.PolicyRevision = incoming
+			latest.RevisionOverrides = append(latest.RevisionOverrides, notification.RevisionOverrideV1{Version: 1, PriorOID: strings.Repeat("c", 40), AcceptedOID: incoming.ConfigOID, RecordedAt: now})
+			return latest, nil
+		}, wantErr: true},
+		{name: "multiple audits", relation: notification.RevisionOverride, transition: func(_ context.Context, latest *notification.LedgerV1) (*notification.LedgerV1, error) {
+			latest.PolicyRevision = incoming
+			record := notification.RevisionOverrideV1{Version: 1, PriorOID: latest.AnchorOID, AcceptedOID: incoming.ConfigOID, RecordedAt: now}
+			latest.RevisionOverrides = append(latest.RevisionOverrides, record, record)
+			return latest, nil
+		}, wantErr: true},
+		{name: "descendant with spurious audit", relation: notification.RevisionDescendant, transition: func(_ context.Context, latest *notification.LedgerV1) (*notification.LedgerV1, error) {
+			latest.PolicyRevision = incoming
+			latest.RevisionOverrides = append(latest.RevisionOverrides, notification.RevisionOverrideV1{Version: 1, PriorOID: latest.AnchorOID, AcceptedOID: incoming.ConfigOID, RecordedAt: now})
+			return latest, nil
+		}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			base := codecLedger(t)
+			notes := seededNotes(t, base)
+			s := New(notes, base.Repository, base.Graph)
+			s.VerifyRevision = func(context.Context, string, string) (notification.RevisionRelation, error) { return tc.relation, nil }
+			got, err := s.Commit(context.Background(), notes.snapshot.Tip, tc.transition)
+			if tc.wantErr {
+				if !errors.Is(err, notification.ErrInvalidState) || notes.writes != 0 {
+					t.Fatalf("commit = %v, writes=%d", err, notes.writes)
+				}
+				return
+			}
+			if err != nil || len(got.Ledger.RevisionOverrides) != 1 || got.Ledger.PolicyRevision != incoming {
+				t.Fatalf("valid override = %+v, %v", got.Ledger, err)
+			}
+		})
+	}
+
+	// A prior override does not force future ordinary descendants to form an
+	// unbroken audit chain; only operator-authorized gaps add records.
+	base := codecLedger(t)
+	base.RevisionOverrides = []notification.RevisionOverrideV1{{Version: 1, PriorOID: strings.Repeat("d", 40), AcceptedOID: base.PolicyRevision.ConfigOID, RecordedAt: now}}
+	notes := seededNotes(t, base)
+	s := New(notes, base.Repository, base.Graph)
+	s.VerifyRevision = func(context.Context, string, string) (notification.RevisionRelation, error) {
+		return notification.RevisionDescendant, nil
+	}
+	got, err := s.Commit(context.Background(), notes.snapshot.Tip, func(_ context.Context, latest *notification.LedgerV1) (*notification.LedgerV1, error) {
+		latest.PolicyRevision = incoming
+		return latest, nil
+	})
+	if err != nil || len(got.Ledger.RevisionOverrides) != 1 {
+		t.Fatalf("ordinary descendant after override = %+v, %v", got.Ledger, err)
+	}
+}
+
+func TestNotificationStoreInitialCreationRejectsOverrideAudit(t *testing.T) {
+	t.Parallel()
+	l := codecLedger(t)
+	l.RevisionOverrides = []notification.RevisionOverrideV1{{
+		Version: 1, PriorOID: strings.Repeat("d", 40), AcceptedOID: l.PolicyRevision.ConfigOID,
+		RecordedAt: time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC),
+	}}
+	notes := &conflictNotes{}
+	s := New(notes, l.Repository, l.Graph)
+	_, err := s.Commit(context.Background(), "", func(context.Context, *notification.LedgerV1) (*notification.LedgerV1, error) {
+		return l.Clone(), nil
+	})
+	if !errors.Is(err, notification.ErrInvalidState) || notes.writes != 0 {
+		t.Fatalf("initial commit = %v, writes=%d", err, notes.writes)
 	}
 }
 

@@ -123,27 +123,40 @@ notes ref would destroy the receipts that stop notifications being sent twice.
 identical from inside the repository:
 
 ```bash
-git remote set-branches origin '*'
+git config --replace-all remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
 git fetch --prune origin
-git cat-file -e <accepted-oid>^{commit}   # succeeds? then just re-run; nothing is wrong
+git cat-file -e <accepted-oid>^{commit}   # local absence alone does not prove remote deletion
 ```
 
 If the commit is really gone, record an audited acceptance of the revision you
 are pinning now:
 
 ```bash
-oiax notifications reset --accept-revision "$(git rev-parse origin/main)"
+oiax notifications reset --config-ref origin/main \
+  --accept-revision "$(git rev-parse origin/main)"
 ```
 
-The command refuses while the accepted commit still resolves, and from any
-checkout scoped to part of origin — a shallow clone, or a single-branch one
-whose fetch refspec never brought the other branches down (`actions/checkout`'s
-default, which is *not* shallow). Run it from a complete clone. It preserves
-every event, delivery and receipt, and appends a permanent record of the
-override to the ledger. See
+The command refuses while a different accepted commit still resolves (the exact
+already-accepted OID and digest is a no-op), from a shallow clone, or when a
+configured `origin` lacks one positive fetch mapping from the
+full `refs/heads/*` source, has any negative mapping, or otherwise fetches only
+a subset such as one branch or tags. A repository with no configured `origin`
+is also rejected. Only the commit-complete `blob:none`, `blob:limit=<n>` and
+`tree:<depth>` partial filters are accepted; other filters fail closed. Passing
+the guard is not proof that refs are fresh or that a remote deleted the commit:
+complete the fetch, confirm absence separately, and investigate operational
+failures instead of treating every local lookup error as deletion.
+The reset sends no HTTP request and preserves immutable events and existing
+attempt/receipt evidence, but it applies current subscription policy and cutoffs
+normally, which can retire ineligible nonterminal deliveries. It appends a
+permanent record of the override to the ledger. See
 [Recovering an unreachable configuration revision](notifications.md#recovering-an-unreachable-configuration-revision)
 for what the override gives up, and treat the record as a prompt to find out
 what rewrote the configuration branch.
+
+If reset reports capacity exhaustion, no override was recorded. The audit is
+bounded to 32 entries and shares the 8 MiB ledger limit; v1 provides no supported
+way to delete evidence or rewrite notes to make room.
 
 ## `git 2.45 or newer is required`
 

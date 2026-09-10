@@ -24,6 +24,33 @@ type countingStore struct {
 	reads, commits int
 }
 
+// receiptFailureStore injects failures after a sender arms it, so claim writes
+// succeed and only the subsequent receipt commit is affected.
+type receiptFailureStore struct {
+	*notificationtest.MemoryStore
+	mu        sync.Mutex
+	err       error
+	remaining int
+}
+
+func (s *receiptFailureStore) arm(err error, failures int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.err, s.remaining = err, failures
+}
+
+func (s *receiptFailureStore) Commit(ctx context.Context, expected string, transition notification.Transition) (notification.Snapshot, error) {
+	s.mu.Lock()
+	if s.remaining > 0 {
+		s.remaining--
+		err := s.err
+		s.mu.Unlock()
+		return notification.Snapshot{}, err
+	}
+	s.mu.Unlock()
+	return s.MemoryStore.Commit(ctx, expected, transition)
+}
+
 func (s *countingStore) Read(ctx context.Context) (notification.Snapshot, error) {
 	s.mu.Lock()
 	s.reads++
@@ -657,6 +684,131 @@ func TestNotificationUncertainReceiptKeepsReceiverStatus(t *testing.T) {
 	}
 }
 
+func TestNotificationFailedPayloadReceiptRemainsClaimedAndReportsNonDurable(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		err      error
+		failures int
+	}{
+		{name: "unavailable", err: notification.ErrUnavailable, failures: 1},
+		{name: "exhausted conflict", err: notification.ErrConflict, failures: 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			clock := notificationtest.NewClock(time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC))
+			store := &receiptFailureStore{MemoryStore: &notificationtest.MemoryStore{}}
+			runtime := batchRuntime(t, clock, store, 1)
+			run := 0
+			runtime.OperationID = func() string {
+				run++
+				return fmt.Sprintf("run-%d", run)
+			}
+			failReceipt := true
+			sends := 0
+			runtime.Sender = func(v1.NotificationDestination) notification.Sender {
+				return notificationSenderFunc(func(context.Context, string, notification.DeliveryPayloadV1) notification.AttemptResult {
+					sends++
+					if failReceipt {
+						store.arm(tc.err, tc.failures)
+					}
+					return notification.AttemptResult{Code: notification.OutcomePayloadTooLarge}
+				})
+			}
+			var diagnostics []NotificationDiagnostic
+			runtime.Report = func(d NotificationDiagnostic) { diagnostics = append(diagnostics, d) }
+			err := runtime.Dispatch(context.Background())
+			if !errors.Is(err, notification.ErrReceiptNotPersisted) || !errors.Is(err, tc.err) {
+				t.Fatalf("dispatch = %v", err)
+			}
+			if len(diagnostics) != 1 || diagnostics[0].Reason != "delivery-receipt-not-persisted" || diagnostics[0].Status != 0 || !strings.Contains(diagnostics[0].Action, string(notification.OutcomePayloadTooLarge)) || strings.Contains(diagnostics[0].Action, "terminal") || strings.Contains(diagnostics[0].Action, "not automatically resent") {
+				t.Fatalf("diagnostics = %+v", diagnostics)
+			}
+			for key, record := range ledgerRecords(t, store) {
+				if record.Status != notification.StatusClaimed || record.Attempts != 1 || record.Code != "" {
+					t.Fatalf("failed receipt changed durable record %s = %+v", key, record)
+				}
+			}
+
+			failReceipt = false
+			clock.Advance(notification.ClaimDuration + time.Second)
+			diagnostics = nil
+			if err := runtime.Dispatch(context.Background()); err == nil || !strings.Contains(err.Error(), string(notification.OutcomePayloadTooLarge)) {
+				t.Fatalf("resend = %v", err)
+			}
+			if sends != 2 || len(diagnostics) != 1 || diagnostics[0].Reason != string(notification.OutcomePayloadTooLarge) {
+				t.Fatalf("sends = %d, diagnostics = %+v", sends, diagnostics)
+			}
+			for key, record := range ledgerRecords(t, store) {
+				if record.Status != notification.StatusSkipped || record.Code != notification.OutcomePayloadTooLarge || record.Attempts != 2 {
+					t.Fatalf("resent receipt not durable %s = %+v", key, record)
+				}
+			}
+		})
+	}
+}
+
+func TestNotificationUnpersistedFailuresDoNotPrematurelySettle(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		result     notification.AttemptResult
+		wantStatus notification.DeliveryStatus
+		wantCode   notification.OutcomeCode
+	}{
+		{name: "deterministic abandonment", result: notification.AttemptResult{Code: notification.OutcomeConfiguration, Status: 401}, wantStatus: notification.StatusSkipped, wantCode: notification.OutcomeAbandoned},
+		{name: "transient remains retryable", result: notification.AttemptResult{Code: notification.OutcomeNetwork}, wantStatus: notification.StatusRetryable, wantCode: notification.OutcomeNetwork},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			clock := notificationtest.NewClock(time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC))
+			store := &receiptFailureStore{MemoryStore: &notificationtest.MemoryStore{}}
+			runtime := batchRuntime(t, clock, store, 1)
+			run := 0
+			runtime.OperationID = func() string {
+				run++
+				return fmt.Sprintf("run-%d", run)
+			}
+			failReceipt := true
+			sends := 0
+			runtime.Sender = func(v1.NotificationDestination) notification.Sender {
+				return notificationSenderFunc(func(context.Context, string, notification.DeliveryPayloadV1) notification.AttemptResult {
+					sends++
+					if failReceipt {
+						store.arm(notification.ErrUnavailable, 1)
+					}
+					return tc.result
+				})
+			}
+			for cycle := 1; cycle <= notification.MaxAttempts+2; cycle++ {
+				err := runtime.Dispatch(context.Background())
+				if !errors.Is(err, notification.ErrReceiptNotPersisted) || !errors.Is(err, notification.ErrUnavailable) {
+					t.Fatalf("cycle %d dispatch = %v", cycle, err)
+				}
+				clock.Advance(notification.ClaimDuration + time.Second)
+			}
+			for key, record := range ledgerRecords(t, store) {
+				if record.Status != notification.StatusClaimed || record.Attempts != notification.MaxAttempts+2 || record.Code != "" {
+					t.Fatalf("unpersisted attempts settled %s = %+v", key, record)
+				}
+			}
+
+			failReceipt = false
+			if err := runtime.Dispatch(context.Background()); err == nil || !strings.Contains(err.Error(), string(tc.wantCode)) {
+				t.Fatalf("durable receipt = %v, want %s", err, tc.wantCode)
+			}
+			if sends != notification.MaxAttempts+3 {
+				t.Fatalf("sends = %d, want %d", sends, notification.MaxAttempts+3)
+			}
+			for key, record := range ledgerRecords(t, store) {
+				if record.Status != tc.wantStatus || record.Code != tc.wantCode || record.Attempts != notification.MaxAttempts+3 {
+					t.Fatalf("durable receipt %s = %+v", key, record)
+				}
+			}
+		})
+	}
+}
+
 // blockingStore parks the first Commit until released, holding the runtime's
 // commit slot the way a stalled notes push would.
 type blockingStore struct {
@@ -735,10 +887,10 @@ func TestNotificationRefusedWithoutReceiptKeepsReceiverStatus(t *testing.T) {
 	var diagnostics []NotificationDiagnostic
 	runtime.Report = func(d NotificationDiagnostic) { diagnostics = append(diagnostics, d) }
 	err := runtime.Dispatch(context.Background())
-	if !errors.Is(err, notification.ErrUnavailable) {
+	if !errors.Is(err, notification.ErrReceiptNotPersisted) || !errors.Is(err, notification.ErrUnavailable) {
 		t.Fatalf("write failure lost: %v", err)
 	}
-	if len(diagnostics) != 1 || diagnostics[0].Reason != "configuration-failure" || diagnostics[0].Status != 400 {
+	if len(diagnostics) != 1 || diagnostics[0].Reason != "delivery-receipt-not-persisted" || diagnostics[0].Status != 400 || !strings.Contains(diagnostics[0].Action, string(notification.OutcomeConfiguration)) {
 		t.Fatalf("diagnostics = %+v", diagnostics)
 	}
 }

@@ -44,6 +44,18 @@ require the accepted revision, while late receipts remain monotone. A reviewed
 descendant commit reverting content is supported; pinning an older OID is not a
 notification-policy rollback. See [the revision rules](data-model.md#configuration-revision-ordering).
 
+If the accepted OID is locally absent, ordinary runs continue to defer; they do
+not infer a remote rewrite. ADR 0019 permits a separate audited reset after the
+operator refreshes and confirms the repository state. Its checkout guard rejects
+shallow history, missing `origin`, incomplete or excluded branch-head refspecs,
+and partial-clone filters outside the commit-complete allowlist. Even a passing
+guard proves scope, not freshness. The reset keeps schema v1 and the same notes
+ref, appends a bounded `revisionOverrides` audit record, preserves immutable
+event and receipt evidence, and applies the accepted pinned policy's normal
+generation/subscription/cutoff transition. All readers and writers for the graph
+must upgrade before the field is first written; no deletion-based downgrade is
+supported. See [ADR 0019](../../docs/adr/0019-audited-notification-revision-recovery.md).
+
 For creation recovery, put an immutable notification-origin block into the initial PR create body, separate from the existing ownership marker. It records an operation ID, creation observation time, graph, pinned config OID, and logical source/target branches. Azure's subsequent property copy is supplemental; the initial body is required because the process can die after POST succeeds. An adopted request may recover the original event from this block but never generates a new creation event just because it was adopted. Requests without origin can generate merge events using existing ownership checks; they cannot manufacture creation provenance.
 
 **Evidence:** Both forge implementations can fail on follow-up work after the initial PR creation succeeds. Azure stores the existing marker in properties as well as the body. Marker replacement preserves surrounding text. Backflow request heads are synthetic `oiax/` refs, so parsing their names would violate the explicit-topology rule; use the captured logical edge instead. For legacy backflow requests without origin, retain the actual source ref, set logical source unavailable, and report that limitation rather than guessing.
@@ -54,7 +66,18 @@ For creation recovery, put an immutable notification-origin block into the initi
 
 ## 4. Retry policy and bounded work
 
-**Decision:** Keep undelivered events pending without automatic age expiry. Attempt a delivery at most once per run. Exponential retry spacing starts at one minute and caps at one hour; `Retry-After` sets a later eligible time, capped at 24 hours with a diagnostic for larger values. Missing secrets and configuration-dependent remote failures remain pending with a one-hour delay. A disabled/removed subscription receives no current attempt and is durably skipped only when enabled notification processing records its retirement; changing a destination name or transport identity starts a new activation, never reroutes old pending messages.
+**Decision:** Keep undelivered events pending without automatic age expiry. Attempt a delivery at most once per run. Exponential retry spacing starts at one minute and caps at one hour; `Retry-After` sets a later eligible time, capped at 24 hours with a diagnostic for larger values. Missing secrets and configuration-dependent remote failures remain pending with a one-hour delay until their bounded deterministic policy applies. A disabled/removed subscription receives no current attempt and is durably skipped only when enabled notification processing records its retirement; changing a destination name or transport identity starts a new activation, never reroutes old pending messages.
+
+A successfully persisted first `payload-too-large` receipt records
+`skipped/payload-too-large`. Any other deterministic result persisted when the
+delivery has at least 24 total claimed attempts records `skipped/abandoned`.
+`network-failure`, `service-failure`, `rate-limited`, and `canceled` remain
+retryable at and beyond that threshold. A missing or failed receipt write leaves
+the claim recoverable after lease expiry, so it may produce more attempts; there
+is no universal attempt-ID bound. A proven late acceptance may replace either
+skipped outcome with delivered. V1 retains every receipt and provides no
+compaction. These semantics and their coordinated compatibility rollout are
+recorded in [ADR 0018](../../docs/adr/0018-notification-terminal-outcome-rollout.md).
 
 **Global disable (I1):** All-disabled invocations make no notification I/O, even
 to record retirement or a config revision. Re-enabling the same identity resumes
@@ -66,9 +89,18 @@ does not fence already running workers; there is no global immediate-stop claim.
 
 Initial hard bounds: 20 configured destinations; 10 attempts per destination and 100 total per run; one in-flight send per destination; at least one second between sends; 10-second HTTP timeout; ten-minute aggregate notification stage; 120-second claims held per destination batch, renewed while a batch is still sending, with ownership re-proved on freshly read state before each send; 100 lifecycle pages of 100 requests per run; 8 MiB ledger and 50,000 delivery records, whichever is reached first. Scan continuations and pending events survive limits. Capacity exhaustion warns and suspends new notification work; it never silently drops receipts or changes the core exit result. Increasing limits requires a future deliberate configuration/implementation change rather than an automatic burst.
 
-**Rationale:** This preserves the accepted later-retry requirement without an unapproved expiry rule. Admission control bounds new outward work. No receipt garbage collection in v1: deleting evidence would allow replay by old observations. Ledger growth and denied notes writes must be visible operational limitations.
+**Rationale:** This preserves later retry for recoverable and transient failures
+while stopping repeated deterministic sends once their terminal receipt is
+durable. Admission control bounds new outward work. No receipt garbage collection
+in v1: deleting evidence would allow replay by old observations. Ledger growth
+and denied notes writes must be visible operational limitations. For a
+nonaccepted result whose receipt write fails, diagnostics use
+`delivery-receipt-not-persisted` when no higher-priority state, storage or
+cancellation diagnostic applies and retain the safe underlying outcome and HTTP
+status; accepted results retain the distinct `accepted-receipt-uncertain` reason.
+Higher-priority diagnostics do not discard that underlying result evidence.
 
-**Alternatives:** Infinite in-process retries hang CI; expiring events after an arbitrary week silently weakens recovery; unbounded scans and catch-up sends violate the outward-action bound.
+**Alternatives:** Infinite in-process retries hang CI; expiring events after an arbitrary week silently weakens recovery; unbounded scans and catch-up sends violate the outward-action bound. A same-ref schema-number change makes older readers reject state but does not make it absent; moving to a new ref risks split ledgers and false first activation. ADR 0018 therefore retains schema v1 and the existing ref as a coordinated one-way grammar extension.
 
 ## 5. Transport choice and prior art
 

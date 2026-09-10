@@ -23,6 +23,10 @@ func incompleteOrigin(t *testing.T) (dir, otherBranchOID string) {
 	otherBranchOID = gittest.Run(t, dir, "rev-parse", "HEAD")
 	gittest.Run(t, dir, "checkout", "-q", "main")
 	gittest.Run(t, dir, "commit", "-q", "--allow-empty", "-m", "tip")
+	gittest.Run(t, dir, "checkout", "-q", "-b", "release/one")
+	gittest.Run(t, dir, "commit", "-q", "--allow-empty", "-m", "release")
+	gittest.Run(t, dir, "tag", "v1")
+	gittest.Run(t, dir, "checkout", "-q", "main")
 	return dir, otherBranchOID
 }
 
@@ -54,7 +58,7 @@ func TestIncompleteObjectDatabase(t *testing.T) {
 		// Reported today, and already reported before this guard existed.
 		{name: "shallow", args: []string{"--depth", "1", "--branch", "main"}, want: git.DatabaseShallow},
 		// The gap this guard closes: not shallow, but scoped.
-		{name: "single branch", args: []string{"--single-branch", "--branch", "main"}, want: git.DatabaseSingleBranch},
+		{name: "single branch", args: []string{"--single-branch", "--branch", "main"}, want: git.DatabaseScopedFetch},
 		// Deliberately accepted: commit reachability is complete, and a filtered
 		// object is lazily fetched, so no false positive is possible.
 		{name: "partial blob filter", args: []string{"--filter=blob:none"}, want: "", hasOtherBranchCommit: true},
@@ -111,8 +115,134 @@ func TestIncompleteObjectDatabaseCatchesNonShallowScoping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reason != git.DatabaseSingleBranch {
-		t.Fatalf("reason = %q, want the single-branch reason", reason)
+	if reason != git.DatabaseScopedFetch {
+		t.Fatalf("reason = %q, want the scoped-fetch reason", reason)
+	}
+}
+
+// Git combines all positive fetch refspecs and then subtracts every negative
+// refspec, independent of their order. Only a valid positive mapping whose
+// source is exactly refs/heads/*, with no exclusions anywhere, covers every
+// branch head. The fetch in each case makes the resulting object scope real,
+// rather than testing string classification in isolation.
+func TestIncompleteObjectDatabaseRefspecScope(t *testing.T) {
+	t.Parallel()
+	origin, otherBranchOID := incompleteOrigin(t)
+	for _, tc := range []struct {
+		name           string
+		refspecs       []string
+		want           string
+		hasOtherCommit bool
+	}{
+		{
+			name:           "usual full mapping",
+			refspecs:       []string{"+refs/heads/*:refs/remotes/origin/*"},
+			hasOtherCommit: true,
+		},
+		{
+			name:           "full mapping without force",
+			refspecs:       []string{"refs/heads/*:refs/remotes/origin/*"},
+			hasOtherCommit: true,
+		},
+		{
+			name:           "full mapping to alternate destination",
+			refspecs:       []string{"+refs/heads/*:refs/oiax-test/origin/*"},
+			hasOtherCommit: true,
+		},
+		{
+			name:     "narrow wildcard",
+			refspecs: []string{"+refs/heads/release/*:refs/remotes/origin/release/*"},
+			want:     git.DatabaseScopedFetch,
+		},
+		{
+			name:     "tags only",
+			refspecs: []string{"+refs/tags/*:refs/tags/*"},
+			want:     git.DatabaseScopedFetch,
+		},
+		{
+			name:     "positive before negative",
+			refspecs: []string{"+refs/heads/*:refs/remotes/origin/*", "^refs/heads/other"},
+			want:     git.DatabaseScopedFetch,
+		},
+		{
+			name:     "negative before positive",
+			refspecs: []string{"^refs/heads/other", "+refs/heads/*:refs/remotes/origin/*"},
+			want:     git.DatabaseScopedFetch,
+		},
+		{
+			name: "origin without fetch configuration",
+			want: git.DatabaseScopedFetch,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := filepath.Join(t.TempDir(), "checkout")
+			gittest.InitRepo(t, dir)
+			gittest.Run(t, dir, "remote", "add", "origin", "file://"+origin)
+			gittest.Run(t, dir, "config", "--unset-all", "remote.origin.fetch")
+			for _, refspec := range tc.refspecs {
+				gittest.Run(t, dir, "config", "--add", "remote.origin.fetch", refspec)
+			}
+			gittest.Run(t, dir, "fetch", "-q", "origin")
+
+			r := &git.Runner{Dir: dir}
+			got, err := r.IncompleteObjectDatabase(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("IncompleteObjectDatabase = %q, want %q", got, tc.want)
+			}
+			present, err := r.CommitExists(context.Background(), otherBranchOID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if present != tc.hasOtherCommit {
+				t.Fatalf("other-branch commit present = %v, want %v", present, tc.hasOtherCommit)
+			}
+		})
+	}
+}
+
+func TestIncompleteObjectDatabasePartialCloneFilters(t *testing.T) {
+	t.Parallel()
+	origin, _ := incompleteOrigin(t)
+	for _, tc := range []struct {
+		name, filter, want string
+	}{
+		{name: "blob none", filter: "blob:none"},
+		{name: "blob limit", filter: "blob:limit=1m"},
+		{name: "tree depth", filter: "tree:0"},
+		{name: "commit omitting object type", filter: "object:type=tree", want: git.DatabaseCommitFilter},
+		{name: "unknown combine", filter: "combine:tree:0+blob:none", want: git.DatabaseCommitFilter},
+		{name: "malformed blob limit", filter: "blob:limit=1gm", want: git.DatabaseCommitFilter},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := cloneOverTransport(t, origin, "checkout")
+			gittest.Run(t, r.Dir, "config", "remote.origin.partialclonefilter", tc.filter)
+			got, err := r.IncompleteObjectDatabase(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("IncompleteObjectDatabase = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIncompleteObjectDatabaseRejectsMalformedFullHeadsDestination(t *testing.T) {
+	t.Parallel()
+	origin, _ := incompleteOrigin(t)
+	r := cloneOverTransport(t, origin, "checkout")
+	gittest.Run(t, r.Dir, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/../*")
+	got, err := r.IncompleteObjectDatabase(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != git.DatabaseScopedFetch {
+		t.Fatalf("IncompleteObjectDatabase = %q, want %q", got, git.DatabaseScopedFetch)
 	}
 }
 
@@ -136,8 +266,8 @@ func TestIncompleteObjectDatabaseClearsAfterFullFetch(t *testing.T) {
 	}
 }
 
-// A repository with no origin has no remote to be incomplete against, and an
-// unset key must read as "not configured" rather than as a git failure.
+// With no origin there is no configured fetch scope from which an operator can
+// infer that a locally absent object is absent from the repository.
 func TestIncompleteObjectDatabaseWithoutOrigin(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -145,9 +275,9 @@ func TestIncompleteObjectDatabaseWithoutOrigin(t *testing.T) {
 	gittest.Run(t, dir, "commit", "-q", "--allow-empty", "-m", "base")
 	reason, err := (&git.Runner{Dir: dir}).IncompleteObjectDatabase(context.Background())
 	if err != nil {
-		t.Fatalf("an unset remote.origin.fetch was read as an error: %v", err)
+		t.Fatal(err)
 	}
-	if reason != "" {
-		t.Fatalf("reason = %q, want none", reason)
+	if reason != git.DatabaseNoOrigin {
+		t.Fatalf("reason = %q, want %q", reason, git.DatabaseNoOrigin)
 	}
 }

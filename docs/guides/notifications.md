@@ -134,6 +134,11 @@ Messages are saved per destination before the first attempt. A retry uses the
 same event ID, facts and wording even after template edits. A committed success
 receipt is terminal. An HTTP acceptance followed by a failed receipt write is
 **uncertain**, not durable success: retry can duplicate recipient visibility.
+If a nonaccepted result cannot be persisted, Oiax reports
+`delivery-receipt-not-persisted` when no higher-priority state, storage or
+cancellation diagnostic applies, while retaining the underlying safe outcome
+and HTTP status, when present. That attempt remains recoverable after its lease
+expires; no terminal guarantee applies until its receipt is durable.
 There is no exactly-once guarantee and no claim that HTTP acceptance proves a
 person could see the message.
 
@@ -157,12 +162,61 @@ with the destination, reason, HTTP status (when an exchange completed) and
 elapsed milliseconds; endpoints and payload text are never logged. Backoff and
 bounded Retry-After survive runs.
 One failed receiver does not block others or alter core reconcile exits 0/1/3.
-Runtime rendering overflow leaves only that record pending until corrected,
-without blocking the destination's other deliveries; validation failures still
-fail before core mutation. Payloads cap at 24 KiB and responses at 16 KiB.
-The ledger caps at 8 MiB and 50,000 delivery records; capacity exhaustion suspends
-new work without removing receipts. Review backlog and retention requirements
-before adopting high-volume use; no destructive automatic pruning is provided.
+Runtime rendering overflow occurs before the message is saved, leaving only that record
+pending without claiming an attempt or blocking the destination's other
+deliveries; validation failures still fail before core mutation. Payloads cap
+at 24 KiB and responses at 16 KiB.
+A generic webhook body that would exceed the payload cap drops trailing commit
+summaries and sets `commitsTruncated` rather than failing. If the entire envelope
+is still too large after all optional commit summaries are dropped, the attempt
+fails without truncating required repository, branch, request or event identity.
+
+A transient fault (`network-failure`, `service-failure`, `rate-limited`,
+`canceled`) remains retryable with exponential backoff up to one hour, including
+after 24 claimed attempts. A persisted `payload-too-large` receipt makes the
+record terminal on its first such result as `skipped/payload-too-large`. Any
+other deterministic result persisted when the ledger records at least **24
+total claimed attempts** makes the record terminal as `skipped/abandoned`.
+Missing or unpersisted receipts remain recoverable and can lead to more than 24
+claims. There is no universal attempt-ID bound and no receipt compaction; the
+practical bound is ledger capacity. A late accepted receipt for any proven
+attempt may still replace a skipped terminal outcome with durable delivery.
+These one-way v1 state extensions and their coordinated rollout are recorded in
+[ADR 0018](../adr/0018-notification-terminal-outcome-rollout.md).
+
+### Ledger budget
+
+The ledger caps at 8 MiB and 50,000 delivery records; capacity exhaustion
+suspends new work without removing receipts, so plan against the budget:
+
+| Merge shape (two destinations) | Ledger cost per merge | Merges per 8 MiB |
+| --- | --- | --- |
+| No commit summaries | ~3.0 KB | ~2,780 |
+| 30 commit summaries | ~12.2 KB | ~686 |
+| 100 commit summaries (the cap) | ~33 KB | ~252 |
+
+Delivered and terminal records are retained: the budget is cumulative history,
+not concurrent backlog. Mitigate growth before the ledger approaches its cap:
+
+1. Read the current size with `git fetch origin
+   'refs/notes/oiax/notifications/v1/*:refs/notes/oiax/notifications/v1/*'` and
+   inspect the note for the graph key; the diagnostic reason is
+   `notification-capacity-exhausted`.
+2. While notification policy remains enabled, repair or remove failing
+   destinations. Removal retires their records and stops their retries, but the
+   receipts remain in the note and still consume capacity. If all destinations
+   are disabled, Oiax performs no notification I/O and cannot record retirement.
+3. To stop a generation before it grows further, remove the destination in a
+   **new descendant** configuration commit and re-add it under a new name. The
+   new name gets a fresh cutoff and does not inherit old deliveries, so it does
+   not replay old events, including terminal ones. New events for the new
+   generation still add new receipts; renaming does not reclaim bytes or compact
+   the existing history.
+4. If the cap is reached, new work is suspended. There is no supported capacity
+   recovery, compaction, or automatic pruning operation. Rewriting or deleting
+   the note would lose duplicate-prevention evidence and is not a repair.
+
+Review backlog and retention requirements before adopting high-volume use.
 
 Use preview decisions and safe reason/action diagnostics:
 
@@ -170,10 +224,12 @@ Use preview decisions and safe reason/action diagnostics:
 | --- | --- |
 | `missing-secret` | Bind the configured variable in the reconcile job. |
 | `invalid-endpoint`, `redirect-rejected` | Check HTTPS, DNS, TLS and network policy. |
-| `configuration-failure` | The request reached the receiver and was refused; the warning and the ledger record (`lastStatus`) carry the integer HTTP status. Check the webhook URL and signature (400/401/403), that the flow still exists and is enabled (404/410), and that its trigger schema accepts the documented payload. |
+| `configuration-failure` | With an HTTP status, the receiver refused the request; without one, the payload could not be encoded and no exchange occurred. Check the webhook URL and signature (400/401/403), that the flow still exists and is enabled (404/410), and that its trigger schema accepts the documented payload. A receipt persisted at or after 24 total claimed attempts abandons the record. |
 | `service-failure`, `rate-limited` | Restore the receiver and allow saved backoff to expire. |
 | `network-failure` | The exchange failed before a decisive answer: no status for connection or TLS failures, or (Slack only) the status received before its body read failed. Saved backoff retries automatically. |
-| `payload-too-large`, `response-too-large` | Reduce custom presentation, or (Slack only) the receiver's response size, then retry. |
+| `payload-too-large` | The entire encoded envelope exceeded the transport cap after supported optional content was dropped; required identity is never truncated. Reduce custom presentation for future events; changing the template cannot repair this saved event. Its first successfully persisted receipt makes the record terminal and skipped. |
+| `response-too-large` | (Slack only) Reduce the receiver's response size, then retry. |
+| `abandoned` | A deterministic failure receipt persisted when the record had at least 24 total claimed attempts, so the record is terminal. Use the reported HTTP status, when present, and earlier reasons to diagnose the cause. Repair the destination for future events; this record is not automatically resent, including under a new destination name. |
 | `canceled`, `notification-canceled` | The run's budget or cancellation ended the attempt; it retries on the next scheduled run. |
 | `subscription-retired` | A later configuration removed the destination or subscription; no retry is scheduled. |
 | `delivery-claim-lost` | Another attempt settled the record while this batch was sending; its durable receipt is authoritative. |
@@ -181,10 +237,11 @@ Use preview decisions and safe reason/action diagnostics:
 | `notification-ledger-absent` | The next reconcile establishes a current cutoff; restore lost notes first if prior receipts must be retained. |
 | `notification-deferred` | A provider or notes failure deferred notification work; retry and inspect provider and notes permissions. |
 | `accepted-receipt-uncertain` | Correlate by event ID; a retry may repeat visibility. |
+| `delivery-receipt-not-persisted` | When no higher-priority state, storage or cancellation diagnostic applies, the nonaccepted outcome and HTTP status, when present, are reported, but its receipt is not durable. Repair notes persistence; the attempt remains recoverable and cannot establish terminality until a receipt is saved. |
 | `notification-discovery-incomplete` | Run scheduled repair; bounded scans retain progress. |
 | `invalid-notification-state` | Preserve notes; review corruption/version compatibility before restoring valid history. |
 | `notification-ledger-initialized` | A current cutoff was established. If notes were lost, prior receipts require operator recovery. |
-| `notification-capacity-exhausted` | Preserve receipts; review pending volume and capacity before retrying. |
+| `notification-capacity-exhausted` | Preserve receipts; new work is suspended and there is no supported compaction or capacity-recovery operation. |
 | stale/unordered/mismatched revision | Use a reviewed descendant configuration commit and its pinned files. |
 | `config-revision-unreachable` | The accepted configuration commit is gone. See [Recovering an unreachable configuration revision](#recovering-an-unreachable-configuration-revision). |
 
@@ -209,41 +266,54 @@ operator-authorized acceptance of the pinned revision:
 
 ```bash
 # 1. Make sure this is not simply a checkout that lacks the object.
-git remote set-branches origin '*'
+git config --replace-all remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+# If `git rev-parse --is-shallow-repository` prints true, unshallow first:
+git fetch --unshallow --prune origin
+# Otherwise fetch the complete configured branch-head scope:
 git fetch --prune origin
-git cat-file -e <accepted-oid>^{commit}    # must fail: the commit is really gone
+git cat-file -e <accepted-oid>^{commit}    # local absence is only a signal
 
 # 2. Resolve the configuration commit you are accepting, and name it.
 git rev-parse origin/main
-oiax notifications reset --accept-revision <that-oid>
+oiax notifications reset --config-ref origin/main --accept-revision <that-oid>
 ```
 
 The command is deliberately narrow, and each refusal is load-bearing:
 
-- It **refuses while the accepted commit still resolves**. Ordering is decidable
-  there, so the ordinary rule applies; this is not a way around it.
-- It **refuses from a checkout scoped to part of origin**, because a commit
-  missing from such a checkout says nothing about origin. Two states are
-  detected and rejected: a **shallow** clone (history truncated), and a
-  **single-branch** checkout, where a non-wildcard fetch refspec means other
-  branches were never fetched. The second is `actions/checkout`'s default and
-  reports itself as *not* shallow, so testing for shallowness alone would let it
-  through. A **partial** clone (`--filter=blob:none`, `--filter=tree:0`) is
-  accepted: it keeps complete commit reachability and lazily fetches filtered
-  objects, so it cannot produce this false positive.
+- It **refuses while a different accepted commit still resolves**. Ordering is
+  decidable there, so the ordinary rule applies; this is not a way around it.
+  Repeating reset after the exact OID and policy digest were accepted is an
+  idempotent no-op.
+- It **refuses from a checkout known to be scoped to part of origin**, because a
+  commit missing from such a checkout says nothing about origin. A shallow clone
+  is rejected. When `origin` is configured, its fetch configuration must include
+  a positive refspec whose source is exactly `refs/heads/*`; a missing mapping,
+  narrow head wildcard, tag-only mapping, or any negative (`^...`) refspec is
+  rejected. The common single-branch `actions/checkout` mapping therefore fails
+  even when Git reports the repository as not shallow.
 
-  What the guard rules out is the systematic case — a checkout structurally
-  incapable of holding the commit. It cannot rule out a merely *stale* one, so
-  step 1 above is still yours to perform: widen the refspec, fetch, and confirm
-  the commit is genuinely gone before you record an override asserting it.
+  An absent `origin` is rejected. The partial-clone allowlist is deliberately
+  narrow: `blob:none`, `blob:limit=<n>` and `tree:<depth>` retain commit
+  reachability and are accepted; unknown, combined, malformed or commit-omitting
+  filters fail closed. None of these structural checks proves freshness or remote
+  deletion. Widen the mapping, unshallow if necessary, complete a successful
+  fetch, and confirm the accepted OID is genuinely absent from the remote rather
+  than treating any `git cat-file` failure as deletion. Investigate permission,
+  transport and repository errors instead of overriding through them.
 - `--accept-revision` must equal the commit `--config-ref` resolves to. That
   value changes on every configuration commit, so the flag cannot be pinned once
   in a workflow and quietly keep authorizing acceptances.
-- It **deletes nothing**. Events, deliveries and delivery receipts carry across
-  untouched, so no message is re-sent.
+- It **deletes no ledger evidence and sends no message itself**. Immutable event
+  facts and existing attempt/receipt evidence carry across. The accepted pinned
+  policy is nevertheless applied normally: destination generations,
+  subscriptions and cutoffs can change, and newly ineligible nonterminal
+  deliveries can become `subscription-retired`.
 - It **appends an immutable record** to the ledger naming the abandoned commit
   and the accepted one (`revisionOverrides`), so the gap in the ordering chain
   stays auditable. Re-running it afterwards is a no-op.
+- The audit is bounded to **32 overrides** and shares the ledger's **8 MiB** cap.
+  If either bound is full, reset refuses without changing state. Do not delete
+  receipts or rewrite notes to make room; v1 has no supported capacity recovery.
 
 To accept a revision other than the default branch head, pin both:
 
@@ -256,6 +326,8 @@ automatic repair: the accepted revision may have been *newer* than the one being
 pinned, and nothing can prove otherwise once its commit is gone. Review the
 policy at the accepted revision before running the command, and treat an
 override record as a prompt to find out what rewrote the configuration branch.
+The complete decision and rollout constraints are recorded in
+[ADR 0019](../adr/0019-audited-notification-revision-recovery.md).
 
 ## Changing destination identity and rollback
 
@@ -275,20 +347,28 @@ while still using a compatible binary), then downgrade. Older binaries reject
 unknown configuration fields, even disabled ones. Preserve notes and creation
 origin comments; do not reset history, release-managed files, or tags manually.
 
-The ledger only gains fields when a newer binary records them. Once any
-delivery record carries `lastStatus` (written after a receiver answered a
-request), binaries older than the release that introduced it reject the whole
-ledger as `invalid-notification-state` and suspend sends; ledgers never touched
-by such a response stay byte-for-byte compatible. Downgrade before enabling a
-destination on the newer release, or keep the newer release once a status has
-been recorded rather than editing notes by hand.
+The ledger only gains fields and values when a newer binary records them; its
+reader rejects any it does not recognize (ADR 0014). Current records can carry
+`lastStatus` after a receiver answers, and terminal skipped records can carry
+`abandoned` or `payload-too-large`. These terminal receipts may also be created
+by failures before a network exchange, so they do not necessarily have a
+`lastStatus`. Once any of these newer fields or values has been recorded,
+binaries older than the release that introduced it reject the whole ledger as
+`invalid-notification-state` and suspend sends; ledgers never touched by one
+stay byte-for-byte compatible. This one-way rollout is specified by
+[ADR 0018](../adr/0018-notification-terminal-outcome-rollout.md). Downgrade before enabling a destination on the
+newer release, keep the newer release once newer state has been recorded rather
+than editing notes by hand, and do not run two binary versions against one graph.
 
 `revisionOverrides` behaves the same way, and rejection is the safe outcome
 there: the field appears only after an
 [`oiax notifications reset`](#recovering-an-unreachable-configuration-revision),
 so an older binary refuses the note instead of reading a repaired ordering
-history as an unbroken one. An untouched ledger is unaffected. Disable
-notifications before downgrading past the release that introduced the command.
+history as an unbroken one. An untouched ledger is unaffected. Upgrade every
+reader and writer for the graph before the first reset. Once an override exists,
+there is no supported downgrade, field deletion, notes rewrite or migration to
+another ref; disabling notifications prevents notification I/O but does not make
+the ledger readable by an older binary.
 
 Live provider/recipient visibility and setup-time acceptance are deferred by the
 maintainer to post-release adoption testing. Automated local fixtures and CI are

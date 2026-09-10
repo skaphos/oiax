@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 
 	"github.com/skaphos/oiax/v2/internal/git"
 	"github.com/skaphos/oiax/v2/internal/notification"
@@ -74,6 +75,12 @@ func (s *Store) Commit(ctx context.Context, expected string, transition notifica
 		if next == nil || !next.Repository.Same(s.repository) || next.Graph != s.graph {
 			return notification.Snapshot{}, notification.ErrInvalidState
 		}
+		// Revision overrides can only repair an existing ledger whose accepted
+		// commit became unreachable. Initial creation has no prior revision to
+		// override, so it must begin with an empty audit.
+		if current.Ledger == nil && len(next.RevisionOverrides) != 0 {
+			return notification.Snapshot{}, notification.ErrInvalidState
+		}
 		if current.Ledger != nil {
 			accepted, incoming := current.Ledger.PolicyRevision, next.PolicyRevision
 			evidence := notification.RevisionEvidence{AcceptedOID: accepted.ConfigOID, IncomingOID: incoming.ConfigOID}
@@ -95,7 +102,7 @@ func (s *Store) Commit(ctx context.Context, expected string, transition notifica
 			if err := notification.CheckRevision(accepted, incoming, evidence); err != nil {
 				return notification.Snapshot{}, err
 			}
-			if err := validateAppend(current.Ledger, next); err != nil {
+			if err := validateAppend(current.Ledger, next, evidence); err != nil {
 				return notification.Snapshot{}, err
 			}
 			if reflect.DeepEqual(current.Ledger, next) {
@@ -120,7 +127,7 @@ func (s *Store) Commit(ctx context.Context, expected string, transition notifica
 
 // Guard immutable facts and terminal receipts even if a caller implements a bad
 // transition. Revisions themselves require freshly verified reducer evidence.
-func validateAppend(old, next *notification.LedgerV1) error {
+func validateAppend(old, next *notification.LedgerV1, evidence notification.RevisionEvidence) error {
 	if old.AnchorOID != next.AnchorOID || !old.Repository.Same(next.Repository) || old.Graph != next.Graph {
 		return notification.ErrInvalidState
 	}
@@ -141,9 +148,21 @@ func validateAppend(old, next *notification.LedgerV1) error {
 			return notification.ErrInvalidState
 		}
 	}
+	addedOverrides := next.RevisionOverrides[len(old.RevisionOverrides):]
+	revisionChanged := old.PolicyRevision.ConfigOID != next.PolicyRevision.ConfigOID
+	if evidence.Relation == notification.RevisionOverride {
+		if !revisionChanged || len(addedOverrides) != 1 || addedOverrides[0].PriorOID != old.PolicyRevision.ConfigOID || addedOverrides[0].AcceptedOID != next.PolicyRevision.ConfigOID {
+			return notification.ErrInvalidState
+		}
+	} else if len(addedOverrides) != 0 {
+		// An audit record is evidence of an operator-authorized ordering gap. It
+		// cannot be invented by a no-op or an ordinary descendant transition.
+		return notification.ErrInvalidState
+	}
 	for key, before := range old.Deliveries {
 		after, ok := next.Deliveries[key]
-		if !ok || (before.Status == notification.StatusDelivered && !reflect.DeepEqual(before, after)) || (before.Message != nil && !reflect.DeepEqual(before.Message, after.Message)) || before.EventID != after.EventID || before.Destination != after.Destination || before.Generation != after.Generation || after.Attempts < before.Attempts {
+		skippedPreserved := before.Status != notification.StatusSkipped || reflect.DeepEqual(before, after) || (after.Status == notification.StatusDelivered && after.Attempts == before.Attempts && slices.Equal(before.AttemptIDs, after.AttemptIDs))
+		if !ok || (before.Status == notification.StatusDelivered && !reflect.DeepEqual(before, after)) || !skippedPreserved || (before.Message != nil && !reflect.DeepEqual(before.Message, after.Message)) || before.EventID != after.EventID || before.Destination != after.Destination || before.Generation != after.Generation || after.Attempts < before.Attempts || len(after.AttemptIDs) < len(before.AttemptIDs) || !slices.Equal(before.AttemptIDs, after.AttemptIDs[:len(before.AttemptIDs)]) {
 			return notification.ErrInvalidState
 		}
 	}

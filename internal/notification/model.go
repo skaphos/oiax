@@ -26,6 +26,10 @@ const (
 	// is reporting a process problem, not a capacity need. The records are never
 	// pruned, so the bound also keeps them from displacing delivery receipts.
 	MaxRevisionOverrides = 32
+	// MaxAttempts is the abandonment threshold for non-transient failures.
+	// A persisted non-transient result at or above this claim count abandons the
+	// delivery. Transient outcomes and unpersisted receipts can exceed it.
+	MaxAttempts = 24
 	// ClaimDuration is the concurrency fence for one claimed attempt or batch;
 	// it is not a throughput budget for a run.
 	ClaimDuration = 120 * time.Second
@@ -237,6 +241,10 @@ const (
 	OutcomeResponseTooLarge OutcomeCode = "response-too-large"
 	OutcomeCanceled         OutcomeCode = "canceled"
 	OutcomeRetired          OutcomeCode = "subscription-retired"
+	// OutcomeAbandoned is terminal and records that Oiax stopped attempting a
+	// deterministic failure. It is distinct from OutcomeRetired, which records
+	// a deliberate configuration change rather than an unrecoverable fault.
+	OutcomeAbandoned OutcomeCode = "abandoned"
 )
 
 // AttemptResult carries the receiver's integer HTTP status for post-exchange
@@ -296,11 +304,9 @@ type LedgerV1 struct {
 	KnownRequests  map[string]LifecycleRequest `json:"knownRequests"`
 	Scans          map[string]ScanProgress     `json:"scans"`
 	Deliveries     map[string]DeliveryRecord   `json:"deliveries"`
-	// RevisionOverrides is omitted entirely until an operator authorizes a
-	// reset, so an untouched ledger stays byte-identical to one written by a
-	// binary that predates the field. Once present, an older binary rejects the
-	// note as invalid state rather than silently reading a repaired history as
-	// an ordinary one — see ADR 0014 on rollback.
+	// RevisionOverrides is omitted until an operator authorizes a reset. Once
+	// present, it makes the repaired ordering gap explicit to current readers;
+	// see ADR 0019 for the recovery and rollback contract.
 	RevisionOverrides []RevisionOverrideV1 `json:"revisionOverrides,omitempty"`
 }
 
@@ -366,7 +372,7 @@ func ValidOID(s string) bool {
 
 func ValidOutcome(code OutcomeCode) bool {
 	switch code {
-	case OutcomeAccepted, OutcomeNetwork, OutcomeRateLimited, OutcomeService, OutcomeConfiguration, OutcomeMissingSecret, OutcomeInvalidEndpoint, OutcomePayloadTooLarge, OutcomeRedirect, OutcomeResponseTooLarge, OutcomeCanceled, OutcomeRetired:
+	case OutcomeAccepted, OutcomeNetwork, OutcomeRateLimited, OutcomeService, OutcomeConfiguration, OutcomeMissingSecret, OutcomeInvalidEndpoint, OutcomePayloadTooLarge, OutcomeRedirect, OutcomeResponseTooLarge, OutcomeCanceled, OutcomeRetired, OutcomeAbandoned:
 		return true
 	default:
 		return false

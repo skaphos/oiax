@@ -56,6 +56,11 @@ Template files have the existing 1 MiB file cap. Titles are reduced to a single
 inert line capped at 256 runes; bodies are capped at 12 KiB, with overflow reported
 as a delivery problem. The final adapter envelope remains bounded at 24 KiB.
 Subjects are capped at 200 runes with an explicit truncation indicator.
+Runtime rendering happens before the destination message is persisted or an
+attempt is claimed; failure leaves that delivery pending. Adapters may drop
+optional commit summaries to fit their final envelope, but required repository,
+branch, request and event identity is never truncated. An envelope that still
+does not fit produces `payload-too-large` for durable terminal reduction.
 
 ## Immutable facts and retries
 

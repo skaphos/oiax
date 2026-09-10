@@ -1,5 +1,66 @@
 # Implementation validation evidence
 
+## PR #101 terminal-outcome correction — 2026-09-10
+
+ADR 0018 and the implementation now distinguish terminal state from an attempted
+but unpersisted result. A first persisted `payload-too-large` receipt records
+`skipped/payload-too-large`; another deterministic result persisted at 24 or more
+total claimed attempts records `skipped/abandoned`. Transient network, service,
+rate-limit and cancellation outcomes remain retryable. Receipt-write failures
+remain recoverable, preserve safe underlying outcome/status evidence, and do not
+create a universal attempt-ID bound. A proven late acceptance can still win a
+skipped state. Runtime render failures remain pending before saved-message/claim
+state, and required identity is not truncated. Preview continues to use
+`subscription-not-active` with `attempts-exhausted` or `payload-too-large`.
+
+Focused coverage includes
+`TestNotificationFailedPayloadReceiptRemainsClaimedAndReportsNonDurable`,
+`TestNotificationUnpersistedFailuresDoNotPrematurelySettle`,
+`TestNotificationDispatchAbandonsPermanentFailure`,
+`TestNotificationRefusedWithoutReceiptKeepsReceiverStatus`, and
+`TestNotificationDiagnosticsKeepStatusWhenReceiptWriteFails`.
+
+Verification reported for the integrated PR #101 checkout:
+
+| Check | Result |
+| --- | --- |
+| `go -C tools tool task test` | PASS |
+| `go -C tools tool task notifications:verify` | PASS: notification 93.23%, delivery 90.48%, store 87.56%; race/shuffle/integration and per-package 85% gates |
+| `go -C tools tool task lint` | PASS, zero issues |
+| `go -C tools tool task verify-generated` | PASS |
+
+These local automated results do not add live recipient-visibility or setup-time
+evidence; T076/T077 remain deferred as recorded below. The original 80-task count
+and completion boxes are unchanged.
+
+## PR #103 — unreachable accepted revision recovery
+
+ADR 0019 records the maintainer-accepted recovery decision separately from the
+immutable ADR 0014. Validation for this follow-up must demonstrate all of these
+properties before merge:
+
+- ordinary reconciliation maps local accepted-OID absence to a fail-closed
+  `config-revision-unreachable` diagnostic and cannot produce override evidence;
+- reset requires the exact pinned revision, treats the exact already-accepted OID
+  and digest as a no-op, and otherwise refuses a resolvable accepted OID, no
+  ledger, disabled policy, same-OID digest mismatch, shallow history, missing
+  `origin`, incomplete/excluded branch-head mappings and non-allowlisted partial
+  filters;
+- a structurally complete scope still requires operator refresh and confirmation;
+  the guard is not represented as proof of remote deletion or freshness;
+- successful reset retains immutable events and prior attempt/receipt evidence,
+  performs no HTTP send, applies normal destination/subscription/cutoff and
+  retirement transitions, and appends one immutable override;
+- codecs keep schema version 1 and the existing notes ref, reject malformed or
+  unknown-version override records, and enforce both 32 overrides and the 8 MiB
+  ledger bound without partial mutation; store append guards reject removal,
+  rewrite or reordering relative to the prior snapshot; and
+- rollout tests/documentation require all readers and writers to upgrade before
+  reset and provide no field-deletion, notes-rewrite or downgrade escape hatch.
+
+Record the exact focused/full test commands and results in the PR verification
+summary; this checklist does not infer a pass from implementation presence.
+
 ## Platform-policy rebase — 2026-09-05
 
 PR #77 is rebased onto `ec43b8e`, the merged PR #78 platform-support decision

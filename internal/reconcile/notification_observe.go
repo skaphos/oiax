@@ -188,11 +188,13 @@ func (r *NotificationRuntime) Activate(ctx context.Context) error {
 // committed onto a commit nobody has, and deleting the notes ref — the only
 // other way out — destroys the delivery receipts that prevent duplicate sends.
 //
-// It is narrow on purpose. It never touches events, deliveries or receipts; it
-// refuses outright while the accepted commit is still resolvable (VerifyRevision
-// answers ErrRevisionReachable there, so ordinary ordering still governs an
-// ordinary ledger); and it is a no-op returning a nil record when the pinned
-// revision is already the accepted one, so a retried recovery is safe.
+// It is narrow on purpose. Immutable events and attempt/receipt evidence are
+// preserved, while the accepted policy, subscriptions, cutoffs and retirement
+// of now-ineligible nonterminal deliveries are applied by the ordinary policy
+// reducer. It refuses outright while the accepted commit is still resolvable
+// (VerifyRevision answers ErrRevisionReachable there, so ordinary ordering still
+// governs an ordinary ledger); and it is a no-op returning a nil record when the
+// pinned revision is already accepted, so a retried recovery is safe.
 //
 // "Already accepted" means the whole PolicyRevision, not just its OID. A
 // matching OID carrying a different digest is ErrPolicyMismatch to every

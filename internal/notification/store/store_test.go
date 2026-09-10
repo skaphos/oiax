@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/skaphos/oiax/v2/internal/git"
 	"github.com/skaphos/oiax/v2/internal/notification"
@@ -159,5 +160,75 @@ func TestNotificationStoreDenialAndCorruption(t *testing.T) {
 	notes.snapshot = git.NoteSnapshot{Tip: strings.Repeat("a", 40), AnchorOID: l.AnchorOID, Data: []byte(`{"version":99}`)}
 	if _, err := s.Read(context.Background()); !errors.Is(err, notification.ErrInvalidState) {
 		t.Fatal(err)
+	}
+}
+
+func TestNotificationStoreGuardsAppendOnlyReceipts(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 4, 18, 1, 0, 0, time.UTC)
+	claimed := populatedLedger(t)
+	var key string
+	for k := range claimed.Deliveries {
+		key = k
+	}
+	terminal, err := notification.RecordResult(claimed, key, "attempt", notification.AttemptResult{Code: notification.OutcomePayloadTooLarge}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		base   *notification.LedgerV1
+		mutate func(*notification.LedgerV1) (*notification.LedgerV1, error)
+		want   notification.DeliveryStatus
+	}{
+		{name: "attempt evidence replacement", base: claimed, mutate: func(l *notification.LedgerV1) (*notification.LedgerV1, error) {
+			r := l.Deliveries[key]
+			r.AttemptIDs[0] = "replacement"
+			r.Lease.AttemptID = "replacement"
+			l.Deliveries[key] = r
+			return l, nil
+		}},
+		{name: "terminal failure regression", base: terminal, mutate: func(l *notification.LedgerV1) (*notification.LedgerV1, error) {
+			r := l.Deliveries[key]
+			r.Status, r.Code = notification.StatusPending, ""
+			l.Deliveries[key] = r
+			return l, nil
+		}},
+		{name: "late acceptance wins", base: terminal, mutate: func(l *notification.LedgerV1) (*notification.LedgerV1, error) {
+			return notification.RecordResult(l, key, "attempt", notification.AttemptResult{Code: notification.OutcomeAccepted, Status: 202}, now.Add(time.Minute))
+		}, want: notification.StatusDelivered},
+		{name: "repeated terminal result is idempotent", base: terminal, mutate: func(l *notification.LedgerV1) (*notification.LedgerV1, error) {
+			return notification.RecordResult(l, key, "attempt", notification.AttemptResult{Code: notification.OutcomePayloadTooLarge}, now.Add(time.Minute))
+		}, want: notification.StatusSkipped},
+		{name: "late acceptance cannot invent attempt", base: terminal, mutate: func(l *notification.LedgerV1) (*notification.LedgerV1, error) {
+			r := l.Deliveries[key]
+			r.Status, r.Code = notification.StatusDelivered, notification.OutcomeAccepted
+			r.Attempts++
+			r.AttemptIDs = append(r.AttemptIDs, "invented")
+			r.AcceptedAt, r.DeliveredAt = now, now
+			l.Deliveries[key] = r
+			return l, nil
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			notes := seededNotes(t, tc.base)
+			s := New(notes, tc.base.Repository, tc.base.Graph)
+			got, err := s.Commit(context.Background(), notes.snapshot.Tip, func(_ context.Context, latest *notification.LedgerV1) (*notification.LedgerV1, error) {
+				return tc.mutate(latest)
+			})
+			if tc.want != "" {
+				if err != nil {
+					t.Fatalf("commit = %v", err)
+				}
+				if got.Ledger.Deliveries[key].Status != tc.want {
+					t.Fatalf("status = %s, want %s", got.Ledger.Deliveries[key].Status, tc.want)
+				}
+				return
+			}
+			if !errors.Is(err, notification.ErrInvalidState) || notes.writes != 0 {
+				t.Fatalf("commit = %v, writes=%d", err, notes.writes)
+			}
+		})
 	}
 }
