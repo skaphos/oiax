@@ -243,12 +243,91 @@ Use preview decisions and safe reason/action diagnostics:
 | `notification-ledger-initialized` | A current cutoff was established. If notes were lost, prior receipts require operator recovery. |
 | `notification-capacity-exhausted` | Preserve receipts; new work is suspended and there is no supported compaction or capacity-recovery operation. |
 | stale/unordered/mismatched revision | Use a reviewed descendant configuration commit and its pinned files. |
+| `config-revision-unreachable` | The accepted configuration commit is gone. See [Recovering an unreachable configuration revision](#recovering-an-unreachable-configuration-revision). |
 
 To revert configuration content, commit the revert as a **new descendant**. Do
 not pin an old SHA or select a competing revision by timestamp. Never delete the
 notes ref to clear a warning: that loses duplicate-prevention evidence. Missing
 notes cannot be distinguished automatically from first activation, so protect and
 back up the ref using your repository's normal reviewed recovery process.
+
+## Recovering an unreachable configuration revision
+
+Policy only advances onto a revision Oiax can prove is a descendant of the
+accepted one. If the configuration branch is force-pushed, rewritten or garbage
+collected, the accepted commit stops existing: `git merge-base --is-ancestor`
+can no longer answer, and every run defers with `config-revision-unreachable`.
+Both ordinary exits are closed — there is nothing left to commit a descendant
+*onto*, and deleting the notes ref destroys the receipts that prevent duplicate
+sends.
+
+`oiax notifications reset` is the sanctioned recovery. It records an explicit,
+operator-authorized acceptance of the pinned revision:
+
+```bash
+# 1. Make sure this is not simply a checkout that lacks the object.
+git config --replace-all remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+# If `git rev-parse --is-shallow-repository` prints true, unshallow first:
+git fetch --unshallow --prune origin
+# Otherwise fetch the complete configured branch-head scope:
+git fetch --prune origin
+git cat-file -e <accepted-oid>^{commit}    # local absence is only a signal
+
+# 2. Resolve the configuration commit you are accepting, and name it.
+git rev-parse origin/main
+oiax notifications reset --config-ref origin/main --accept-revision <that-oid>
+```
+
+The command is deliberately narrow, and each refusal is load-bearing:
+
+- It **refuses while a different accepted commit still resolves**. Ordering is
+  decidable there, so the ordinary rule applies; this is not a way around it.
+  Repeating reset after the exact OID and policy digest were accepted is an
+  idempotent no-op.
+- It **refuses from a checkout known to be scoped to part of origin**, because a
+  commit missing from such a checkout says nothing about origin. A shallow clone
+  is rejected. When `origin` is configured, its fetch configuration must include
+  a positive refspec whose source is exactly `refs/heads/*`; a missing mapping,
+  narrow head wildcard, tag-only mapping, or any negative (`^...`) refspec is
+  rejected. The common single-branch `actions/checkout` mapping therefore fails
+  even when Git reports the repository as not shallow.
+
+  An absent `origin` is rejected. The partial-clone allowlist is deliberately
+  narrow: `blob:none`, `blob:limit=<n>` and `tree:<depth>` retain commit
+  reachability and are accepted; unknown, combined, malformed or commit-omitting
+  filters fail closed. None of these structural checks proves freshness or remote
+  deletion. Widen the mapping, unshallow if necessary, complete a successful
+  fetch, and confirm the accepted OID is genuinely absent from the remote rather
+  than treating any `git cat-file` failure as deletion. Investigate permission,
+  transport and repository errors instead of overriding through them.
+- `--accept-revision` must equal the commit `--config-ref` resolves to. That
+  value changes on every configuration commit, so the flag cannot be pinned once
+  in a workflow and quietly keep authorizing acceptances.
+- It **deletes no ledger evidence and sends no message itself**. Immutable event
+  facts and existing attempt/receipt evidence carry across. The accepted pinned
+  policy is nevertheless applied normally: destination generations,
+  subscriptions and cutoffs can change, and newly ineligible nonterminal
+  deliveries can become `subscription-retired`.
+- It **appends an immutable record** to the ledger naming the abandoned commit
+  and the accepted one (`revisionOverrides`), so the gap in the ordering chain
+  stays auditable. Re-running it afterwards is a no-op.
+- The audit is bounded to **32 overrides** and shares the ledger's **8 MiB** cap.
+  If either bound is full, reset refuses without changing state. Do not delete
+  receipts or rewrite notes to make room; v1 has no supported capacity recovery.
+
+To accept a revision other than the default branch head, pin both:
+
+```bash
+oiax notifications reset --config-ref <sha> --accept-revision <sha>
+```
+
+What you give up is real, and it is why this is a human decision rather than an
+automatic repair: the accepted revision may have been *newer* than the one being
+pinned, and nothing can prove otherwise once its commit is gone. Review the
+policy at the accepted revision before running the command, and treat an
+override record as a prompt to find out what rewrote the configuration branch.
+The complete decision and rollout constraints are recorded in
+[ADR 0019](../adr/0019-audited-notification-revision-recovery.md).
 
 ## Changing destination identity and rollback
 
@@ -280,6 +359,16 @@ stay byte-for-byte compatible. This one-way rollout is specified by
 [ADR 0018](../adr/0018-notification-terminal-outcome-rollout.md). Downgrade before enabling a destination on the
 newer release, keep the newer release once newer state has been recorded rather
 than editing notes by hand, and do not run two binary versions against one graph.
+
+`revisionOverrides` behaves the same way, and rejection is the safe outcome
+there: the field appears only after an
+[`oiax notifications reset`](#recovering-an-unreachable-configuration-revision),
+so an older binary refuses the note instead of reading a repaired ordering
+history as an unbroken one. An untouched ledger is unaffected. Upgrade every
+reader and writer for the graph before the first reset. Once an override exists,
+there is no supported downgrade, field deletion, notes rewrite or migration to
+another ref; disabling notifications prevents notification I/O but does not make
+the ledger readable by an older binary.
 
 Live provider/recipient visibility and setup-time acceptance are deferred by the
 maintainer to post-release adoption testing. Automated local fixtures and CI are

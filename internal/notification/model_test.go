@@ -95,6 +95,7 @@ func TestNotificationPolicyRevision(t *testing.T) {
 		{"ancestor", modelRevision("b"), RevisionAncestor, ErrStaleRevision},
 		{"divergent", modelRevision("b"), RevisionDivergent, ErrUnorderedRevision},
 		{"unknown", modelRevision("b"), RevisionUnknown, ErrUnorderedRevision},
+		{"override requires audited reducer", modelRevision("b"), RevisionOverride, ErrUnorderedRevision},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

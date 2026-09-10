@@ -65,6 +65,12 @@ func (r *NotificationRuntime) preview(ctx context.Context, plan engine.Plan) *No
 		evidence.Relation, err = r.VerifyRevision(ctx, evidence.AcceptedOID, evidence.IncomingOID)
 		if err != nil {
 			evidence.Relation = notification.RevisionUnknown
+			// A preview must show the reason a run will actually report, and
+			// only the verifier knows the accepted commit is gone; CheckRevision
+			// below sees an unknown relation and cannot tell the two apart.
+			if errors.Is(err, notification.ErrRevisionUnreachable) {
+				return composeNotificationPreview(r.Policy, l, nil, plan, now, "unavailable", NotificationProblem(notification.ErrRevisionUnreachable).Reason)
+			}
 		}
 	}
 	if err := notification.CheckRevision(l.PolicyRevision, incoming, evidence); err != nil {

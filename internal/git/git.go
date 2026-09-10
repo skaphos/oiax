@@ -296,6 +296,164 @@ func (r *Runner) IsShallowRepository(ctx context.Context) (bool, error) {
 	return out == "true", nil
 }
 
+// Reasons reported by IncompleteObjectDatabase. They are phrased for an
+// operator error message, and are compared by identity in tests rather than by
+// their wording.
+const (
+	DatabaseShallow      = "this is a shallow clone, so history is truncated"
+	DatabaseNoOrigin     = "this checkout has no origin remote, so its object database cannot be compared with the repository"
+	DatabaseScopedFetch  = "origin's fetch configuration does not include every branch head without exclusions"
+	DatabaseCommitFilter = "origin's partial-clone filter may omit commit objects"
+)
+
+// IncompleteObjectDatabase reports why the configured checkout scope cannot
+// establish that the local object database includes every commit reachable
+// from origin's branch heads, or "" when no such limit is detectable.
+//
+// It exists for the one decision that turns a local absence into a claim about
+// the remote. `oiax notifications reset` records an audited override on the
+// strength of "this commit is gone", and that inference only holds when the
+// checkout would have the commit if origin still did.
+//
+// Two conditions break the inference:
+//
+//   - A shallow clone truncates history, so a commit on the very branch that
+//     was fetched can be absent simply because it predates the fetch depth.
+//   - A scoped checkout — `git clone --single-branch`, and actions/checkout by
+//     default — lacks an unexcluded `refs/heads/*` fetch refspec, so a commit
+//     reachable only from a branch that was never fetched is absent locally
+//     while entirely alive on origin. It reports
+//     `--is-shallow-repository=false`, which is why testing for shallowness
+//     alone does not cover it.
+//
+// Common partial-clone filters that omit only blobs and/or trees are not
+// reported: `blob:none`, `blob:limit=<n>`, and `tree:<depth>` retain commit
+// reachability. Other filters are refused conservatively because Git also
+// supports filters such as `object:type=tree` that can omit commits.
+//
+// Only origin is consulted: every other ref lookup in this package resolves
+// through refs/remotes/origin, so it is the remote the rest of Oiax reasons
+// about. These configuration checks establish fetch scope, not freshness: the
+// operator must still ensure the full fetch completed successfully and is
+// current before treating a missing commit as gone from the remote.
+func (r *Runner) IncompleteObjectDatabase(ctx context.Context) (string, error) {
+	shallow, err := r.IsShallowRepository(ctx)
+	if err != nil {
+		return "", err
+	}
+	if shallow {
+		return DatabaseShallow, nil
+	}
+	originURLs, err := r.configValues(ctx, "remote.origin.url")
+	if err != nil {
+		return "", err
+	}
+	if len(originURLs) == 0 {
+		return DatabaseNoOrigin, nil
+	}
+	filters, err := r.configValues(ctx, "remote.origin.partialclonefilter")
+	if err != nil {
+		return "", err
+	}
+	for _, filter := range filters {
+		if !commitCompletePartialFilter(filter) {
+			return DatabaseCommitFilter, nil
+		}
+	}
+	refspecs, err := r.configValues(ctx, "remote.origin.fetch")
+	if err != nil {
+		return "", err
+	}
+	fullHeads := false
+	for _, spec := range refspecs {
+		// Per git-fetch(1), a leading ^ makes a negative refspec. A ref
+		// matching a positive refspec is excluded when it matches any
+		// negative refspec, regardless of configuration order.
+		if strings.HasPrefix(spec, "^") {
+			return DatabaseScopedFetch, nil
+		}
+		spec = strings.TrimPrefix(spec, "+")
+		source, destination, mapped := strings.Cut(spec, ":")
+		if source == "refs/heads/*" && mapped && strings.Count(destination, "*") == 1 {
+			valid, err := r.validRefspecPattern(ctx, destination)
+			if err != nil {
+				return "", err
+			}
+			fullHeads = fullHeads || valid
+		}
+	}
+	if fullHeads {
+		return "", nil
+	}
+	return DatabaseScopedFetch, nil
+}
+
+func (r *Runner) validRefspecPattern(ctx context.Context, pattern string) (bool, error) {
+	_, err := r.run(ctx, "check-ref-format", "--refspec-pattern", pattern)
+	if err == nil {
+		return true, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, err
+}
+
+// commitCompletePartialFilter recognizes the Git-documented filters that omit
+// only blobs and/or trees. Unknown and combined forms fail closed: this guard
+// is used only for an exceptional operator-authorized repair, so accepting a
+// new spelling without proving its commit semantics is the unsafe direction.
+func commitCompletePartialFilter(filter string) bool {
+	if filter == "blob:none" {
+		return true
+	}
+	prefix, value, ok := strings.Cut(filter, "=")
+	if ok && prefix == "blob:limit" {
+		if len(value) > 0 && strings.ContainsRune("kmg", rune(value[len(value)-1])) {
+			value = value[:len(value)-1]
+		}
+		_, err := strconv.ParseUint(value, 10, 64)
+		return err == nil
+	}
+	prefix, value, ok = strings.Cut(filter, ":")
+	if ok && prefix == "tree" {
+		_, err := strconv.ParseUint(value, 10, 64)
+		return err == nil
+	}
+	return false
+}
+
+// configValues reads every value of a multi-valued configuration key. A key
+// that is simply unset (exit 1) is an empty result, not an error, so a caller
+// can tell "not configured" from "git failed" — the same distinction
+// BranchExists and CommitExists draw. key is a compile-time constant, never
+// caller data, so it needs no `--` separator (git config does not accept one
+// before the key).
+func (r *Runner) configValues(ctx context.Context, key string) ([]string, error) {
+	out, err := r.run(ctx, "config", "--get-all", key)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var values []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			values = append(values, line)
+		}
+	}
+	return values, nil
+}
+
 // CheckRefFormat rejects names that are not well-formed branch names.
 // Every configured branch name passes through here before being used in
 // any other git invocation.

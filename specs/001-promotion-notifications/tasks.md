@@ -278,3 +278,21 @@ That document records specification changes, not completed implementation tests;
 C1/T001 is resolved by the explicit maintainer decision in ADR 0015. Implementation
 and local verification are complete; T076/T077 remain explicitly deferred to
 maintainer-led adoption rather than agent-run live acceptance.
+
+## PR #103 unreachable-revision recovery follow-up
+
+This correction is also follow-up work on the completed implementation and does
+not add an 81st feature task or change an original checkbox. ADR 0019 retains
+schema v1 and the existing notes ref while adding an optional, one-way
+`revisionOverrides` audit. Ordinary reconciliation must continue to defer on a
+locally absent accepted OID. The operator-only reset must require exact pinned
+revision confirmation, reject a resolvable accepted OID and every known-incomplete
+origin scope, preserve immutable event and attempt/receipt evidence, apply the
+accepted policy's normal subscription/cutoff transition, and append at most 32
+override records within the 8 MiB ledger bound. Upgrade all graph readers and
+writers before reset; deletion or rewriting is not a downgrade strategy.
+
+Focused verification belongs in the Git scope/refspec tests, pure override and
+codec tests, reconcile revision tests, CLI command tests, and documentation
+consistency checks recorded in
+[implementation-validation.md](checklists/implementation-validation.md).

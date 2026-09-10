@@ -52,7 +52,18 @@ func (c *Coordinator) FinalizeNotifications(ctx context.Context, outcomes ...for
 	})
 }
 
-func (c *Coordinator) withNotificationRuntime(ctx context.Context, run func(*NotificationRuntime) error) (err error) {
+// revisionVerifier proves the relation between the accepted and the incoming
+// configuration revision. It is a parameter of runtime construction rather than
+// a fixed dependency because exactly one command — the operator reset — runs
+// with different evidence rules, and the store and the runtime must agree on
+// the same rules within one attempt.
+type revisionVerifier func(context.Context, string, string) (notification.RevisionRelation, error)
+
+func (c *Coordinator) withNotificationRuntime(ctx context.Context, run func(*NotificationRuntime) error) error {
+	return c.withVerifiedNotificationRuntime(ctx, c.notificationRevisionRelation, run)
+}
+
+func (c *Coordinator) withVerifiedNotificationRuntime(ctx context.Context, verify revisionVerifier, run func(*NotificationRuntime) error) (err error) {
 	if !c.NotificationPolicy.IsEnabled() {
 		return nil
 	}
@@ -81,7 +92,7 @@ func (c *Coordinator) withNotificationRuntime(ctx context.Context, run func(*Not
 	defer func() { err = errors.Join(err, notes.Close()) }()
 
 	ledger := notificationstore.New(notes, repository, c.Graph.Name)
-	ledger.VerifyRevision = c.notificationRevisionRelation
+	ledger.VerifyRevision = verify
 	runtime := &NotificationRuntime{
 		Store:       ledger,
 		Reader:      reader,
@@ -97,10 +108,29 @@ func (c *Coordinator) withNotificationRuntime(ctx context.Context, run func(*Not
 		Sender: func(destination v1.NotificationDestination) notification.Sender {
 			return delivery.NewClient(destination.Type, destination.AllowPrivateNetwork)
 		},
-		VerifyRevision: c.notificationRevisionRelation,
+		VerifyRevision: verify,
 		Log:            c.log(),
 	}
 	return run(runtime)
+}
+
+// ResetNotificationRevision performs the operator-authorized recovery for a
+// ledger whose accepted configuration commit is gone. It returns the audit
+// record it appended, or a nil record when the ledger already accepts the
+// pinned revision and nothing had to be repaired.
+//
+// It is never called by plan or reconcile. The pinned configuration OID, the
+// policy digest and the recorded revision all come from the same reviewed
+// commit, exactly as an ordinary activation does; the single difference is the
+// evidence that authorizes the advance.
+func (c *Coordinator) ResetNotificationRevision(ctx context.Context) (*notification.RevisionOverrideV1, error) {
+	var record *notification.RevisionOverrideV1
+	err := c.withVerifiedNotificationRuntime(ctx, c.notificationRevisionOverride, func(r *NotificationRuntime) error {
+		var err error
+		record, err = r.ResetRevision(ctx)
+		return err
+	})
+	return record, err
 }
 
 // notificationOrigin captures pre-POST hints without changing core error
@@ -121,19 +151,72 @@ func (c *Coordinator) notificationOrigin(ctx context.Context, source, target, he
 func (c *Coordinator) notificationRevisionRelation(ctx context.Context, accepted, incoming string) (notification.RevisionRelation, error) {
 	acceptedBeforeIncoming, err := c.Git.IsAncestor(ctx, accepted, incoming)
 	if err != nil {
-		return notification.RevisionUnknown, err
+		return notification.RevisionUnknown, c.classifyRevisionFailure(ctx, accepted, err)
 	}
 	if acceptedBeforeIncoming {
 		return notification.RevisionDescendant, nil
 	}
 	incomingBeforeAccepted, err := c.Git.IsAncestor(ctx, incoming, accepted)
 	if err != nil {
-		return notification.RevisionUnknown, err
+		return notification.RevisionUnknown, c.classifyRevisionFailure(ctx, accepted, err)
 	}
 	if incomingBeforeAccepted {
 		return notification.RevisionAncestor, nil
 	}
 	return notification.RevisionDivergent, nil
+}
+
+// classifyRevisionFailure names the ancestry failure that never heals.
+// `merge-base --is-ancestor` cannot answer for an object the repository does
+// not have, and the accepted OID is the one that can be stranded permanently: a
+// force-push, a branch rewrite or a GC of the configuration history removes it
+// while the ledger goes on naming it, so every later run defers on the same
+// error forever.
+//
+// A DEFINITIVE local absence (CommitExists exit 1) is reported as
+// ErrRevisionUnreachable. That changes no decision — it wraps
+// ErrUnorderedRevision, so every caller still defers — only the diagnostic,
+// which can then name a recovery instead of asking for a descendant of a commit
+// nobody has. Anything else keeps the original failure: a cancelled context or
+// a broken git must never be read as a missing commit.
+func (c *Coordinator) classifyRevisionFailure(ctx context.Context, accepted string, err error) error {
+	if present, existsErr := c.Git.CommitExists(ctx, accepted); existsErr == nil && !present {
+		return notification.ErrRevisionUnreachable
+	}
+	return err
+}
+
+// notificationRevisionOverride is the verifier installed for `oiax
+// notifications reset`, and the only producer of RevisionOverride evidence.
+//
+// It overrides ordering ONLY when the accepted commit is definitively absent —
+// the state that has no other exit. Whenever the commit is present, ordering is
+// decidable and the ordinary rules are applied unchanged, so the reset can never
+// be used to install a stale or divergent revision over a healthy ledger. Local
+// absence alone is weak evidence: the command layer establishes only that the
+// checkout is non-shallow and configured to fetch every origin branch head,
+// without negative refspecs or a commit-omitting partial-clone filter. It cannot
+// prove that fetch is current or that the object is absent remotely, so the
+// operator remains responsible for a successful current full fetch and for
+// naming the revision being accepted.
+func (c *Coordinator) notificationRevisionOverride(ctx context.Context, accepted, incoming string) (notification.RevisionRelation, error) {
+	present, err := c.Git.CommitExists(ctx, accepted)
+	if err != nil {
+		return notification.RevisionUnknown, err
+	}
+	if present {
+		return notification.RevisionUnknown, notification.ErrRevisionReachable
+	}
+	// Accepting a revision whose own commit is missing would strand the ledger
+	// again on the very next run.
+	incomingPresent, err := c.Git.CommitExists(ctx, incoming)
+	if err != nil {
+		return notification.RevisionUnknown, err
+	}
+	if !incomingPresent {
+		return notification.RevisionUnknown, notification.ErrRevisionUnreachable
+	}
+	return notification.RevisionOverride, nil
 }
 
 func newNotificationOperationID() string {

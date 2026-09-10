@@ -44,6 +44,18 @@ require the accepted revision, while late receipts remain monotone. A reviewed
 descendant commit reverting content is supported; pinning an older OID is not a
 notification-policy rollback. See [the revision rules](data-model.md#configuration-revision-ordering).
 
+If the accepted OID is locally absent, ordinary runs continue to defer; they do
+not infer a remote rewrite. ADR 0019 permits a separate audited reset after the
+operator refreshes and confirms the repository state. Its checkout guard rejects
+shallow history, missing `origin`, incomplete or excluded branch-head refspecs,
+and partial-clone filters outside the commit-complete allowlist. Even a passing
+guard proves scope, not freshness. The reset keeps schema v1 and the same notes
+ref, appends a bounded `revisionOverrides` audit record, preserves immutable
+event and receipt evidence, and applies the accepted pinned policy's normal
+generation/subscription/cutoff transition. All readers and writers for the graph
+must upgrade before the field is first written; no deletion-based downgrade is
+supported. See [ADR 0019](../../docs/adr/0019-audited-notification-revision-recovery.md).
+
 For creation recovery, put an immutable notification-origin block into the initial PR create body, separate from the existing ownership marker. It records an operation ID, creation observation time, graph, pinned config OID, and logical source/target branches. Azure's subsequent property copy is supplemental; the initial body is required because the process can die after POST succeeds. An adopted request may recover the original event from this block but never generates a new creation event just because it was adopted. Requests without origin can generate merge events using existing ownership checks; they cannot manufacture creation provenance.
 
 **Evidence:** Both forge implementations can fail on follow-up work after the initial PR creation succeeds. Azure stores the existing marker in properties as well as the body. Marker replacement preserves surrounding text. Backflow request heads are synthetic `oiax/` refs, so parsing their names would violate the explicit-topology rule; use the captured logical edge instead. For legacy backflow requests without origin, retain the actual source ref, set logical source unavailable, and report that limitation rather than guessing.

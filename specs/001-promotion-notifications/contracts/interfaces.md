@@ -178,7 +178,8 @@ stable. No endpoint values, environment values, volatile attempt IDs, or raw
 HTTP errors appear. Capture time is an explicit observation input, not a hidden
 clock inside the selector. CLI text and CI summaries carry equivalent meaning.
 Preview also distinguishes `stale-config-revision`, `config-revision-unordered`,
-and `policy-revision-mismatch`; it does not advance the accepted revision.
+`config-revision-unreachable`, and `policy-revision-mismatch`; it does not
+advance the accepted revision.
 Terminal delivery failures do not add preview decisions: both remain
 `subscription-not-active`, with reason `attempts-exhausted` for abandonment or
 `payload-too-large` for transport overflow.

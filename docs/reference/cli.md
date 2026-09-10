@@ -35,6 +35,7 @@ oiax [flags]
 
 * [oiax completion](#oiax-completion)	 - Generate the autocompletion script for the specified shell
 * [oiax graph](#oiax-graph)	 - Display the configured promotion topology
+* [oiax notifications](#oiax-notifications)	 - Inspect and repair notification delivery state
 * [oiax plan](#oiax-plan)	 - Compute the actions required to converge the promotion graph
 * [oiax reconcile](#oiax-reconcile)	 - Plan, then apply the promotion graph
 * [oiax validate](#oiax-validate)	 - Validate the promotion graph configuration
@@ -289,6 +290,113 @@ oiax graph [flags]
 ### SEE ALSO
 
 * [oiax](#oiax)	 - Declarative Git branch promotion reconciler
+
+## oiax notifications
+
+Inspect and repair notification delivery state
+
+### Synopsis
+
+Notification maintenance commands.
+
+Notification delivery state lives in an append-only Git notes ledger, not in a
+private database. plan and reconcile keep it current on their own; the commands
+here exist for the states that need a human decision and have no safe automatic
+answer.
+
+```
+oiax notifications [flags]
+```
+
+### Options
+
+```
+  -h, --help   help for notifications
+```
+
+### Options inherited from parent commands
+
+```
+      --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
+  -o, --output string       output format: text or json (default "text")
+```
+
+### SEE ALSO
+
+* [oiax](#oiax)	 - Declarative Git branch promotion reconciler
+* [oiax notifications reset](#oiax-notifications-reset)	 - Accept the pinned configuration revision when the accepted one is gone
+
+## oiax notifications reset
+
+Accept the pinned configuration revision when the accepted one is gone
+
+### Synopsis
+
+Reset records an operator-authorized acceptance of the pinned configuration
+revision for a ledger whose accepted revision names a commit that no longer
+exists in the repository.
+
+Oiax only advances notification policy onto a revision it can prove is a
+descendant of the accepted one. When the configuration branch is force-pushed,
+rewritten or garbage-collected, the accepted commit disappears, "git merge-base
+--is-ancestor" can no longer answer, and every run defers with
+config-revision-unreachable. The ordinary fix — commit a reviewed descendant —
+is impossible, because there is nothing left to descend from, and deleting the
+notes ref would destroy the receipts that prevent duplicate sends.
+
+This command is the sanctioned way out, and it is deliberately narrow:
+
+  * It refuses to replace a different accepted commit while that commit is
+    still resolvable. Ordering is decidable there, so the ordinary rule
+    applies and this is not a general way around it. If the ledger already
+    accepts the pinned revision, the command is a no-op.
+  * It refuses unless origin is configured to fetch every branch head with
+    no exclusions, and rejects shallow clones and filters that may omit
+    commits. Common blob/tree partial-clone filters (--filter=blob:none,
+    --filter=blob:limit=<n>, and --filter=tree:<depth>) are accepted because
+    they retain commit reachability. The guard establishes configured scope,
+    not freshness: confirming a current full fetch completed successfully and
+    the commit is genuinely gone from origin is still the operator's step
+    (see the notifications guide).
+  * --accept-revision must name the configuration commit this invocation
+    resolved, so the acceptance is an explicit act and cannot be a hard-coded
+    step in a workflow that silently keeps working as configuration moves.
+  * It preserves immutable event, attempt and receipt evidence and sends
+    nothing itself. Accepting the new policy applies its cutoffs and may retire
+    pending work that is no longer eligible.
+  * It appends an immutable record of the override to the ledger, naming the
+    abandoned commit and the accepted one, so the gap in the ordering chain
+    stays auditable forever.
+
+Re-running it after it has succeeded is a no-op.
+
+To accept a revision other than the repository default branch's head, pin it:
+
+  oiax notifications reset --config-ref <sha> --accept-revision <sha>
+
+```
+oiax notifications reset [flags]
+```
+
+### Options
+
+```
+      --accept-revision string   the configuration commit to accept; must equal the commit --config-ref resolves to
+  -h, --help                     help for reset
+```
+
+### Options inherited from parent commands
+
+```
+      --config string       path to the PromotionGraph configuration file (default ".oiax.yaml")
+      --config-ref string   ref to read configuration from via 'git show' (default: the repository default branch for plan/reconcile, the working-tree file for validate/graph)
+  -o, --output string       output format: text or json (default "text")
+```
+
+### SEE ALSO
+
+* [oiax notifications](#oiax-notifications)	 - Inspect and repair notification delivery state
 
 ## oiax plan
 

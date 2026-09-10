@@ -164,6 +164,11 @@ func (r *NotificationRuntime) Activate(ctx context.Context) error {
 		if evidence.AcceptedOID != "" && evidence.AcceptedOID != r.ConfigOID && r.VerifyRevision != nil {
 			relation, err := r.VerifyRevision(ctx, evidence.AcceptedOID, r.ConfigOID)
 			if err != nil {
+				// Fail closed either way; preserve the one failure that names a
+				// recovery instead of flattening it to a generic disorder.
+				if errors.Is(err, notification.ErrRevisionUnreachable) {
+					return nil, notification.ErrRevisionUnreachable
+				}
 				return nil, notification.ErrUnorderedRevision
 			}
 			evidence.Relation = relation
@@ -174,6 +179,87 @@ func (r *NotificationRuntime) Activate(ctx context.Context) error {
 		r.Report(NotificationDiagnostic{Reason: "notification-ledger-initialized", Action: "Established a current cutoff without historical backfill. If prior notes were lost, review and restore their receipts before further runs."})
 	}
 	return err
+}
+
+// ResetRevision records an operator-authorized acceptance of the pinned
+// configuration revision for a ledger whose accepted revision can no longer be
+// ordered against it, because the commit it names is gone from the repository.
+// Without it that ledger defers on every run forever: no descendant can be
+// committed onto a commit nobody has, and deleting the notes ref — the only
+// other way out — destroys the delivery receipts that prevent duplicate sends.
+//
+// It is narrow on purpose. Immutable events and attempt/receipt evidence are
+// preserved, while the accepted policy, subscriptions, cutoffs and retirement
+// of now-ineligible nonterminal deliveries are applied by the ordinary policy
+// reducer. It refuses outright while the accepted commit is still resolvable
+// (VerifyRevision answers ErrRevisionReachable there, so ordinary ordering still
+// governs an ordinary ledger); and it is a no-op returning a nil record when the
+// pinned revision is already accepted, so a retried recovery is safe.
+//
+// "Already accepted" means the whole PolicyRevision, not just its OID. A
+// matching OID carrying a different digest is ErrPolicyMismatch to every
+// ordinary run, and a recovery command must not be the one path that reports
+// success on a ledger the rest of the system refuses.
+func (r *NotificationRuntime) ResetRevision(ctx context.Context) (*notification.RevisionOverrideV1, error) {
+	if !r.Policy.IsEnabled() || r.Store == nil || r.VerifyRevision == nil || !notification.ValidOID(r.ConfigOID) {
+		return nil, notification.ErrInvalidState
+	}
+	revision := notification.PolicyRevisionV1{ConfigOID: r.ConfigOID, PolicyDigest: policyDigest(r.Policy)}
+	now := r.now()
+	var applied *notification.RevisionOverrideV1
+	_, err := r.commit(ctx, func(ctx context.Context, current *notification.LedgerV1) (*notification.LedgerV1, error) {
+		// Every attempt reduces a freshly read snapshot, so the outcome of an
+		// abandoned one must not survive into the next.
+		applied = nil
+		if current == nil {
+			// Nothing to recover before the first activation, and inventing a
+			// ledger here would establish a cutoff nobody asked for.
+			return nil, notification.ErrAbsent
+		}
+		accepted := current.PolicyRevision
+		if accepted == revision {
+			// Already accepted, digest and all: a re-run of the recovery writes
+			// nothing and records no second override.
+			return current, nil
+		}
+		if accepted.ConfigOID == r.ConfigOID {
+			// Same commit, different policy digest — the mixed-binary-version
+			// state, not an unreachable revision. CheckRevision calls it
+			// ErrPolicyMismatch and Activate refuses it; a recovery command that
+			// reported success here would certify a ledger that every ordinary
+			// run rejects.
+			return nil, notification.ErrPolicyMismatch
+		}
+		if !notification.ValidOID(accepted.ConfigOID) {
+			return nil, notification.ErrInvalidState
+		}
+		evidence := notification.RevisionEvidence{AcceptedOID: accepted.ConfigOID, IncomingOID: r.ConfigOID}
+		// Recomputed against this attempt's snapshot, exactly as an ordinary
+		// activation recomputes it: a concurrent worker that repaired the
+		// revision first must make this reset fail, not replay stale evidence.
+		relation, verifyErr := r.VerifyRevision(ctx, accepted.ConfigOID, r.ConfigOID)
+		if verifyErr != nil {
+			return nil, verifyErr
+		}
+		evidence.Relation = relation
+		next, err := notification.OverrideRevision(current, revision, r.Policy, now, evidence)
+		if err != nil {
+			return nil, err
+		}
+		applied = &next.RevisionOverrides[len(next.RevisionOverrides)-1]
+		return next, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if applied == nil {
+		return nil, nil
+	}
+	record := *applied
+	if r.Report != nil {
+		r.Report(NotificationDiagnostic{Reason: "notification-revision-reset", Action: "An operator accepted the pinned configuration revision without ancestry because the previously accepted commit is gone. The override is recorded in the ledger; confirm the configuration history rewrite was intended."})
+	}
+	return &record, nil
 }
 
 func (r *NotificationRuntime) Admit(ctx context.Context, events []notification.EventV1) error {

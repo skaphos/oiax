@@ -117,6 +117,7 @@ human to close. Oiax never merges, approves, or deploys.`,
 		newPlanCommand(opts),
 		newReconcileCommand(opts),
 		newGraphCommand(opts),
+		newNotificationsCommand(opts),
 		newVersionCommand(opts),
 		newGenCommand(),
 	)

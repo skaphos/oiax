@@ -141,10 +141,17 @@ and errors never echo URL userinfo (where PATs are commonly embedded).
 ## `internal/cli`
 
 The Cobra command tree: `validate`, `plan`, `reconcile`, `graph`,
-`version`, and the hidden `gen docs` generator that produces
-`docs/reference/cli.md` (drift-gated in CI). Exit codes are a
+`notifications`, `version`, and the hidden `gen docs` generator that
+produces `docs/reference/cli.md` (drift-gated in CI). Exit codes are a
 compatibility contract; see the [configuration
 reference](reference/configuration.md).
+
+`notifications reset` is the only operator-driven repair in the tree; it
+recovers a delivery ledger whose accepted configuration commit was
+rewritten out of existence. It records an audited revision override, preserves
+event and receipt evidence, and applies the pinned policy's normal subscription
+transition ([ADR 0019](adr/0019-audited-notification-revision-recovery.md) and the
+[notifications guide](guides/notifications.md#recovering-an-unreachable-configuration-revision)).
 
 ## `internal/cienv`
 

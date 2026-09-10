@@ -127,6 +127,12 @@ reduction still permits late results for already dispatched attempts. All-disabl
 invocations leave the ledger untouched, so re-enable resumes the last durable
 epoch unless identity changes or a retirement was recorded while another
 destination stayed enabled. This is not an immediate cross-worker stop mechanism.
+An unreachable accepted OID remains fail-closed during ordinary runs. The
+operator-only reset in ADR 0019 requires a refreshed, full branch-head fetch
+scope, records an additive audit entry, and applies the pinned policy transition
+without deleting immutable events or attempt/receipt evidence. It can change
+generations, subscriptions, cutoffs and nonterminal retirement status; it is not
+a byte-for-byte state reset.
 Pass `DeliveryPayloadV1 {schemaVersion, event, message}` directly to adapters,
 joining immutable event facts with persisted per-destination title/body. The
 fixed footer includes all FR-008 fields, explicitly request ID and observed time.
@@ -176,6 +182,9 @@ Run race/shuffle suites on all supported OSes; enforce the new-package 85% floor
   moving it to a new ref would risk a split ledger or false absence. Upgrade all
   readers/writers for a graph together and retain a supporting binary once new
   terminal state has been written.
+- ADR 0019 uses the same one-way rollout for `revisionOverrides`. Upgrade every
+  graph reader/writer before reset; the 32-entry audit and 8 MiB ledger bounds can
+  refuse recovery, and neither field deletion nor a notes rewrite is a rollback.
 
 ## Complexity Tracking
 

@@ -107,6 +107,7 @@ update, and recompute evidence after each CAS conflict:
 | Strict descendant with verified ancestry | Advance `policyRevision` and apply subscription changes atomically |
 | Strict ancestor | Defer with `stale-config-revision`; never recreate a retired generation |
 | Divergent history or ancestry cannot be proven | Defer with `config-revision-unordered`; never reset state or choose by timestamp |
+| Accepted commit is absent locally | Defer with `config-revision-unreachable` (a narrowing of the above, so the deferral is identical); local absence is not proof of remote deletion, and recovery requires an explicit `oiax notifications reset` after operator refresh/confirmation |
 
 Missing ancestry may be fetched within notification budgets; if still unknown,
 defer. A config content revert in a new descendant commit is a valid change; an
@@ -120,6 +121,19 @@ An older worker may record a result for its already dispatched attempt through
 monotone reduction, but cannot change policy, admit events, or start another send.
 CAS ordering alone is not configuration ordering. These checks apply across
 different `--config-ref` spellings through their resolved OIDs.
+
+If the accepted commit no longer exists, reset records a versioned override and
+accepts the pinned policy without ancestry. It preserves immutable event facts
+and existing attempt/receipt evidence, but applies the normal policy transition:
+generations, subscriptions and cutoffs may change, and ineligible nonterminal
+deliveries may become `subscription-retired`. Schema version 1 and the existing
+notes ref remain authoritative. Every graph reader/writer must support the
+optional `revisionOverrides` field before it is first written; there is no
+downgrade by deleting that field or rewriting notes. See
+[ADR 0019](../../docs/adr/0019-audited-notification-revision-recovery.md).
+At most 32 override records are retained, subject also to the ledger's 8 MiB
+bound. A full audit refuses recovery without mutation; it does not authorize
+pruning events, deliveries, receipts or earlier overrides.
 
 ### Subscription generations and all-disabled behavior
 
