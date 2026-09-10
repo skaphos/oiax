@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.2](https://github.com/skaphos/oiax/compare/v2.0.1...v2.0.2) (2026-09-10)
+
+
+### Bug Fixes
+
+* **backflow:** recognise cherry-pick returns that have promoted back onto the source ([#90](https://github.com/skaphos/oiax/issues/90)) ([24d495c](https://github.com/skaphos/oiax/commit/24d495c9c8f17a7daa6736605ee30c5be989fc87))
+* **forge/github:** bound lifecycle discovery by its scan interval ([#102](https://github.com/skaphos/oiax/issues/102)) ([68e6562](https://github.com/skaphos/oiax/commit/68e656215f1999b9f7da454a01fa76b95f0e1f7c))
+* **forge/github:** take request-created membership from the forge, not the body ([#104](https://github.com/skaphos/oiax/issues/104)) ([dd3d09b](https://github.com/skaphos/oiax/commit/dd3d09bcd759b69764e9c99f4dc94ca2fee0af5b)), closes [#96](https://github.com/skaphos/oiax/issues/96)
+* **notification:** abandon permanently failing deliveries and bound the webhook envelope ([#101](https://github.com/skaphos/oiax/issues/101)) ([9c1be94](https://github.com/skaphos/oiax/commit/9c1be94f6992c6013f888a42417854b9ed2f09f2))
+* **notifications:** render GitHub request-created commit membership from the verified origin ([#89](https://github.com/skaphos/oiax/issues/89)) ([6edb0ed](https://github.com/skaphos/oiax/commit/6edb0ed324567999b733e04f77f7b71add67f18d)), closes [#88](https://github.com/skaphos/oiax/issues/88)
+* **notifications:** surface receiver status and batch ledger writes per run ([#92](https://github.com/skaphos/oiax/issues/92)) ([0351ca1](https://github.com/skaphos/oiax/commit/0351ca132240bb2f9148d0fe33656745916a51cd))
+
 ## [2.0.1](https://github.com/skaphos/oiax/compare/v2.0.0...v2.0.1) (2026-09-06)
 
 
