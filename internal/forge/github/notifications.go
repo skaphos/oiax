@@ -35,6 +35,10 @@ func (p *Provider) RepositoryIdentity(ctx context.Context) (notification.Reposit
 // ListLifecyclePage walks all requests by immutable creation order. It never
 // uses baseline lookback or updated/merged-order heuristics. The preceding page
 // overlaps each continuation to recover boundary movement, with stable-ID dedup.
+// The frozen interval is applied to the listed immutable timestamps first, so a
+// request outside it never costs a detail read (M4/#93): a repo whose history
+// sits entirely outside the interval costs list reads only, not one detail read
+// per historical request.
 func (p *Provider) ListLifecyclePage(ctx context.Context, query forge.LifecycleQuery) (forge.LifecyclePage, error) {
 	result := forge.LifecyclePage{Progress: notification.ScanProgress{Version: 1, From: query.From, Through: query.Through}}
 	kind := query.Kind
@@ -64,7 +68,11 @@ func (p *Provider) ListLifecyclePage(ctx context.Context, query forge.LifecycleQ
 		limit = 100
 	}
 	seen := map[string]bool{}
-	for number := max(1, page-1); number <= page; number++ {
+	// beyond records that the ascending walk reached a request created after the
+	// frozen interval ends. Nothing later can match either kind, so the scan is
+	// complete without paging the requests opened while it ran.
+	beyond := false
+	for number := max(1, page-1); number <= page && !beyond; number++ {
 		var pulls []ghPull
 		endpoint := p.url(fmt.Sprintf("/repos/%s/%s/pulls?state=all&sort=created&direction=asc&per_page=%d&page=%d", url.PathEscape(p.Owner), url.PathEscape(p.Repo), limit, number))
 		headers, err := p.do(ctx, http.MethodGet, endpoint, nil, &pulls)
@@ -79,6 +87,16 @@ func (p *Provider) ListLifecyclePage(ctx context.Context, query forge.LifecycleQ
 				continue
 			}
 			seen[id] = true
+			if listedAfter(listed.CreatedAt, query.Through) {
+				// Creation order is ascending and merged_at is never before
+				// created_at, so no request from here on can fall inside the
+				// interval for either kind.
+				beyond = true
+				break
+			}
+			if listedOutsideInterval(listed, kind, from, query.Through) {
+				continue
+			}
 			// The list representation is only an index. Ownership and lifecycle
 			// facts come from the full detail response so a missing/truncated body
 			// can never silently hide a managed request.
@@ -114,8 +132,41 @@ func (p *Provider) ListLifecyclePage(ctx context.Context, query forge.LifecycleQ
 			}
 		}
 	}
+	if beyond {
+		result.Progress.Complete, result.Progress.Cursor = true, ""
+	}
 	sort.Slice(result.Requests, func(i, j int) bool { return result.Requests[i].Request.ID < result.Requests[j].Request.ID })
 	return result, nil
+}
+
+// listedOutsideInterval reports whether a listed request's own timestamps
+// already prove it cannot match the frozen interval for kind. created_at and
+// merged_at are server-set and immutable, and the list payload carries both —
+// baseline merged discovery already gates on the listed merged_at — so the
+// interval is decided here without paying for a detail read. This narrows only
+// which requests are worth reading in full: everything that survives is still
+// admitted from its detail response, and an absent or unparseable timestamp is
+// treated as a candidate so a missing field can never truncate discovery.
+func listedOutsideInterval(listed ghPull, kind v1.NotificationEvent, from, through time.Time) bool {
+	stamp := listed.CreatedAt
+	if kind == v1.NotificationRequestMerged {
+		if listed.MergedAt == nil {
+			return true
+		}
+		stamp = *listed.MergedAt
+	}
+	when, err := time.Parse(time.RFC3339Nano, stamp)
+	if err != nil {
+		return false
+	}
+	return when.Before(from) || when.After(through)
+}
+
+// listedAfter reports whether a listed timestamp is provably past the interval.
+// An absent or unparseable value is not proof, so the walk continues.
+func listedAfter(stamp string, through time.Time) bool {
+	when, err := time.Parse(time.RFC3339Nano, stamp)
+	return err == nil && when.After(through)
 }
 
 func (p *Provider) GetLifecycleRequest(ctx context.Context, id forge.RequestID) (notification.LifecycleRequest, error) {

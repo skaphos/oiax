@@ -72,10 +72,14 @@ claims or writes remote refs. Its preview cannot confirm receiver credentials or
 visibility. Notification-only backlog does not cause detailed exit 2.
 
 The first enabled reconcile establishes a current cutoff before core request
-creation. It does not replay historical merges. Creation provenance is captured
-in a separate immutable comment in the actual POST, so later runs can recover
-after a crash or failed follow-up metadata update. Adopting an existing request
-does not manufacture a new creation or rewrite its original provenance.
+creation. It does not replay historical merges, and discovery does not walk or
+record request history below that cutoff — nothing there could be delivered, and
+scanning it would spend the forge API budget the same run needs. Requests opened
+before activation still notify when they merge afterwards. Creation provenance
+is captured in a separate immutable comment in the actual POST, so later runs
+can recover after a crash or failed follow-up metadata update. Adopting an
+existing request does not manufacture a new creation or rewrite its original
+provenance.
 
 ## Customize wording
 

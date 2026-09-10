@@ -14,6 +14,7 @@ import (
 	"github.com/skaphos/oiax/v2/internal/forge"
 	"github.com/skaphos/oiax/v2/internal/forge/forgetest"
 	"github.com/skaphos/oiax/v2/internal/notification"
+	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
 func notificationPull(id int, created time.Time) ghPull {
@@ -141,6 +142,108 @@ func TestNotificationLifecyclePaginationOverlapsAndDeduplicatesMovement(t *testi
 	}
 	if err != nil || !second.Progress.Complete || len(second.Requests) != 100 || len(got) != 100 || got["1"] || !got["2"] || !got["101"] {
 		t.Fatalf("overlap page = (%d, %+v, %v)", len(second.Requests), second.Progress, err)
+	}
+}
+
+// A scan must cost list reads for the pages it walks and detail reads only for
+// the requests its interval can actually contain (#93). A repository whose
+// history sits outside the interval used to cost one detail read per historical
+// request, which alone can exhaust the 1,000 requests/hour a GITHUB_TOKEN gets.
+func TestNotificationLifecycleScanBudgetExcludesHistoryFromDetailReads(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC)
+	const (
+		total     = 400
+		perPage   = 100
+		historic  = 250 // created long ago, merged inside the interval
+		recent    = 289 // created inside the interval
+		afterScan = 291 // opened while the scan ran, on the same page as recent
+	)
+	pulls := map[int]ghPull{}
+	for id := 1; id <= total; id++ {
+		pull := notificationPull(id, now.Add(-400*24*time.Hour).Add(time.Duration(id)*time.Second))
+		switch {
+		case id == historic:
+			merged := now.Add(-30 * time.Minute).Format(time.RFC3339Nano)
+			pull.State, pull.MergedAt = "closed", &merged
+		case id == recent:
+			pull.CreatedAt = now.Add(-30 * time.Minute).Format(time.RFC3339Nano)
+		case id >= afterScan:
+			pull.CreatedAt = now.Add(time.Minute).Format(time.RFC3339Nano)
+		}
+		pulls[id] = pull
+	}
+	for _, kind := range []v1.NotificationEvent{v1.NotificationRequestCreated, v1.NotificationRequestMerged} {
+		t.Run(string(kind), func(t *testing.T) {
+			t.Parallel()
+			listReads, detailReads := 0, 0
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/repos/example/repo":
+					serveNotificationIdentity(w)
+				case r.URL.Path == "/repos/example/repo/pulls":
+					listReads++
+					page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+					if page > 3 {
+						t.Errorf("scan paged past its interval to page %d", page)
+					}
+					var listed []ghPull
+					for id := (page-1)*perPage + 1; id <= page*perPage && id <= total; id++ {
+						listed = append(listed, pulls[id])
+					}
+					if page*perPage < total {
+						w.Header().Set("Link", "<"+server.URL+"/repos/example/repo/pulls?page="+strconv.Itoa(page+1)+`>; rel="next"`)
+					}
+					_ = json.NewEncoder(w).Encode(listed)
+				case strings.HasPrefix(r.URL.Path, "/repos/example/repo/pulls/"):
+					detailReads++
+					id, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/repos/example/repo/pulls/"))
+					_ = json.NewEncoder(w).Encode(pulls[id])
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			t.Cleanup(server.Close)
+			p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+			query := forge.LifecycleQuery{Graph: "graph", Kind: kind, From: now.Add(-time.Hour), Through: now, Limit: perPage}
+			found, pages, scans := map[string]bool{}, 0, 0
+			for {
+				scans++
+				page, err := p.ListLifecyclePage(context.Background(), query)
+				if err != nil {
+					t.Fatal(err)
+				}
+				pages += page.Pages
+				for _, request := range page.Requests {
+					found[request.Request.ID] = true
+				}
+				if page.Progress.Complete {
+					break
+				}
+				if scans > total {
+					t.Fatal("scan never completed")
+				}
+				query.Cursor = page.Progress.Cursor
+			}
+			want := strconv.Itoa(recent)
+			if kind == v1.NotificationRequestMerged {
+				want = strconv.Itoa(historic)
+			}
+			// The interval holds exactly one request: a recent creation, or a
+			// merge of a request created long before the interval began.
+			if len(found) != 1 || !found[want] {
+				t.Fatalf("interval contents = %v, want [%s]", found, want)
+			}
+			if detailReads != 1 {
+				t.Fatalf("detail reads = %d over %d requests, want 1", detailReads, total)
+			}
+			// Three pages cover the interval; each continuation re-reads its
+			// predecessor for boundary movement. Everything else stays off the wire.
+			if listReads != 5 || pages != listReads {
+				t.Fatalf("list reads = %d (reported pages %d), want 5", listReads, pages)
+			}
+		})
 	}
 }
 
