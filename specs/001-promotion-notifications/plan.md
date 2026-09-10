@@ -16,6 +16,13 @@ Provide environment-oriented title/body templates, graph-wide defaults and per-d
 
 Use a pure notification model/selector/renderer with separate impure coordination. Observe lifecycle facts through both forge providers, persist event/delivery records in a bounded Git notes ledger using expected-tip updates, and preserve creation origin in the initial PR body. Small stdlib HTTP adapters own delivery. An external send and Git receipt cannot be atomic; uncertain retries may duplicate messages.
 
+Terminal delivery outcomes follow [ADR 0018](../../docs/adr/0018-notification-terminal-outcome-rollout.md):
+a persisted first `payload-too-large` result records `skipped/payload-too-large`,
+and another deterministic result persisted at or after 24 total claimed attempts
+records `skipped/abandoned`. Transient outcomes remain retryable. Failed receipt
+persistence leaves recovery open, so neither 24 attempts nor the first oversize
+result is a universal bound without a durable receipt.
+
 ## Technical Context
 
 **Language/Version**: Go 1.27.1 from this checkout's `go.mod`.
@@ -32,7 +39,7 @@ Use a pure notification model/selector/renderer with separate impure coordinatio
 
 **Performance Goals**: SC-001 remains an end-to-end visibility target: 95% within 60 seconds and 99% within five minutes after the observing run completes. Normal-load acceptance uses ≤20 destinations, ≤10 due deliveries/destination and ≤100/run, no existing retry/backfill backlog, complete discovery within scan budget, and healthy endpoints. Predeclare at least 100 deliveries per transport across bounded runs; missing messages count as failures. HTTP acceptance alone does not prove visibility. Fixtures invoke reconciliation every minute; backlog/outage/incomplete-discovery recovery is verified separately for bounded progress, not these latency percentiles.
 
-**Constraints**: 20 destinations; 100 total attempts and 10/destination/run; one-second pacing; 10-second HTTP deadline; ten-minute aggregate notification stage and 120-second claims; 100 lifecycle pages/run; 8 MiB/50,000-delivery ledger cap. Pending events do not expire automatically. Commit summaries cap at 100 with explicit completeness. Capacity suspends work visibly while preserving receipts and core results.
+**Constraints**: 20 destinations; 100 total attempts and 10/destination/run; one-second pacing; 10-second HTTP deadline; ten-minute aggregate notification stage and 120-second claims; 100 lifecycle pages/run; 8 MiB/50,000-delivery ledger cap. Pending events do not expire automatically. Commit summaries cap at 100 with explicit completeness; optional summaries may be dropped to meet the 24 KiB envelope cap, but required identity is never truncated. Capacity suspends work visibly while preserving receipts and core results; v1 has no receipt compaction or universal attempt-ID bound.
 
 **Scale/Scope**: Two events × two request types × three transports across both current forges; configurable presentation and environment labels. Email, historical backfill, inbound commands, merging, approvals, and deployment observation remain excluded.
 
@@ -131,10 +138,10 @@ fixed footer includes all FR-008 fields, explicitly request ID and observed time
 ## Phase 1 — Design and implementation sequence
 
 1. **Contracts and policy.** Preserve the recorded T001 namespace decision and exact writer safeguards. Add optional configuration, environment names, templates, public validation/defaulting, and loaded-policy wiring. Pin omitted/false/empty semantics and all-disabled resumption. Setup scaffolds fixture documentation only; typed fixtures follow model/interface definitions in T010. Review the broader proposed ADRs in the implementation PR without assuming acceptance.
-2. **Pure model and presentation.** Implement stable IDs, revision-ordered epochs, monotone transitions, typed template context, complete FR-008 footer, persisted delivery payload, and deterministic preview. Validate all event/request combinations. Test stale workers, all-disabled intervals, per-destination overrides, unknown fields, secret exclusion and overflow.
+2. **Pure model and presentation.** Implement stable IDs, revision-ordered epochs, monotone transitions, typed template context, complete FR-008 footer, persisted delivery payload, and deterministic preview. Runtime rendering occurs before `SaveMessage`; failure leaves the record pending without a claim. Validate all event/request combinations. Test stale workers, all-disabled intervals, per-destination overrides, unknown fields, secret exclusion and overflow without truncating required identity.
 3. **Durable ledger.** Build notes read/create/expected-tip updates, parsing caps, claims and receipts. Race workers against a bare Git remote; prove namespace guards, no rewind and success monotonicity. Persist immutable commit facts and rendered retry payloads.
 4. **Forge lifecycle and snapshots.** Add complete/incomplete pages, known-request polling, explicit creation/adoption disposition and initial origin. Fetch event-specific commits; test source advancement, squash/rebase, deleted refs, partial POST success and short-lived requests.
-5. **Delivery adapters.** Implement constrained HTTP, payload envelopes, safe responses and persisted retry scheduling. Exercise redirects, TLS/DNS policy, throttling, timeouts, malformed responses, and independent destinations.
+5. **Delivery adapters.** Implement constrained HTTP, payload envelopes, safe responses and persisted retry scheduling. Persist first-result payload overflow as skipped; persist deterministic exhaustion as skipped at 24 or more total claimed attempts; keep transient results retryable and let a proven late acceptance win monotonically. Exercise redirects, TLS/DNS policy, throttling, timeouts, malformed responses, receipt-write failure, and independent destinations.
 6. **Coordinate and preview.** Initialize activation, observe without effects, render previews, capture creation outcomes incrementally and finalize notifications within budget after core work. Preserve partial core failures and exit 0/1/3; cancelled contexts start no sends.
 7. **Operator acceptance and release gates.** Execute [quickstart.md](quickstart.md), including opt-in live provider CAS and real channel rendering/visibility. Add docs, regenerate CLI help, enforce coverage and required CI checks.
 
@@ -159,11 +166,16 @@ Run race/shuffle suites on all supported OSes; enforce the new-package 85% floor
 
 - Notes-write namespace authority is recorded in T001/ADR 0015; notes permission and live expected-tip semantics separately require opt-in conformance on both forges before release. Namespace approval does not satisfy those platform gates. Denied writes suspend sends and leave core work usable.
 - Stale/divergent config revisions defer notifications, not core work; restore ordered history with a reviewed descendant config commit. Fully disabled runs cannot record retirement or stop older workers through the untouched ledger; use a new destination name for a fresh cutoff after re-enable.
-- A send and its receipt are not atomic. Recovered leases or lost receipts can duplicate externally accepted messages; stable IDs remain available.
+- A send and its receipt are not atomic. Recovered leases or lost receipts can duplicate externally accepted messages; stable IDs remain available. Nonaccepted receipt-write failure reports `delivery-receipt-not-persisted` when no higher-priority state, storage or cancellation diagnostic applies, retains its safe underlying outcome/status, and does not establish terminality. Claims may exceed the deterministic threshold until a receipt persists.
 - Dense history, long outages and capacity limits can delay notifications. Incomplete scans retain cursors and known pending deliveries; never silently advance past unseen data.
 - Teams Workflows ownership/tenant policy may prevent channel delivery after HTTP acceptance. Verify actual visibility, document co-ownership and the initial Anyone mode.
 - PR commit APIs must prove historical snapshot fidelity. Use captured immutable OIDs where necessary, otherwise disclose unavailable details. Source SHAs are not destination SHAs after squash/rebase.
 - Rollback disables/removes optional policy on the pinned config ref before downgrading the binary. Keep notes and origin metadata for continuity; do not delete state or replay history automatically.
+- ADR 0018 keeps the ledger on schema v1 and the existing notes ref while extending
+  its allowed state grammar. Older readers reject the new state on that same ref;
+  moving it to a new ref would risk a split ledger or false absence. Upgrade all
+  readers/writers for a graph together and retain a supporting binary once new
+  terminal state has been written.
 
 ## Complexity Tracking
 

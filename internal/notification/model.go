@@ -20,6 +20,10 @@ const (
 	MaxLedgerBytes = 8 << 20
 	MaxDeliveries  = 50000
 	MaxCommits     = 100
+	// MaxAttempts is the abandonment threshold for non-transient failures.
+	// A persisted non-transient result at or above this claim count abandons the
+	// delivery. Transient outcomes and unpersisted receipts can exceed it.
+	MaxAttempts = 24
 	// ClaimDuration is the concurrency fence for one claimed attempt or batch;
 	// it is not a throughput budget for a run.
 	ClaimDuration = 120 * time.Second
@@ -218,6 +222,10 @@ const (
 	OutcomeResponseTooLarge OutcomeCode = "response-too-large"
 	OutcomeCanceled         OutcomeCode = "canceled"
 	OutcomeRetired          OutcomeCode = "subscription-retired"
+	// OutcomeAbandoned is terminal and records that Oiax stopped attempting a
+	// deterministic failure. It is distinct from OutcomeRetired, which records
+	// a deliberate configuration change rather than an unrecoverable fault.
+	OutcomeAbandoned OutcomeCode = "abandoned"
 )
 
 // AttemptResult carries the receiver's integer HTTP status for post-exchange
@@ -340,7 +348,7 @@ func ValidOID(s string) bool {
 
 func ValidOutcome(code OutcomeCode) bool {
 	switch code {
-	case OutcomeAccepted, OutcomeNetwork, OutcomeRateLimited, OutcomeService, OutcomeConfiguration, OutcomeMissingSecret, OutcomeInvalidEndpoint, OutcomePayloadTooLarge, OutcomeRedirect, OutcomeResponseTooLarge, OutcomeCanceled, OutcomeRetired:
+	case OutcomeAccepted, OutcomeNetwork, OutcomeRateLimited, OutcomeService, OutcomeConfiguration, OutcomeMissingSecret, OutcomeInvalidEndpoint, OutcomePayloadTooLarge, OutcomeRedirect, OutcomeResponseTooLarge, OutcomeCanceled, OutcomeRetired, OutcomeAbandoned:
 		return true
 	default:
 		return false

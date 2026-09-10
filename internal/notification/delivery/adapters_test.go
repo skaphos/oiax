@@ -3,6 +3,7 @@ package delivery
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -97,6 +98,51 @@ func TestNotificationAdaptersRejectUnsafeLinksAndOversizedPayloads(t *testing.T)
 		if _, err := encode(kind, oversized); !errors.Is(err, notification.ErrCapacity) {
 			t.Fatalf("%s accepted oversized payload: %v", kind, err)
 		}
+	}
+}
+
+// A 100-commit merge is deterministic: without an envelope bound it overflows
+// the transport cap on every attempt and can never be delivered.
+func TestNotificationWebhookTruncatesCommitsInsteadOfFailing(t *testing.T) {
+	t.Parallel()
+	payload := adapterPayload()
+	payload.Event.Snapshot = notification.CommitSnapshot{CommitCountKnown: true, CommitCount: notification.MaxCommits}
+	for i := range notification.MaxCommits {
+		sha := fmt.Sprintf("%040x", i+1)
+		payload.Event.Snapshot.Commits = append(payload.Event.Snapshot.Commits, notification.CommitSummary{SHA: sha, ShortSHA: sha[:7], Subject: strings.Repeat("a fairly typical commit subject ", 6)})
+	}
+	before := payload.Event.Snapshot.Commits[0]
+	data, err := encode("webhook", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > maxPayloadBytes {
+		t.Fatalf("envelope exceeds the transport cap: %d bytes", len(data))
+	}
+	var envelope struct {
+		ID               string                       `json:"id"`
+		Commits          []notification.CommitSummary `json:"commits"`
+		CommitCount      int                          `json:"commitCount"`
+		CommitsTruncated bool                         `json:"commitsTruncated"`
+		Facts            string                       `json:"facts"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Commits) == 0 || len(envelope.Commits) >= notification.MaxCommits || !envelope.CommitsTruncated {
+		t.Fatalf("commits not truncated and flagged: kept %d, truncated %v", len(envelope.Commits), envelope.CommitsTruncated)
+	}
+	if !strings.Contains(envelope.Facts, "Commit details truncated; see the request for the full review.") || strings.Contains(envelope.Facts, "Commit count:") {
+		t.Fatalf("facts disagree with truncated snapshot: %q", envelope.Facts)
+	}
+	// The declared total and the caller's snapshot both survive truncation.
+	if envelope.ID != payload.Event.ID || envelope.CommitCount != notification.MaxCommits || payload.Event.Snapshot.CommitsTruncated || payload.Event.Snapshot.Commits[0] != before || len(payload.Event.Snapshot.Commits) != notification.MaxCommits {
+		t.Fatal("truncation lost the total or mutated the caller's payload")
+	}
+	// Presentation alone can still overflow; that failure remains permanent.
+	payload.Message.Body = strings.Repeat("x", maxPayloadBytes)
+	if _, err := encode("webhook", payload); !errors.Is(err, notification.ErrCapacity) {
+		t.Fatalf("irreducible envelope accepted: %v", err)
 	}
 }
 

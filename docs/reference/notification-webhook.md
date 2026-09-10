@@ -4,7 +4,15 @@ The generic webhook sends an HTTPS POST with `Content-Type: application/json`.
 `X-Oiax-Event-ID` repeats the JSON `id` for receiver correlation/deduplication.
 The endpoint is supplied only by the configured runtime variable. Redirects are
 not followed. Any 2xx response is acceptance; response bodies are not interpreted
-as event data. Outbound JSON is limited to 24 KiB; responses to 16 KiB.
+as event data. Outbound JSON is limited to 24 KiB; responses to 16 KiB. A body
+that would exceed 24 KiB drops trailing `commits` entries and sets
+`commitsTruncated`; `commitCount` still reports the authoritative total. Only a
+body that remains too large with no commits left is rejected; required identity
+is never truncated. Its first successfully persisted `payload-too-large` receipt
+makes the delivery terminal as skipped, rather than retryable. The rendered
+payload is saved before delivery and retries
+use that same payload; changing a template cannot repair an already-saved event
+and affects only future events.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -18,7 +26,7 @@ as event data. Outbound JSON is limited to 24 KiB; responses to 16 KiB.
 | `commits` | array | Up to 100 `{sha, shortSha, subject}` records; optional URL is currently omitted. Never null. |
 | `commitCount` | integer | Authoritative total only when `commitCountKnown` is true. |
 | `commitCountKnown` | boolean | False means the total is unknown, not zero commits. |
-| `commitsTruncated` | boolean | Commit list or subjects have been bounded/truncated. |
+| `commitsTruncated` | boolean | Commit list or subjects have been bounded/truncated, by the provider cap or to fit the payload limit. |
 | `commitsUnavailable` | boolean | Exact event membership could not be established; consult the review link. |
 | `occurredAt` | string | Authoritative creation/merge time in RFC3339 UTC. |
 | `observedAt` | string | Original observation time in RFC3339 UTC. |
@@ -38,6 +46,15 @@ further intentional delivery. Acceptance without a saved receipt can result in
 duplicates, so acknowledge only after your receiver durably accepts/deduplicates
 the event. Oiax provides no payload signing header or exactly-once guarantee in
 this version; secure the endpoint through HTTPS and its runtime secret address.
+
+Transient `network-failure`, `service-failure`, `rate-limited`, and `canceled`
+receipts remain retryable. Other deterministic outcomes become
+`skipped/abandoned` when their receipt is persisted at or after 24 total claimed
+attempts. A failed receipt write leaves the claim recoverable after lease expiry,
+so claims and attempt IDs can exceed that threshold; there is no universal
+attempt-ID bound or receipt compaction. A late accepted receipt for a proven
+attempt may still establish delivery after a skipped outcome. See
+[ADR 0018](../adr/0018-notification-terminal-outcome-rollout.md).
 
 See [setup and recovery](../guides/notifications.md), [templates](templates.md#notification-templates),
 and the [golden wire example](../../internal/notification/delivery/testdata/webhook.golden.json).

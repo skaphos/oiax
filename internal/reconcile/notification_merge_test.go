@@ -2,7 +2,9 @@ package reconcile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -181,6 +183,147 @@ func TestNotificationDispatchSpacingAndIndependentFailure(t *testing.T) {
 	}
 	if clock.Now().Before(now.Add(time.Second)) {
 		t.Fatal("per-destination spacing was not observed")
+	}
+}
+
+// A destination that always answers 401 must stop after its attempt budget and
+// report a terminal diagnostic, instead of appending an attempt ID every hour
+// until the ledger byte cap suspends notification work for the whole graph.
+func TestNotificationDispatchAbandonsPermanentFailure(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC)
+	clock := notificationtest.NewClock(now)
+	policy := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "broken", Type: "webhook", EndpointEnv: "BROKEN"}}}
+	store := &notificationtest.MemoryStore{}
+	sender := &notificationtest.Recorder{Result: notification.AttemptResult{Code: notification.OutcomeConfiguration, Status: 401}}
+	var reported []NotificationDiagnostic
+	runtime := mergeRuntime(clock.Now, store, policy)
+	runtime.Sender = func(v1.NotificationDestination) notification.Sender { return sender }
+	runtime.Report = func(d NotificationDiagnostic) { reported = append(reported, d) }
+	// Every run is a separate CI invocation, so each carries its own operation
+	// ID; reusing one would collide with an already recorded attempt.
+	run := 0
+	runtime.OperationID = func() string { run++; return fmt.Sprint("run-", run) }
+	runtime.Wait = func(ctx context.Context, delay time.Duration) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		clock.Advance(delay)
+		return nil
+	}
+	if err := runtime.Activate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	events := []notification.EventV1{mergeEvent(runtime.Repository, "41", now), mergeEvent(runtime.Repository, "42", now)}
+	if err := runtime.Admit(context.Background(), events); err != nil {
+		t.Fatal(err)
+	}
+	size := func() int {
+		t.Helper()
+		snapshot, err := store.Read(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := json.Marshal(snapshot.Ledger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(data)
+	}
+	settled := 0
+	for cycle := 1; cycle <= notification.MaxAttempts+3; cycle++ {
+		reported = nil
+		// Each failure schedules an hourly retry; step past it every cycle.
+		clock.Advance(2 * time.Hour)
+		err := runtime.Dispatch(context.Background())
+		want := string(notification.OutcomeConfiguration)
+		switch {
+		case cycle == notification.MaxAttempts:
+			want = string(notification.OutcomeAbandoned)
+		case cycle > notification.MaxAttempts:
+			want = ""
+		}
+		if want == "" {
+			if err != nil || len(reported) != 0 {
+				t.Fatalf("cycle %d retried a terminal record: %v %+v", cycle, err, reported)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("cycle %d dispatch = %v, want %s", cycle, err, want)
+		}
+		if len(reported) != len(events) {
+			t.Fatalf("cycle %d reported %d diagnostics, want %d", cycle, len(reported), len(events))
+		}
+		for _, d := range reported {
+			// The receiver's status stays attached through abandonment, so the
+			// terminal diagnostic still names what the receiver last answered.
+			if d.Reason != want || d.Action == "" || d.Destination != "broken" || d.Status != 401 {
+				t.Fatalf("cycle %d diagnostic = %+v, want reason %s with status 401", cycle, d, want)
+			}
+		}
+		if cycle == notification.MaxAttempts {
+			settled = size()
+		}
+	}
+	if sent, budget := len(sender.Payloads()), notification.MaxAttempts*len(events); sent != budget {
+		t.Fatalf("sent %d payloads, want the %d-attempt budget", sent, budget)
+	}
+	if settled == 0 || size() != settled {
+		t.Fatalf("ledger still growing after abandonment: %d -> %d bytes", settled, size())
+	}
+	snapshot, err := store.Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, record := range snapshot.Ledger.Deliveries {
+		if record.Status != notification.StatusSkipped || record.Code != notification.OutcomeAbandoned || record.LastStatus != 401 {
+			t.Fatalf("%s not abandoned with its receiver status: %s %s %d", key, record.Status, record.Code, record.LastStatus)
+		}
+	}
+}
+
+func TestNotificationDispatchPreservesTerminalPayloadTooLarge(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC)
+	clock := notificationtest.NewClock(now)
+	policy := &v1.NotificationPolicy{Destinations: []v1.NotificationDestination{{Name: "ops", Type: "webhook", EndpointEnv: "AUDIT"}}}
+	store := &notificationtest.MemoryStore{}
+	runtime := mergeRuntime(clock.Now, store, policy)
+	sender := &notificationtest.Recorder{Result: notification.AttemptResult{Code: notification.OutcomePayloadTooLarge}}
+	runtime.Sender = func(v1.NotificationDestination) notification.Sender {
+		return sender
+	}
+	var reported []NotificationDiagnostic
+	runtime.Report = func(d NotificationDiagnostic) { reported = append(reported, d) }
+	if err := runtime.Activate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Admit(context.Background(), []notification.EventV1{mergeEvent(runtime.Repository, "42", now)}); err != nil {
+		t.Fatal(err)
+	}
+	reported = nil // activation reports the establishment of the initial cutoff
+	if err := runtime.Dispatch(context.Background()); err == nil || !strings.Contains(err.Error(), string(notification.OutcomePayloadTooLarge)) {
+		t.Fatalf("dispatch = %v", err)
+	}
+	if len(reported) != 1 || reported[0].Reason != string(notification.OutcomePayloadTooLarge) || !strings.Contains(reported[0].Action, "not automatically resent") {
+		t.Fatalf("diagnostics = %+v", reported)
+	}
+	snapshot, err := store.Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, record := range snapshot.Ledger.Deliveries {
+		if record.Status != notification.StatusSkipped || record.Code != notification.OutcomePayloadTooLarge || record.Attempts != 1 {
+			t.Fatalf("%s did not preserve terminal payload outcome: %+v", key, record)
+		}
+	}
+	clock.Advance(48 * time.Hour)
+	if err := runtime.Dispatch(context.Background()); err != nil {
+		t.Fatal("terminal payload was retried", err)
+	}
+	if len(sender.Payloads()) != 1 {
+		t.Fatalf("terminal payload sent %d times", len(sender.Payloads()))
 	}
 }
 

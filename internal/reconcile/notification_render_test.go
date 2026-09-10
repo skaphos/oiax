@@ -122,6 +122,24 @@ func TestNotificationPreviewDecisions(t *testing.T) {
 			t.Fatalf("%s: %+v", status, p)
 		}
 	}
+	// Abandonment keeps the documented decision set but reports its own reason,
+	// so a preview never blames a retirement the operator never configured.
+	r := l.Deliveries[key]
+	r.Status, r.Code = notification.StatusSkipped, notification.OutcomeAbandoned
+	l.Deliveries[key] = r
+	abandoned := composeNotificationPreview(policy, l, []notification.EventV1{e}, engine.Plan{}, now, "complete", "")
+	if len(abandoned.Items) != 1 || abandoned.Items[0].Decision != "subscription-not-active" || abandoned.Items[0].Reason != "attempts-exhausted" {
+		t.Fatalf("abandoned preview: %+v", abandoned)
+	}
+	r.Code = notification.OutcomePayloadTooLarge
+	l.Deliveries[key] = r
+	oversize := composeNotificationPreview(policy, l, []notification.EventV1{e}, engine.Plan{}, now, "complete", "")
+	if len(oversize.Items) != 1 || oversize.Items[0].Decision != "subscription-not-active" || oversize.Items[0].Reason != string(notification.OutcomePayloadTooLarge) {
+		t.Fatalf("oversize preview: %+v", oversize)
+	}
+	r.Code = notification.OutcomeRetired
+	l.Deliveries[key] = r
+
 	p := composeNotificationPreview(policy, l, nil, engine.Plan{Actions: []engine.Action{{Type: engine.ActionCreatePromotionRequest, From: "dev", To: "test"}}}, now, "complete", "")
 	for _, item := range p.Items {
 		if item.Decision == "conditional-on-create" && (item.EventID != "" || item.RequestID != "") {

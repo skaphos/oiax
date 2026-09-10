@@ -1,7 +1,9 @@
 package notification
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -32,6 +34,21 @@ func modelLedger(t *testing.T) *LedgerV1 {
 func modelEvent() EventV1 {
 	r := RequestV1{ID: "42", Type: "promotion", Source: "dev", Destination: "test", URL: "https://github.com/example/repo/pull/42"}
 	return EventV1{ID: EventID(modelRepo(), r.ID, "request-merged"), Kind: "request-merged", Repository: modelRepo(), Graph: "graph", Request: r, OccurredAt: modelTime(), ObservedAt: modelTime(), Snapshot: CommitSnapshot{CommitsUnavailable: true}}
+}
+
+func modelReadyDelivery(t *testing.T) (*LedgerV1, string) {
+	t.Helper()
+	l := modelLedger(t)
+	e := modelEvent()
+	var err error
+	if l, err = AdmitEvent(l, l.PolicyRevision.ConfigOID, e); err != nil {
+		t.Fatal(err)
+	}
+	key := DeliveryKey(e.ID, "ops", l.Destinations["ops"].Generation)
+	if l, err = SaveMessage(l, l.PolicyRevision.ConfigOID, key, RenderedMessageV1{Body: "saved"}); err != nil {
+		t.Fatal(err)
+	}
+	return l, key
 }
 
 func TestNotificationIdentity(t *testing.T) {
@@ -330,5 +347,178 @@ func TestNotificationInvalidInputsAndCapacity(t *testing.T) {
 	}
 	if err := CheckCapacity(l, true); !errors.Is(err, ErrCapacity) {
 		t.Fatal("record cap not enforced")
+	}
+}
+
+// A destination that can never accept anything must reach a terminal state and
+// stop consuming ledger budget. Before the attempt cap, 100 records against a
+// receiver answering 401 grew the ledger from 129 KB to 8.17 MB and exhausted
+// capacity after roughly 1,200 hourly attempts, suspending every other
+// destination with it.
+func TestNotificationPermanentFailureIsAbandonedWithBoundedGrowth(t *testing.T) {
+	t.Parallel()
+	l := modelLedger(t)
+	rev := l.PolicyRevision.ConfigOID
+	now := modelTime()
+	size := func() int {
+		t.Helper()
+		data, err := json.Marshal(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(data)
+	}
+	var keys []string
+	for i := range 20 {
+		e := modelEvent()
+		e.Request.ID = fmt.Sprint(1000 + i)
+		e.Request.URL = "https://github.com/example/repo/pull/" + e.Request.ID
+		e.ID = EventID(modelRepo(), e.Request.ID, e.Kind)
+		var err error
+		if l, err = AdmitEvent(l, rev, e); err != nil {
+			t.Fatal(err)
+		}
+		key := DeliveryKey(e.ID, "ops", l.Destinations["ops"].Generation)
+		keys = append(keys, key)
+		if l, err = SaveMessage(l, rev, key, RenderedMessageV1{Title: "Branch promotion completed", Body: "These commits were promoted to the test environment."}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	admitted, settled := size(), 0
+	// Two cycles per attempt budget: the second half must change nothing at all.
+	for cycle := 1; cycle <= 2*MaxAttempts; cycle++ {
+		for _, key := range keys {
+			// Each claim paces its destination and schedules an hourly retry;
+			// stepping well past both keeps every unfinished record due.
+			now = now.Add(2 * time.Hour)
+			attempt := Digest("attempt-v1", fmt.Sprint(cycle), key)
+			next, err := Claim(l, rev, key, attempt, now)
+			if errors.Is(err, ErrNotDue) {
+				continue
+			}
+			if err != nil {
+				t.Fatalf("cycle %d claim: %v", cycle, err)
+			}
+			if l, err = RecordResult(next, key, attempt, AttemptResult{Code: OutcomeConfiguration}, now.Add(time.Second)); err != nil {
+				t.Fatalf("cycle %d result: %v", cycle, err)
+			}
+		}
+		if cycle == MaxAttempts {
+			settled = size()
+		}
+	}
+	for _, key := range keys {
+		r := l.Deliveries[key]
+		if r.Status != StatusSkipped || r.Code != OutcomeAbandoned || r.Attempts != MaxAttempts || len(r.AttemptIDs) != MaxAttempts {
+			t.Fatalf("record not abandoned: %s %s attempts=%d", r.Status, r.Code, r.Attempts)
+		}
+	}
+	if settled == 0 || size() != settled {
+		t.Fatalf("ledger still growing after abandonment: %d -> %d bytes", settled, size())
+	}
+	// The cap admits at most MaxAttempts 64-hex attempt IDs per record.
+	if growth, budget := settled-admitted, len(keys)*MaxAttempts*128; growth > budget {
+		t.Fatalf("attempt evidence unbounded: grew %d bytes, budget %d", growth, budget)
+	}
+	if err := CheckCapacity(l, true); err != nil {
+		t.Fatal("permanent failure exhausted capacity", err)
+	}
+	if due := DueDeliveries(l, now.Add(365*24*time.Hour)); len(due) != 0 {
+		t.Fatalf("abandoned records still scheduled: %d", len(due))
+	}
+}
+
+// A deterministic oversize payload can never succeed, so it is terminal on its
+// first result instead of being retried hourly for a day.
+func TestNotificationTerminalFailureClassification(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		attempts int
+		code     OutcomeCode
+		want     bool
+	}{
+		{1, OutcomePayloadTooLarge, true},
+		{1, OutcomeConfiguration, false},
+		{MaxAttempts - 1, OutcomeMissingSecret, false},
+		{MaxAttempts, OutcomeMissingSecret, true},
+		{MaxAttempts, OutcomeInvalidEndpoint, true},
+		{MaxAttempts, OutcomeRedirect, true},
+		{MaxAttempts, OutcomeResponseTooLarge, true},
+		{MaxAttempts, OutcomeConfiguration, true},
+		{1000, OutcomeNetwork, false},
+		{1000, OutcomeService, false},
+		{1000, OutcomeRateLimited, false},
+		{1000, OutcomeCanceled, false},
+	} {
+		if got := TerminalFailure(tc.attempts, tc.code); got != tc.want {
+			t.Errorf("TerminalFailure(%d, %s) = %v", tc.attempts, tc.code, got)
+		}
+	}
+	l := modelLedger(t)
+	rev := l.PolicyRevision.ConfigOID
+	e := modelEvent()
+	var err error
+	if l, err = AdmitEvent(l, rev, e); err != nil {
+		t.Fatal(err)
+	}
+	key := DeliveryKey(e.ID, "ops", l.Destinations["ops"].Generation)
+	if l, err = SaveMessage(l, rev, key, RenderedMessageV1{Body: "saved"}); err != nil {
+		t.Fatal(err)
+	}
+	if l, err = Claim(l, rev, key, "first", modelTime()); err != nil {
+		t.Fatal(err)
+	}
+	if l, err = RecordResult(l, key, "first", AttemptResult{Code: OutcomePayloadTooLarge}, modelTime().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if r := l.Deliveries[key]; r.Status != StatusSkipped || r.Code != OutcomePayloadTooLarge {
+		t.Fatalf("oversize payload retried: %s %s", r.Status, r.Code)
+	}
+	if _, err := Claim(l, rev, key, "second", modelTime().Add(48*time.Hour)); !errors.Is(err, ErrNotDue) {
+		t.Fatal("abandoned record claimed", err)
+	}
+	// Late acceptance for a proven attempt still wins over a terminal size
+	// failure.
+	if l, err = RecordResult(l, key, "first", AttemptResult{Code: OutcomeAccepted}, modelTime().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if l.Deliveries[key].Status != StatusDelivered {
+		t.Fatal("late acceptance lost to terminal size failure")
+	}
+}
+
+func TestNotificationAttemptRejectsTerminalLedgerOutcomes(t *testing.T) {
+	t.Parallel()
+	for _, code := range []OutcomeCode{OutcomeRetired, OutcomeAbandoned} {
+		t.Run(string(code), func(t *testing.T) {
+			t.Parallel()
+			l, key := modelReadyDelivery(t)
+			var err error
+			if l, err = Claim(l, l.PolicyRevision.ConfigOID, key, "single", modelTime()); err != nil {
+				t.Fatal(err)
+			}
+			before := l.Clone()
+			if _, err := RecordResult(l, key, "single", AttemptResult{Code: code}, modelTime().Add(time.Second)); !errors.Is(err, ErrInvalidState) {
+				t.Fatalf("single result = %v", err)
+			}
+			if !reflect.DeepEqual(l, before) {
+				t.Fatal("invalid single result mutated input")
+			}
+
+			l, key = modelReadyDelivery(t)
+			attempts := map[string]string{key: "batch-attempt"}
+			batchID := BatchID("operation", "ops")
+			if l, _, err = ClaimBatch(l, l.PolicyRevision.ConfigOID, "ops", batchID, []string{key}, attempts, modelTime()); err != nil {
+				t.Fatal(err)
+			}
+			before = l.Clone()
+			receipts := map[string]AttemptReceipt{key: {AttemptID: attempts[key], Result: AttemptResult{Code: code}}}
+			if _, err := RecordResults(l, "ops", batchID, receipts, modelTime().Add(time.Second)); !errors.Is(err, ErrInvalidState) {
+				t.Fatalf("batch result = %v", err)
+			}
+			if !reflect.DeepEqual(l, before) {
+				t.Fatal("invalid batch result mutated input")
+			}
+		})
 	}
 }

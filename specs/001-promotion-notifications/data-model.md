@@ -185,22 +185,37 @@ claim records exactly which send may have reached the network.
 | absent | eligible event admitted by expected-tip write | pending |
 | pending/retryable | due; destination lease and event claim acquired | claimed |
 | claimed | endpoint accepts and success receipt persists | delivered |
-| claimed | failed attempt and result persists | retryable |
+| claimed | transient failure receipt persists | retryable |
+| claimed | first payload-too-large receipt persists | skipped/payload-too-large |
+| claimed | other deterministic receipt persists at 24+ total claimed attempts | skipped/abandoned |
+| claimed | other deterministic receipt persists before 24 total claimed attempts | retryable |
+| claimed | nonaccepted result receipt does not persist | claimed until lease expiry, then recoverable |
 | claimed | process lost or lease expires | uncertain, then retryable |
 | any nonterminal | subscription retired | skipped |
+| skipped | proven earlier attempt is later accepted and receipt persists | delivered |
 | delivered | repeat observation or stale failure | delivered, no send |
 | skipped | old generation observed again | skipped, no send |
 
 Never report `delivered` until the success receipt is durable. A response accepted
-without a stored receipt is `accepted-receipt-uncertain`. A stale failure cannot
-overwrite success. A late acceptance may record terminal success for the same
-event/generation even after claim expiry, but cannot undo a retry already sent.
+without a stored receipt is `accepted-receipt-uncertain`. A nonaccepted result
+whose receipt cannot be stored is `delivery-receipt-not-persisted`; retain its
+safe underlying outcome and HTTP status, when present, while higher-priority
+state, storage or cancellation diagnostics may lead. Neither failure establishes
+terminal state. A stale failure cannot overwrite success. A late acceptance for
+any proven attempt may record terminal success for the same event/generation even
+after claim expiry or a skipped outcome, but cannot undo a retry already sent.
 No lease can fence Teams or Slack; these are the documented ambiguity cases.
 
 Run limits and retry spacing are in [research](research.md#4-retry-policy-and-bounded-work).
-Pending events do not expire automatically. Reserve ledger space for claim/result
-transitions at admission; reaching capacity must not knowingly prevent recording
-an already admitted send. Terminal receipts are never silently removed.
+Transient network, service, rate-limit and cancellation results remain retryable
+regardless of attempt count. Terminal failure thresholds depend on successful
+receipt persistence: missing/unpersisted receipts recover after lease expiry and
+may take the total claimed-attempt count above 24. Attempt IDs have no independent
+universal bound. Pending events do not expire automatically. Reserve ledger space
+for claim/result transitions at admission; reaching capacity must not knowingly
+prevent recording an already admitted send. Terminal receipts are never silently
+removed, and v1 provides no compaction. See
+[ADR 0018](../../docs/adr/0018-notification-terminal-outcome-rollout.md).
 
 ## Scan progress
 

@@ -204,6 +204,8 @@ func SaveMessage(l *LedgerV1, configOID, key string, message RenderedMessageV1) 
 
 // Claim reserves both an event and a destination. Expired leases can be replaced,
 // but cannot fence a suspended HTTP sender; late results retain their attempt IDs.
+// Claims are not capped because no terminal decision is safe until a result is
+// durably recorded.
 func Claim(l *LedgerV1, configOID, key, attemptID string, now time.Time) (*LedgerV1, error) {
 	if l.PolicyRevision.ConfigOID != configOID {
 		return nil, ErrStaleRevision
@@ -273,7 +275,7 @@ func RecordResult(l *LedgerV1, key, attemptID string, result AttemptResult, now 
 // A destination lease is released only when it belongs to this attempt.
 func applyResult(out *LedgerV1, key, attemptID string, result AttemptResult, now time.Time) error {
 	r, ok := out.Deliveries[key]
-	if !ok || !slices.Contains(r.AttemptIDs, attemptID) || !ValidOutcome(result.Code) || now.IsZero() {
+	if !ok || !slices.Contains(r.AttemptIDs, attemptID) || !validAttemptOutcome(result.Code) || now.IsZero() {
 		return ErrInvalidState
 	}
 	if r.Status == StatusDelivered {
@@ -288,9 +290,20 @@ func applyResult(out *LedgerV1, key, attemptID string, result AttemptResult, now
 		if r.Status == StatusSkipped || r.Lease.AttemptID != attemptID {
 			return nil
 		}
-		r.Status = StatusRetryable
-		r.Code = result.Code
-		r.NextAttemptAt = now.UTC().Add(RetryDelay(r.Attempts, result))
+		if TerminalFailure(r.Attempts, result.Code) {
+			r.Status = StatusSkipped
+			// An intrinsically terminal transport result retains its diagnostic.
+			// Exhaustion of the bounded retry policy is a distinct terminal fact.
+			if result.Code == OutcomePayloadTooLarge {
+				r.Code = result.Code
+			} else {
+				r.Code = OutcomeAbandoned
+			}
+		} else {
+			r.Status = StatusRetryable
+			r.Code = result.Code
+			r.NextAttemptAt = now.UTC().Add(RetryDelay(r.Attempts, result))
+		}
 	}
 	// Only a real HTTP status is retained; anything else records no exchange.
 	r.LastStatus = 0
@@ -307,6 +320,13 @@ func applyResult(out *LedgerV1, key, attemptID string, result AttemptResult, now
 	return nil
 }
 
+// validAttemptOutcome excludes terminal ledger facts that no transport may
+// return as a receipt. Retirement is produced only by policy acceptance and
+// abandonment only by the reducer after exhausting deterministic failures.
+func validAttemptOutcome(code OutcomeCode) bool {
+	return ValidOutcome(code) && code != OutcomeRetired && code != OutcomeAbandoned
+}
+
 // BatchID names the destination lease held by one run's batch. It is distinct
 // from every per-record attempt ID, so single-record transitions never release it.
 func BatchID(operationID, destination string) string {
@@ -319,6 +339,8 @@ func BatchID(operationID, destination string) string {
 // that are individually not due are skipped rather than failed, and a batch
 // that claims nothing is not due. Each claimed record carries its own attempt
 // ID so late results keep their evidence exactly as single claims do.
+// Claim counts remain unrestricted when the prior attempt's result is unknown;
+// only RecordResults can make a terminal decision from durable evidence.
 func ClaimBatch(l *LedgerV1, configOID, destination, batchID string, keys []string, attempts map[string]string, now time.Time) (*LedgerV1, []string, error) {
 	if l.PolicyRevision.ConfigOID != configOID {
 		return nil, nil, ErrStaleRevision
@@ -469,12 +491,36 @@ func RecordResults(l *LedgerV1, destination, batchID string, receipts map[string
 func RetryDelay(attempts int, result AttemptResult) time.Duration {
 	delay := time.Minute * time.Duration(1<<min(max(attempts-1, 0), 6))
 	delay = min(delay, time.Hour)
-	switch result.Code {
-	case OutcomeNetwork, OutcomeService, OutcomeRateLimited, OutcomeCanceled:
-	default:
+	if !TransientOutcome(result.Code) {
 		delay = time.Hour
 	}
 	return max(delay, min(max(result.RetryAfter, 0), 24*time.Hour))
+}
+
+// TransientOutcome reports whether an identical later attempt could plausibly
+// succeed without an operator change. Everything else is a deterministic
+// configuration, endpoint or size fault that repeats on every retry.
+func TransientOutcome(code OutcomeCode) bool {
+	switch code {
+	case OutcomeNetwork, OutcomeService, OutcomeRateLimited, OutcomeCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
+// TerminalFailure reports whether a durably recorded failure must stop consuming
+// ledger budget. An oversize payload is already bounded and truncated by the
+// transport, so its recorded rejection is final; other non-transient faults keep
+// a bounded attempt budget before a recorded result abandons the delivery. A
+// transient code is never terminal, so a record whose attempts were spent on
+// canceled claims is abandoned only once a receiver or endpoint actually refuses
+// it and that refusal is persisted.
+func TerminalFailure(attempts int, code OutcomeCode) bool {
+	if code == OutcomePayloadTooLarge {
+		return true
+	}
+	return !TransientOutcome(code) && attempts >= MaxAttempts
 }
 
 // CheckCapacity reserves metadata growth before admission/claim. Receipts consume
