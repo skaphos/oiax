@@ -247,6 +247,54 @@ func TestNotificationLifecycleScanBudgetExcludesHistoryFromDetailReads(t *testin
 	}
 }
 
+// The listed merge state decides the merged scan's candidates: a null merged_at
+// is how the API reports "did not merge" (GetLifecycleRequest reads the same
+// field the same way), while an absent or unparseable timestamp string proves
+// nothing and still costs a detail read.
+func TestNotificationLifecycleMergedScanTrustsListedMergeState(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC)
+	merged := now.Add(-30 * time.Minute).Format(time.RFC3339Nano)
+	closedUnmerged := notificationPull(2, now.Add(-time.Hour))
+	closedUnmerged.State = "closed"
+	mergedPull := notificationPull(3, now.Add(-time.Hour))
+	mergedPull.State, mergedPull.MergedAt = "closed", &merged
+	// Number 4 carries no state and no timestamps at all: an index entry that
+	// proves nothing must not be dropped without reading it.
+	listed := []ghPull{notificationPull(1, now.Add(-time.Hour)), closedUnmerged, mergedPull, {Number: 4}}
+	details := map[int]ghPull{1: listed[0], 2: closedUnmerged, 3: mergedPull, 4: closedUnmerged}
+	read := map[int]bool{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/example/repo":
+			serveNotificationIdentity(w)
+		case r.URL.Path == "/repos/example/repo/pulls":
+			_ = json.NewEncoder(w).Encode(listed)
+		case strings.HasPrefix(r.URL.Path, "/repos/example/repo/pulls/"):
+			id, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/repos/example/repo/pulls/"))
+			read[id] = true
+			_ = json.NewEncoder(w).Encode(details[id])
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+	page, err := p.ListLifecyclePage(context.Background(), forge.LifecycleQuery{Graph: "graph", Kind: v1.NotificationRequestMerged, From: now.Add(-time.Hour), Through: now, Limit: 100})
+	if err != nil || !page.Progress.Complete {
+		t.Fatalf("merged scan = (%+v, %v)", page.Progress, err)
+	}
+	if len(page.Requests) != 1 || page.Requests[0].Request.ID != "3" {
+		t.Fatalf("merged requests = %+v, want the one that merged in the interval", page.Requests)
+	}
+	if read[1] || read[2] {
+		t.Fatalf("open/closed-unmerged requests cost detail reads: %v", read)
+	}
+	if !read[3] || !read[4] {
+		t.Fatalf("merged and unproven requests must be read in full: %v", read)
+	}
+}
+
 func TestNotificationLifecycleDetailFailureRetainsPartialProgress(t *testing.T) {
 	t.Parallel()
 	for _, status := range []int{http.StatusNotFound, http.StatusForbidden} {

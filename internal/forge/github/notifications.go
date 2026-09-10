@@ -139,19 +139,29 @@ func (p *Provider) ListLifecyclePage(ctx context.Context, query forge.LifecycleQ
 	return result, nil
 }
 
-// listedOutsideInterval reports whether a listed request's own timestamps
-// already prove it cannot match the frozen interval for kind. created_at and
-// merged_at are server-set and immutable, and the list payload carries both —
-// baseline merged discovery already gates on the listed merged_at — so the
-// interval is decided here without paying for a detail read. This narrows only
-// which requests are worth reading in full: everything that survives is still
-// admitted from its detail response, and an absent or unparseable timestamp is
-// treated as a candidate so a missing field can never truncate discovery.
+// listedOutsideInterval reports whether a listed request already proves it
+// cannot match the frozen interval for kind. created_at and merged_at are
+// server-set and immutable, so the interval is decided here without paying for a
+// detail read. This narrows only which requests are worth reading in full;
+// everything that survives is still admitted from its detail response.
+//
+// The two ways a field can be missing are not the same thing:
+//
+//   - An entry that reported its state and no merge timestamp did not merge.
+//     A null merged_at is a state fact, not a gap: it is how both this API and
+//     GetLifecycleRequest below say "this request did not merge", and baseline
+//     merged discovery already drops listed requests on it (github.go). A
+//     payload that could omit it for a merged request would already make the
+//     detail read report that request as closed-unmerged, so trusting it here
+//     adds no failure mode.
+//   - An entry that reported no state, or a timestamp string that is absent or
+//     unparseable, proves nothing. Those stay candidates and the detail read
+//     decides, so a payload that says nothing can never truncate discovery.
 func listedOutsideInterval(listed ghPull, kind v1.NotificationEvent, from, through time.Time) bool {
 	stamp := listed.CreatedAt
 	if kind == v1.NotificationRequestMerged {
 		if listed.MergedAt == nil {
-			return true
+			return listed.State == "open" || listed.State == "closed"
 		}
 		stamp = *listed.MergedAt
 	}

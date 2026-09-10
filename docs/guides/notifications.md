@@ -72,14 +72,19 @@ claims or writes remote refs. Its preview cannot confirm receiver credentials or
 visibility. Notification-only backlog does not cause detailed exit 2.
 
 The first enabled reconcile establishes a current cutoff before core request
-creation. It does not replay historical merges, and discovery does not walk or
-record request history below that cutoff — nothing there could be delivered, and
-scanning it would spend the forge API budget the same run needs. Requests opened
-before activation still notify when they merge afterwards. Creation provenance
-is captured in a separate immutable comment in the actual POST, so later runs
-can recover after a crash or failed follow-up metadata update. Adopting an
-existing request does not manufacture a new creation or rewrite its original
-provenance.
+creation. It does not replay historical merges, and it neither reads the detail
+of nor records requests from below that cutoff — nothing there could be
+delivered. Requests opened before activation still notify when they merge
+afterwards, which is why the scan cannot stop at the cutoff: on GitHub it still
+pages the request index in creation order from the beginning of history, because
+a request opened years ago can merge today. Budget roughly one index page read
+per 100 requests in the repository, per event kind, per run; the per-request
+reads and the ledger growth are what the interval bounds. Azure DevOps filters
+by time range server-side and reads no index pages below the cutoff. Creation
+provenance is captured in a separate immutable comment in the actual POST, so
+later runs can recover after a crash or failed follow-up metadata update.
+Adopting an existing request does not manufacture a new creation or rewrite its
+original provenance.
 
 ## Customize wording
 
