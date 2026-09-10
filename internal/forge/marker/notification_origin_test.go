@@ -63,27 +63,27 @@ func TestNotificationOriginRoundTripAndMarkerPreservation(t *testing.T) {
 	}
 }
 
-func TestNotificationOriginHeadVerifiedIsOptional(t *testing.T) {
+// A head verdict is request text, so it can be written by anyone with write
+// access. Bodies carrying one still parse — dropping them would lose the
+// operation identity too — but the verdict itself never survives the parse.
+func TestNotificationOriginDiscardsHeadVerdict(t *testing.T) {
 	t.Parallel()
 	o := testNotificationOrigin()
-	unverified, err := AppendNotificationOrigin("", &o)
-	if err != nil || strings.Contains(unverified, "headVerified") {
-		t.Fatalf("unverified origin encoded a verdict: %s, %v", unverified, err)
+	encoded, err := AppendNotificationOrigin("", &o)
+	if err != nil || strings.Contains(encoded, "headVerified") {
+		t.Fatalf("origin encoded a verdict: %s, %v", encoded, err)
 	}
-	verified := o
-	verified.HeadVerified = true
-	encoded, err := AppendNotificationOrigin("", &verified)
-	if err != nil || !strings.Contains(encoded, `"headVerified":true`) {
-		t.Fatalf("verified origin lost its verdict: %s, %v", encoded, err)
-	}
-	if got, ok := ParseNotificationOrigin(encoded); !ok || got != verified {
-		t.Fatalf("verified round trip = %+v, %v", got, ok)
-	}
-	// Blocks written before the field existed parse as unverified; an explicit
-	// false is equivalent.
-	for name, body := range map[string]string{"legacy": unverified, "explicit false": strings.Replace(encoded, `"headVerified":true`, `"headVerified":false`, 1)} {
-		if got, ok := ParseNotificationOrigin(body); !ok || got != o {
+	for name, body := range map[string]string{
+		"claimed true":  strings.Replace(encoded, `"version":1`, `"version":1,"headVerified":true`, 1),
+		"claimed false": strings.Replace(encoded, `"version":1`, `"version":1,"headVerified":false`, 1),
+	} {
+		got, ok := ParseNotificationOrigin(body)
+		if !ok || got != o {
 			t.Fatalf("%s origin = %+v, %v", name, got, ok)
+		}
+		again, err := AppendNotificationOrigin("", &got)
+		if err != nil || again != encoded {
+			t.Fatalf("%s verdict survived re-encoding: %s, %v", name, again, err)
 		}
 	}
 }
@@ -173,9 +173,7 @@ func FuzzNotificationOrigin(f *testing.F) {
 	body, _ := AppendNotificationOrigin("", &o)
 	f.Add(body)
 	f.Add(body + body)
-	o.HeadVerified = true
-	verified, _ := AppendNotificationOrigin("", &o)
-	f.Add(verified)
+	f.Add(strings.Replace(body, `"version":1`, `"version":1,"headVerified":true`, 1))
 	f.Add("<!-- oiax-notification-origin:{} -->")
 	f.Add("<!-->")
 	f.Fuzz(func(t *testing.T, body string) {

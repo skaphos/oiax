@@ -111,6 +111,10 @@ type LifecycleRequest struct {
 	Origin         *NotificationOriginV1 `json:"origin,omitempty"`
 }
 
+// NotificationOriginV1 is the pre-POST evidence a creating run recorded in the
+// request it opened. Providers that keep it in editable request text must treat
+// every field as a hint: its OIDs identify the operation, they never attest
+// commit membership. Only the forge's own view of a request can do that.
 type NotificationOriginV1 struct {
 	Version       int       `json:"version"`
 	OperationID   string    `json:"operationID"`
@@ -121,11 +125,6 @@ type NotificationOriginV1 struct {
 	LogicalTarget string    `json:"logicalTarget"`
 	SourceOID     string    `json:"sourceOID"`
 	BaseOID       string    `json:"baseOID"`
-	// HeadVerified records that the request's head still equaled SourceOID when
-	// read back immediately after the creating POST, so BaseOID..SourceOID is
-	// exact creation membership. Origins written before this field existed
-	// omit it and are unverified.
-	HeadVerified bool `json:"headVerified,omitempty"`
 }
 
 type CommitSummary struct {

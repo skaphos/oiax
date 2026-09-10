@@ -211,9 +211,10 @@ text, not Markdown or mentions. Dynamic render failures defer notification
 delivery without replacing the core result.
 
 Commit facts and labels are fixed at first event admission. GitHub creation
-details come from the origin Oiax wrote when it opened the request; the total is
-exact only when the head read back after the POST matched that origin, and
-unknown otherwise. Azure can use a verified first iteration. Squash/rebase
+details are the request's own commit list, read while its head is still the one
+Oiax opened it at; the total is exact only when that list was complete. Azure
+uses first-iteration server evidence. Neither provider takes commit membership
+or a total from request text a reviewer can edit. Squash/rebase
 source SHAs are review identities, not a promise of destination SHAs. Truncation
 and unknown totals are reported independently of custom wording.
 

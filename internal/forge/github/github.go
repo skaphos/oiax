@@ -399,7 +399,6 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 	}, Disposition: forge.RequestCreated}
 	if req.Origin != nil {
 		origin := *req.Origin
-		origin.HeadVerified = p.verifyOriginHead(ctx, created.Number, marked, origin)
 		out.Origin = &origin
 	}
 
@@ -415,27 +414,6 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 	}
 
 	return out, nil
-}
-
-// verifyOriginHead reads the request back immediately after the creating POST.
-// A head still equal to the origin's pre-POST source OID proves the request was
-// opened at that OID, so BaseOID..SourceOID is its exact creation membership.
-// The verdict is persisted in the origin block (marked is the body before the
-// origin was appended) so discovery-based recovery can trust it. Any failure
-// leaves the origin unverified: creation itself has already succeeded, and an
-// unverified origin only costs an exact commit total.
-func (p *Provider) verifyOriginHead(ctx context.Context, number int, marked string, origin notification.NotificationOriginV1) bool {
-	pr, err := p.getPull(ctx, number)
-	if err != nil || pr.Head.SHA != origin.SourceOID {
-		return false
-	}
-	origin.HeadVerified = true
-	verified, err := mk.AppendNotificationOrigin(marked, &origin)
-	if err != nil {
-		return false
-	}
-	_, err = p.do(ctx, http.MethodPatch, p.pullURL(number), map[string]string{"body": verified}, nil)
-	return err == nil
 }
 
 // UpdateRequest rewrites the recorded sourceHead in a managed request's
