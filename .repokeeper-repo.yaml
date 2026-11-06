@@ -1,0 +1,11 @@
+apiVersion: repokeeper/v1
+kind: RepoMetadata
+repo_id: github.com/skaphos/oiax
+name: Oiax
+labels:
+    kind: tool
+    org: skaphos
+    role: branch-promotion
+    tool: oiax
+entrypoints:
+    readme: README.md
