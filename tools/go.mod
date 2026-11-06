@@ -1,6 +1,6 @@
 module github.com/skaphos/oiax/tools
 
-go 1.27.1
+go 1.27.3
 
 tool github.com/go-task/task/v3/cmd/task
 
