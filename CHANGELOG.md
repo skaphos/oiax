@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/skaphos/oiax/compare/v2.1.0...v2.1.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **deps:** update Go, actions, and modules for security fixes ([#110](https://github.com/skaphos/oiax/issues/110)) ([00d5bb1](https://github.com/skaphos/oiax/commit/00d5bb11f35e0a6589dd2dfeb1abca061037959e))
+
 ## [2.1.0](https://github.com/skaphos/oiax/compare/v2.0.2...v2.1.0) (2026-09-10)
 
 
