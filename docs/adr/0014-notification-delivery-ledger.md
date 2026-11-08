@@ -1,6 +1,6 @@
 # 0014 — Record notification delivery state in Git notes
 
-- Status: proposed
+- Status: accepted (maintainer decision; repository publication remains PR-based); amended 2026-11-07 — see [Amendment](#amendment-2026-11-07)
 - Date: 2026-09-04
 - Deciders: Oiax maintainers (proposal awaiting repository review)
 
@@ -59,6 +59,47 @@ Successful persisted receipts suppress repeat sends. Interrupted sends, failed
 receipt writes, and lease recovery remain ambiguous and can duplicate external
 messages. The same event ID is preserved; no exactly-once claim is made. A
 worker that loses its claim cannot knowingly begin another send.
+
+## Amendment (2026-11-07)
+
+Accepted after notifications shipped in 2.0.0 and passed adoption testing
+([#86](https://github.com/skaphos/oiax/issues/86),
+[#87](https://github.com/skaphos/oiax/issues/87),
+[#88](https://github.com/skaphos/oiax/issues/88)). This acceptance replaces the
+Decision's statement that the ADR remains proposed; the decision text above is
+otherwise unchanged.
+
+**The origin block's `headVerified` field is no longer evidence.**
+[#89](https://github.com/skaphos/oiax/pull/89) added an optional `headVerified`
+field to the notification-origin block as a trust hint for request-created
+commit membership. [#104](https://github.com/skaphos/oiax/pull/104), fixing
+[#96](https://github.com/skaphos/oiax/issues/96), reversed that. The parser
+still accepts the field, so bodies written by the interim, unreleased build
+decode, but it discards the value. Request-created commit membership now comes
+from the forge. The origin block only confirms that the request is still the
+one Oiax opened; the commits, their OIDs and any total come from the forge's own
+view of the request. A request body that anyone with write access can edit is
+never evidence. See
+[`internal/forge/marker/notification_origin.go`](../../internal/forge/marker/notification_origin.go).
+
+Later delivery decisions are recorded elsewhere:
+
+- Finalization has a ten-minute budget, independent of the claim lease. See the
+  [notifications guide](../guides/notifications.md#delivery-and-recovery) and
+  [research §4](../../specs/001-promotion-notifications/research.md#4-retry-policy-and-bounded-work).
+- A claim covers one destination's batch per run. Before each send, the worker
+  rereads the ledger and confirms the batch still owns the destination and
+  record at the run's configuration revision. See the
+  [notifications guide](../guides/notifications.md#delivery-and-recovery).
+- The ledger records the receiver's HTTP status as `lastStatus`. Once a newer
+  binary records it, older binaries reject the ledger, and disabling
+  notifications does not make it readable to them. See
+  [ADR 0018](0018-notification-terminal-outcome-rollout.md) and the
+  [notifications guide](../guides/notifications.md#changing-destination-identity-and-rollback).
+- [ADR 0018](0018-notification-terminal-outcome-rollout.md) also adds the
+  terminal `skipped/abandoned` and `skipped/payload-too-large` states.
+  [ADR 0019](0019-audited-notification-revision-recovery.md) adds an audited
+  override for an unreachable accepted configuration revision.
 
 ## Consequences
 
