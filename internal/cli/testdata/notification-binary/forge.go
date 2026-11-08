@@ -29,7 +29,11 @@ func init() {
 		if !roots.AppendCertsFromPEM(cert) {
 			return nil, errors.New("invalid fixture CA")
 		}
-		client := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
+		// Same per-attempt bound as the providers' production default client
+		// (requestTimeout). It covers every forge read, lifecycle discovery
+		// pages included, so a tighter fixture-only value let a CPU-starved
+		// fixture server turn a slow page into an incomplete scan (#112).
+		client := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
 		}}
 		if os.Getenv("OIAX_FORGE") == "azuredevops" {
