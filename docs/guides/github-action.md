@@ -218,6 +218,13 @@ duplicate promotion requests, and backflow branch names are
 deterministic), so overlapping runs converge rather than collide. Use
 `cancel-in-progress: false` so a repair run is not cancelled midway.
 
+A queued run, or a re-run of an earlier run, plans against each branch's
+fetched tip, not the commit the run was started for: the Action fetches
+every branch into `origin/*` before Oiax runs, and Oiax reads
+`origin/<branch>` in preference to the checked-out head. When the two
+differ, the log says `planning against the fetched origin tip …`, which
+explains why a re-run's numbers differ from the original run's.
+
 ## Tokens
 
 This is the one setup step that trips everyone up.

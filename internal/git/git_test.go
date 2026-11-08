@@ -189,30 +189,140 @@ func TestHeadResolvesOriginTrackingRef(t *testing.T) {
 	}
 }
 
-// TestHeadPrefersLocalHeadOverOriginTracking asserts resolveBranchRef's
-// precedence: when a branch exists both as a local head and an
-// origin-tracking ref, the local head — the triggering branch's live state —
-// wins.
-func TestHeadPrefersLocalHeadOverOriginTracking(t *testing.T) {
+// TestHeadPrefersOriginTrackingOverLocalHead asserts resolveBranchRef's
+// precedence (#108): when a branch exists both as a local head and an
+// origin-tracking ref, the origin-tracking ref wins, whichever is newer.
+//
+//   - local behind origin: a re-run or queued run whose checkout materialised
+//     the SHA it was started for after later pushes were fetched;
+//   - local ahead of origin: unpushed local commits, which are not what the
+//     forge holds and not what Oiax acts on.
+//
+// The range reads must resolve the same ref as Head, so every endpoint of an
+// edge comes from one snapshot.
+func TestHeadPrefersOriginTrackingOverLocalHead(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name        string
+		localBehind bool
+	}{
+		{name: "local head behind origin (re-run)", localBehind: true},
+		{name: "local head ahead of origin (unpushed)", localBehind: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			r, dir := newRepo(t)
+
+			base := writeCommit(t, dir, "base.txt", "1\n", "base")
+			runGit(t, dir, "branch", "feature")
+			runGit(t, dir, "switch", "-q", "feature")
+			older := writeCommit(t, dir, "a.txt", "a\n", "older feature commit")
+			newer := writeCommit(t, dir, "b.txt", "b\n", "newer feature commit")
+			runGit(t, dir, "switch", "-q", "main")
+
+			local, origin := older, newer
+			if !tc.localBehind {
+				local, origin = newer, older
+			}
+			runGit(t, dir, "update-ref", "refs/heads/feature", local)
+			runGit(t, dir, "update-ref", "refs/remotes/origin/feature", origin)
+
+			got, err := r.Head(ctx, "feature")
+			if err != nil {
+				t.Fatalf("Head(feature): %v", err)
+			}
+			if got != origin {
+				t.Fatalf("Head(feature) = %q, want the origin-tracking tip %q, not the local head %q", got, origin, local)
+			}
+
+			ahead, err := r.UniqueCommits(ctx, "main", "feature")
+			if err != nil {
+				t.Fatalf("UniqueCommits(main, feature): %v", err)
+			}
+			if len(ahead) == 0 || ahead[0].SHA != origin {
+				t.Fatalf("UniqueCommits(main, feature) = %+v, want it to end at the origin-tracking tip %s", ahead, origin)
+			}
+			wantAhead := 2
+			if !tc.localBehind {
+				wantAhead = 1
+			}
+			if len(ahead) != wantAhead {
+				t.Fatalf("UniqueCommits(main, feature) returned %d commits, want %d (the origin-tracking range)", len(ahead), wantAhead)
+			}
+			if mb, err := r.MergeBase(ctx, "main", "feature"); err != nil || mb != base {
+				t.Fatalf("MergeBase(main, feature) = %q, %v; want %q", mb, err, base)
+			}
+		})
+	}
+}
+
+// TestHeadFallsBackToLocalHeadWithoutOriginTracking covers the standalone
+// case: a repository with no remote-tracking ref for the branch (a local
+// repository, or a remote that was never fetched) still resolves the branch
+// to its local head.
+func TestHeadFallsBackToLocalHeadWithoutOriginTracking(t *testing.T) {
+	t.Parallel()
+	r, dir := newRepo(t)
+	head := writeCommit(t, dir, "base.txt", "1\n", "base")
+
+	got, err := r.Head(context.Background(), "main")
+	if err != nil {
+		t.Fatalf("Head(main) with only a local head: %v", err)
+	}
+	if got != head {
+		t.Fatalf("Head(main) = %q, want the local head %q", got, head)
+	}
+}
+
+// TestLocalHeadDivergence covers every shape the divergence report sees. Only
+// a branch present as both refs at different commits is divergent, and the
+// report names both commits so the run can say which one it ignored.
+func TestLocalHeadDivergence(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	r, dir := newRepo(t)
 
-	base := writeCommit(t, dir, "base.txt", "1\n", "base")
-	runGit(t, dir, "branch", "feature")
-	runGit(t, dir, "switch", "-q", "feature")
-	localHead := writeCommit(t, dir, "local.txt", "local\n", "local head commit")
-	runGit(t, dir, "switch", "-q", "main")
+	first := writeCommit(t, dir, "base.txt", "1\n", "first")
+	second := writeCommit(t, dir, "next.txt", "2\n", "second")
 
-	// A divergent origin-tracking ref at an OLDER commit than the local head.
-	runGit(t, dir, "update-ref", "refs/remotes/origin/feature", base)
+	// same: both refs at one commit.
+	runGit(t, dir, "update-ref", "refs/heads/same", second)
+	runGit(t, dir, "update-ref", "refs/remotes/origin/same", second)
+	// differ: the local head is behind the fetched tip.
+	runGit(t, dir, "update-ref", "refs/heads/differ", first)
+	runGit(t, dir, "update-ref", "refs/remotes/origin/differ", second)
+	// local-only and origin-only: one ref each.
+	runGit(t, dir, "update-ref", "refs/heads/local-only", first)
+	runGit(t, dir, "update-ref", "refs/remotes/origin/origin-only", first)
 
-	got, err := r.Head(ctx, "feature")
-	if err != nil {
-		t.Fatalf("Head(feature): %v", err)
+	for _, tc := range []struct {
+		branch       string
+		wantDiverged bool
+	}{
+		{branch: "same"},
+		{branch: "local-only"},
+		{branch: "origin-only"},
+		{branch: "absent"},
+		{branch: "differ", wantDiverged: true},
+	} {
+		local, origin, diverged, err := r.LocalHeadDivergence(ctx, tc.branch)
+		if err != nil {
+			t.Fatalf("LocalHeadDivergence(%q): %v", tc.branch, err)
+		}
+		if diverged != tc.wantDiverged {
+			t.Fatalf("LocalHeadDivergence(%q) diverged = %v, want %v", tc.branch, diverged, tc.wantDiverged)
+		}
+		if !tc.wantDiverged && (local != "" || origin != "") {
+			t.Fatalf("LocalHeadDivergence(%q) = %q, %q; want empty SHAs when not divergent", tc.branch, local, origin)
+		}
+		if tc.wantDiverged && (local != first || origin != second) {
+			t.Fatalf("LocalHeadDivergence(%q) = local %q, origin %q; want %q, %q", tc.branch, local, origin, first, second)
+		}
 	}
-	if got != localHead {
-		t.Fatalf("Head(feature) = %q, want the local head %q (local must win over origin-tracking)", got, localHead)
+
+	if _, _, _, err := r.LocalHeadDivergence(ctx, "bad..name"); err == nil {
+		t.Fatal("LocalHeadDivergence accepted an invalid branch name")
 	}
 }
 
