@@ -128,9 +128,11 @@ steps:
   # which silently disables the patch-identity and baseline rungs of the
   # equivalence ladder and produces spurious promotion PRs for
   # already-promoted content. This step deliberately does not --unshallow,
-  # so a shallow checkout stays shallow: Oiax detects it and emits a
-  # WARNING, but only a full-history (fetchDepth: 0) checkout yields
-  # correct results.
+  # so a shallow checkout stays shallow: Oiax detects it and refuses to run
+  # under CI, so only a full-history (fetchDepth: 0) checkout works. Oiax
+  # reads every branch from refs/remotes/origin/* in preference to the
+  # checked-out head, so a re-run or queued run plans against the tips
+  # fetched here.
   - bash: |
       set -euo pipefail
       git fetch --no-tags --prune origin "+refs/heads/*:refs/remotes/origin/*"

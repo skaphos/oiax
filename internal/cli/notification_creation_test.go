@@ -27,6 +27,7 @@ func TestNotificationCreationBinary(t *testing.T) {
 				writeNotificationFixture(t, filepath.Join(f.dir, "app.txt"), []byte("feature\n"))
 				gittest.Run(t, f.dir, "add", "app.txt")
 				gittest.Run(t, f.dir, "commit", "-qm", "new feature")
+				f.publish("dev")
 				f.mu.Lock()
 				f.failTarget = "stage" // actual partial progress on the first edge
 				f.failMetadata = mode == "metadata-failure" || mode == "recovery"
@@ -75,6 +76,7 @@ func TestNotificationCreationBinary(t *testing.T) {
 				writeNotificationFixture(t, filepath.Join(f.dir, "app.txt"), []byte("feature v2\n"))
 				gittest.Run(t, f.dir, "add", "app.txt")
 				gittest.Run(t, f.dir, "commit", "-qm", "source advancement")
+				f.publish("dev")
 				f.run(1, "reconcile")
 				f.mu.Lock()
 				afterOrigin, valid := mk.ParseNotificationOrigin(f.bodies[101])
@@ -91,6 +93,7 @@ func TestNotificationCreationBinary(t *testing.T) {
 				head := gittest.Run(t, f.dir, "rev-parse", "dev")
 				gittest.Run(t, f.dir, "update-ref", "refs/heads/test", head)
 				gittest.Run(t, f.dir, "update-ref", "refs/heads/stage", head)
+				f.publish("test", "stage")
 				f.run(0, "reconcile")
 				if len(f.messages()) != 2 {
 					t.Fatal("creation and merge did not remain separate events")

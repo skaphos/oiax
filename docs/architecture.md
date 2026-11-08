@@ -281,7 +281,9 @@ Oiax. `actions/checkout` materializes only the triggering branch as a local
 head and does not set `origin/HEAD`, so the Action fetches every branch head
 into `refs/remotes/origin/*` and runs `git remote set-head origin --auto`.
 This makes every graph branch resolvable — Oiax resolves a branch name to its
-local head or, failing that, its origin-tracking ref — and the default
+origin-tracking ref or, when there is none, its local head, so a re-run or a
+queued run whose checkout is a superseded SHA still plans against the
+fetched tip — and the default
 config-ref (`origin/HEAD`) known, so a multi-branch graph reconciles on its
 first run and configuration resolves from the default branch without pinning
 `--config-ref`. Use `fetch-depth: 0` on `actions/checkout` (as above) so the

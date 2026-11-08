@@ -1141,6 +1141,79 @@ func TestPlanBackflowIdentityLookupResolvesOriginTrackingRefs(t *testing.T) {
 	}
 }
 
+// TestPlanUsesOriginTrackingTipOverStaleLocalHead reproduces #108. A re-run, or
+// a queued run under a concurrency group, checks out the SHA it was started
+// for as the local head, and the CI wrapper then fetches every branch's live
+// tip into refs/remotes/origin/*. Here a hotfix on main has already been
+// returned to development on the remote (`git cherry-pick -x`, with
+// provenance), but the stale checked-out development predates that return.
+// Planning against the stale head re-planned the backflow, which re-opened the
+// conflict artifact a newer run had cleared, and under-counted
+// development -> test. The plan must come from the fetched tip, and the run
+// must say, once and without a CI annotation, that it ignored the local head.
+func TestPlanUsesOriginTrackingTipOverStaleLocalHead(t *testing.T) {
+	r, commit := gitHarness(t)
+	dir := r.Dir
+
+	checkout(t, r, "main")
+	hotfix := commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	checkout(t, r, "development")
+	stale := commit("feature.txt", "feat\n", "feature on development")
+	gitExec(t, dir, "cherry-pick", "-x", hotfix)
+	live := gitExec(t, dir, "rev-parse", "HEAD")
+
+	// The CI wrapper fetched every branch's live tip...
+	for _, b := range []string{"development", "test", "main"} {
+		gitExec(t, dir, "update-ref", "refs/remotes/origin/"+b, gitExec(t, dir, "rev-parse", b))
+	}
+	// ...but the re-run's checkout materialised the superseded SHA.
+	gitExec(t, dir, "reset", "-q", "--hard", stale)
+
+	var buf bytes.Buffer
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph(),
+		Log: slog.New(slog.NewJSONHandler(&buf, nil))}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	var promotion *engine.Action
+	for i, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			t.Fatalf("planned a backflow for a hotfix already returned on the fetched tip: %+v", a)
+		}
+		if a.Type == engine.ActionCreatePromotionRequest && a.From == "development" && a.To == "test" {
+			promotion = &plan.Actions[i]
+		}
+	}
+	if promotion == nil {
+		t.Fatalf("want a development -> test promotion request, got %+v", plan.Actions)
+	}
+	// The fetched tip carries the feature and the returned hotfix; the stale
+	// head carries only the feature.
+	if promotion.Unpromoted != 2 {
+		t.Errorf("development -> test moves %d commits, want 2 (counted from the fetched tip, not the stale head)", promotion.Unpromoted)
+	}
+
+	var notes int
+	for line := range strings.Lines(buf.String()) {
+		if !strings.Contains(line, "planning against the fetched origin tip") {
+			continue
+		}
+		notes++
+		if !strings.Contains(line, live) || !strings.Contains(line, stale) || !strings.Contains(line, `\"development\"`) {
+			t.Errorf("divergence note must name the branch, the fetched tip %s, and the ignored local head %s: %s", live, stale, line)
+		}
+		if !strings.Contains(line, `"level":"INFO"`) {
+			t.Errorf("divergence note must be INFO, not a CI annotation: %s", line)
+		}
+	}
+	if notes != 1 {
+		t.Errorf("got %d divergence notes, want exactly 1 (only development differs): %s", notes, buf.String())
+	}
+}
+
 func TestPlanBackflowSkipMentionInProseStillReturns(t *testing.T) {
 	// The O6 override is a git TRAILER, not any occurrence of the text. A hotfix
 	// whose body merely mentions 'Oiax-Backflow: skip' in prose (with more text
