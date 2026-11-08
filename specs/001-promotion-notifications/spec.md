@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-04
 
-**Status**: Draft
+**Status**: Implemented (shipped in 2.0.0)
 
 **Tracking**: [Notifications #75](https://github.com/skaphos/oiax/issues/75); [future email integration #76](https://github.com/skaphos/oiax/issues/76).
 

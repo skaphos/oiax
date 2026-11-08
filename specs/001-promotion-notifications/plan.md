@@ -6,7 +6,7 @@
 
 **Tracking**: [#75](https://github.com/skaphos/oiax/issues/75); email follow-up [#76](https://github.com/skaphos/oiax/issues/76).
 
-**Status**: Setup and foundation T001–T015 are complete, with local test evidence in [implementation-validation.md](checklists/implementation-validation.md). Lifecycle discovery and delivery remain pending (T016–T080); this is not a shipped notification feature. Namespace authority comes from ADR 0015 and Constitution XI v2.0.0. ADRs 0013/0014 remain proposed for their broader contracts. Setup reports the feature directory key `001-promotion-notifications`; the actual Git branch is shown above.
+**Status**: Implemented (shipped in 2.0.0). Live conformance tasks T076 and T077 are deferred to adoption by the maintainer; local test evidence is in [implementation-validation.md](checklists/implementation-validation.md). Namespace authority comes from ADR 0015 and Constitution XI v2.0.0. ADRs 0013 and 0014 are accepted. Setup reports the feature directory key `001-promotion-notifications`; the actual Git branch is shown above.
 
 ## Summary
 
