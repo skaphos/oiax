@@ -28,27 +28,69 @@ import (
 	notificationstore "github.com/skaphos/oiax/v2/internal/notification/store"
 )
 
+// notificationBinary is the package's one fixture CLI. Every caller needs the
+// same variant — one overlay, race-enabled exactly when this test binary is —
+// so it is built at most once per package run, by whichever test asks first,
+// and the rest wait for that result. Building per test let several parallel
+// (race) builds contend on a loaded runner under a fixed deadline (#112).
+var notificationBinary struct {
+	once      sync.Once
+	dir, path string
+	err       error
+}
+
+// TestMain exists only to remove the shared fixture binary: it must outlive
+// every test that uses it, so no single test's TempDir can own it.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if notificationBinary.dir != "" {
+		if err := os.RemoveAll(notificationBinary.dir); err != nil {
+			fmt.Fprintln(os.Stderr, "remove fixture CLI:", err)
+		}
+	}
+	os.Exit(code)
+}
+
 // Build the real entrypoint with fixture-only connection setup. See testdata's
 // README for the exact boundary and the distinction from live acceptance.
+//
+// The build has no deadline of its own: it runs inside the package's go test
+// -timeout, which reports the stuck test if it ever hangs, rather than under a
+// fixed per-test limit that a slow, loaded runner can trip.
 func buildNotificationBinary(t *testing.T) string {
 	t.Helper()
+	notificationBinary.once.Do(func() {
+		notificationBinary.dir, notificationBinary.path, notificationBinary.err = compileNotificationBinary()
+	})
+	if notificationBinary.err != nil {
+		t.Fatal(notificationBinary.err)
+	}
+	return notificationBinary.path
+}
+
+func compileNotificationBinary() (dir, binary string, err error) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
-		t.Fatal(err)
+		return "", "", err
 	}
-	dir := t.TempDir()
+	dir, err = os.MkdirTemp("", "oiax-notification-fixture-")
+	if err != nil {
+		return "", "", err
+	}
 	runtimePath := filepath.Join(root, "internal/reconcile/notification_runtime.go")
 	source, err := os.ReadFile(runtimePath)
 	if err != nil {
-		t.Fatal(err)
+		return dir, "", err
 	}
 	const constructor = "return delivery.NewClient(destination.Type, destination.AllowPrivateNetwork)"
 	if strings.Count(string(source), constructor) != 1 {
-		t.Fatal("notification constructor moved; review the fixture overlay boundary")
+		return dir, "", errors.New("notification constructor moved; review the fixture overlay boundary")
 	}
 	override := filepath.Join(dir, "notification_runtime.go")
-	writeNotificationFixture(t, override, []byte(strings.Replace(string(source), constructor,
-		"return delivery.NewFixtureClient(destination.Type, destination.AllowPrivateNetwork)", 1)))
+	if err := os.WriteFile(override, []byte(strings.Replace(string(source), constructor,
+		"return delivery.NewFixtureClient(destination.Type, destination.AllowPrivateNetwork)", 1)), 0o600); err != nil {
+		return dir, "", err
+	}
 	overlay := map[string]map[string]string{"Replace": {
 		runtimePath: override,
 		filepath.Join(root, "internal/cli/notification_fixture.go"):                   filepath.Join(root, "internal/cli/testdata/notification-binary/forge.go"),
@@ -56,11 +98,13 @@ func buildNotificationBinary(t *testing.T) string {
 	}}
 	data, err := json.Marshal(overlay)
 	if err != nil {
-		t.Fatal(err)
+		return dir, "", err
 	}
 	overlayPath := filepath.Join(dir, "overlay.json")
-	writeNotificationFixture(t, overlayPath, data)
-	binary := filepath.Join(dir, "oiax.exe")
+	if err := os.WriteFile(overlayPath, data, 0o600); err != nil {
+		return dir, "", err
+	}
+	binary = filepath.Join(dir, "oiax.exe")
 	args := []string{"build", "-overlay", overlayPath, "-o", binary}
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, setting := range info.Settings {
@@ -69,14 +113,12 @@ func buildNotificationBinary(t *testing.T) string {
 			}
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", append(args, "./cmd/oiax")...)
+	cmd := exec.Command("go", append(args, "./cmd/oiax")...)
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fixture CLI: %v\n%s", err, out)
+		return dir, "", fmt.Errorf("build fixture CLI: %v\n%s", err, out)
 	}
-	return binary
+	return dir, binary, nil
 }
 
 func writeNotificationFixture(t *testing.T, path string, data []byte) {
