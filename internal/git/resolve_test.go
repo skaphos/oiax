@@ -24,13 +24,27 @@ func TestResolveRev(t *testing.T) {
 		}
 	})
 
-	t.Run("local head wins", func(t *testing.T) {
+	t.Run("origin-tracking ref wins over the local head", func(t *testing.T) {
 		t.Parallel()
 		runner, dir := newRepo(t)
 		head := writeCommit(t, dir, "app.txt", "v0\n", "c0")
-		// Even with an origin-tracking ref present, the local head is the
-		// authoritative live value.
+		// With both refs present the fetched origin-tracking ref is
+		// authoritative; the checked-out head may be a superseded SHA (#108).
 		runGit(t, dir, "update-ref", "refs/remotes/origin/main", head)
+		got, err := runner.ResolveRev(context.Background(), "main")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "refs/remotes/origin/main" {
+			t.Errorf("ResolveRev(main) = %q, want refs/remotes/origin/main", got)
+		}
+	})
+
+	t.Run("falls back to the local head without an origin-tracking ref", func(t *testing.T) {
+		t.Parallel()
+		runner, dir := newRepo(t)
+		writeCommit(t, dir, "app.txt", "v0\n", "c0")
+		// A standalone repository: no remote-tracking ref for the branch.
 		got, err := runner.ResolveRev(context.Background(), "main")
 		if err != nil {
 			t.Fatal(err)
@@ -40,7 +54,7 @@ func TestResolveRev(t *testing.T) {
 		}
 	})
 
-	t.Run("falls back to the origin-tracking ref", func(t *testing.T) {
+	t.Run("resolves a branch that exists only as an origin-tracking ref", func(t *testing.T) {
 		t.Parallel()
 		runner, dir := newRepo(t)
 		head := writeCommit(t, dir, "app.txt", "v0\n", "c0")

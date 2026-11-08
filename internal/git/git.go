@@ -142,10 +142,10 @@ func (r *Runner) runCapped(ctx context.Context, maxBytes int, args ...string) ([
 
 // validRev resolves a caller-supplied revision to a form safe to hand git
 // as data. A bare object id passes through unchanged; otherwise the value is
-// treated as a branch name and resolved (via resolveBranchRef) to its local
-// head or origin-tracking ref. This lets range endpoints accept either a
-// configured branch or an object id produced by a prior git call (e.g. a
-// merge base).
+// treated as a branch name and resolved (via resolveBranchRef) to its
+// origin-tracking ref or, failing that, its local head. This lets range
+// endpoints accept either a configured branch or an object id produced by a
+// prior git call (e.g. a merge base).
 func (r *Runner) validRev(ctx context.Context, s string) (string, error) {
 	if oidPattern.MatchString(s) {
 		return s, nil
@@ -157,10 +157,10 @@ func (r *Runner) validRev(ctx context.Context, s string) (string, error) {
 // their own rev-ranges. The reconcile layer shells out to git directly for the
 // commit-body and trailer reads the Runner does not expose (see
 // commitBodies/backflowSkipTrailers); it uses this to resolve each range
-// endpoint to the ref that actually holds it — the local head or, under
-// actions/checkout where non-triggering branches are only remote-tracking, the
-// origin-tracking ref — instead of hard-coding refs/heads/<name> and failing on
-// every branch but the one that triggered the workflow. A bare object id passes
+// endpoint to the same ref every other read uses — the origin-tracking ref or,
+// in a repository with no remote-tracking ref for the branch, the local head —
+// instead of hard-coding refs/heads/<name> and failing on every branch but the
+// one that triggered the workflow. A bare object id passes
 // through unchanged; a branch name still passes CheckRefFormat and resolves
 // only to refs/heads/<name> or refs/remotes/origin/<name>, preserving the
 // no-shell and ref-format guarantees.
@@ -169,9 +169,9 @@ func (r *Runner) ResolveRev(ctx context.Context, s string) (string, error) {
 }
 
 // resolveBranchRef validates a branch name and resolves it to the
-// fully-qualified ref that actually holds it, preferring the local head
-// (refs/heads/<name>) and falling back to the origin-tracking ref
-// (refs/remotes/origin/<name>).
+// fully-qualified ref that actually holds it, preferring the origin-tracking
+// ref (refs/remotes/origin/<name>) and falling back to the local head
+// (refs/heads/<name>) only when no origin-tracking ref exists.
 //
 // It exists because under actions/checkout only the branch that triggered
 // the workflow is materialized as a local head; every other branch in a
@@ -180,9 +180,19 @@ func (r *Runner) ResolveRev(ctx context.Context, s string) (string, error) {
 // unconditionally, so Head/UniqueCommits/etc. failed on any non-triggering
 // branch and a multi-branch reconcile exited 1 on its very first run.
 //
-// The local head wins when both refs exist: the triggering branch's
-// checked-out state is the authoritative live value. Only
-// refs/heads/<validated> or refs/remotes/origin/<validated> are ever
+// The origin-tracking ref wins when both refs exist. The CI wrappers fetch
+// every branch into refs/remotes/origin/* immediately before Oiax runs, but
+// the checked-out local head is whatever SHA the run was started for: a
+// re-run of an older run, a queued run under a concurrency group, or a
+// workflow_dispatch on a ref that has since moved all check out a superseded
+// SHA. Preferring the local head there replayed backflow against a tip that
+// no longer existed and recorded a superseded head as the promotion baseline
+// (#108). Reading every branch from the remote also makes all endpoints of an
+// edge come from one snapshot. The local head remains the answer for a
+// standalone repository with no remote-tracking ref for the branch.
+// LocalHeadDivergence reports when the two differ.
+//
+// Only refs/heads/<validated> or refs/remotes/origin/<validated> are ever
 // constructed — the name still passes CheckRefFormat first — so the no-shell
 // posture and ref-format guarantees are preserved. A name that resolves to
 // neither ref is a genuine "not found"; any operational git failure (a
@@ -192,7 +202,7 @@ func (r *Runner) resolveBranchRef(ctx context.Context, name string) (string, err
 	if err := r.CheckRefFormat(ctx, name); err != nil {
 		return "", err
 	}
-	for _, ref := range []string{"refs/heads/" + name, "refs/remotes/origin/" + name} {
+	for _, ref := range []string{"refs/remotes/origin/" + name, "refs/heads/" + name} {
 		_, err := r.run(ctx, "show-ref", "--verify", "--quiet", ref)
 		if err == nil {
 			return ref, nil
@@ -484,8 +494,9 @@ func (r *Runner) BranchExists(ctx context.Context, name string) (bool, error) {
 }
 
 // Head resolves a branch name to its commit SHA. The name is resolved to its
-// local head or origin-tracking ref (resolveBranchRef), so a branch that
-// actions/checkout left only as refs/remotes/origin/<name> still resolves.
+// origin-tracking ref or, failing that, its local head (resolveBranchRef), so
+// a branch that actions/checkout left only as refs/remotes/origin/<name>
+// resolves, and a stale checked-out head never shadows the fetched tip.
 func (r *Runner) Head(ctx context.Context, name string) (string, error) {
 	ref, err := r.resolveBranchRef(ctx, name)
 	if err != nil {
@@ -510,8 +521,39 @@ func (r *Runner) RemoteTrackingHead(ctx context.Context, name string) (string, b
 	if err := r.CheckRefFormat(ctx, name); err != nil {
 		return "", false, err
 	}
-	out, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "--end-of-options",
-		"refs/remotes/origin/"+name)
+	return r.qualifiedHead(ctx, "refs/remotes/origin/"+name)
+}
+
+// LocalHeadDivergence reports whether a branch exists both as a local head
+// and as an origin-tracking ref at different commits, returning both SHAs
+// when it does. resolveBranchRef reads the origin-tracking ref in that case,
+// so the local head is ignored; callers use this to say so once, which is
+// what explains why a re-run or queued run plans against a newer tip than the
+// one it was started for. A branch with only one of the two refs, or with
+// both at the same commit, is not divergent. The name is validated with
+// CheckRefFormat and only refs/heads/<validated> and
+// refs/remotes/origin/<validated> are constructed.
+func (r *Runner) LocalHeadDivergence(ctx context.Context, name string) (local, origin string, diverged bool, err error) {
+	if err = r.CheckRefFormat(ctx, name); err != nil {
+		return "", "", false, err
+	}
+	local, hasLocal, err := r.qualifiedHead(ctx, "refs/heads/"+name)
+	if err != nil || !hasLocal {
+		return "", "", false, err
+	}
+	origin, hasOrigin, err := r.qualifiedHead(ctx, "refs/remotes/origin/"+name)
+	if err != nil || !hasOrigin || origin == local {
+		return "", "", false, err
+	}
+	return local, origin, true, nil
+}
+
+// qualifiedHead resolves an already-constructed, fully-qualified ref to its
+// commit SHA, reporting ok=false on git's clean "no such ref" (exit 1). Any
+// other failure propagates. Callers construct ref only from a name that has
+// passed CheckRefFormat.
+func (r *Runner) qualifiedHead(ctx context.Context, ref string) (string, bool, error) {
+	out, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "--end-of-options", ref)
 	if err == nil {
 		return out, true, nil
 	}

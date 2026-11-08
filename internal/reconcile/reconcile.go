@@ -112,6 +112,7 @@ func (c *Coordinator) Plan(ctx context.Context) (engine.Plan, error) {
 	c.warnMergeMethodMismatch(ctx)
 	c.warnSourceBranchDeletion(ctx)
 	c.warnConflictArtifactSupport(ctx)
+	c.noteLocalHeadDivergence(ctx)
 
 	// A shallow clone (actions/checkout's default fetch-depth: 1) has no merge
 	// base for fork points that predate the fetch depth, so the patch-identity
@@ -1439,6 +1440,36 @@ func (c *Coordinator) warnMergeMethodMismatch(ctx context.Context) {
 					"enable it in the repository's merge settings or change mergeMethod",
 				w.method, w.edge, w.method))
 		}
+	}
+}
+
+// noteLocalHeadDivergence logs, once per graph branch, when the checked-out
+// local head differs from the fetched origin-tracking ref. Oiax plans against
+// the origin-tracking ref (see git.Runner.resolveBranchRef), so this line is
+// what explains why a re-run, a queued run, or a stale local checkout reports
+// different numbers from the run it was started for (#108). It is
+// informational, not a CI annotation: the plan is correct. A lookup failure is
+// logged at debug and skipped; the edge observation that follows surfaces any
+// real git failure.
+func (c *Coordinator) noteLocalHeadDivergence(ctx context.Context) {
+	names := make([]string, 0, len(c.Graph.Branches))
+	for name := range c.Graph.Branches {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		local, origin, diverged, err := c.Git.LocalHeadDivergence(ctx, name)
+		if err != nil {
+			c.log().Debug(fmt.Sprintf("skipping local-head divergence check for branch %q: %v", name, err))
+			continue
+		}
+		if !diverged {
+			continue
+		}
+		c.log().Info(fmt.Sprintf(
+			"branch %q: planning against the fetched origin tip %s, not the checked-out local head %s "+
+				"(a re-run, a queued run, or a local branch that differs from origin)",
+			name, origin, local))
 	}
 }
 
