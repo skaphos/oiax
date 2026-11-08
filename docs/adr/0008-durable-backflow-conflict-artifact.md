@@ -1,6 +1,6 @@
 # 0008 — Durable backflow-conflict artifact
 
-- Status: Proposed
+- Status: accepted (maintainer decision; repository publication remains PR-based)
 - Date: 2026-07-17
 
 ## Context

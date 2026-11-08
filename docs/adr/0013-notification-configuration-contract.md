@@ -1,6 +1,6 @@
 # 0013 — Add an optional notification contract
 
-- Status: proposed
+- Status: accepted (maintainer decision; repository publication remains PR-based); amended 2026-11-07 — see [Amendment](#amendment-2026-11-07)
 - Date: 2026-09-04
 - Deciders: Oiax maintainers (proposal awaiting repository review)
 
@@ -60,6 +60,29 @@ additive preview fields; older binaries still reject unknown configuration field
 so binary upgrades precede deploying notification config. Rollback removes the
 optional config first. A future removal requires the normal deprecation window
 and major-version policy.
+
+## Amendment (2026-11-07)
+
+Accepted after notifications shipped in 2.0.0 and passed adoption testing
+([#86](https://github.com/skaphos/oiax/issues/86),
+[#87](https://github.com/skaphos/oiax/issues/87),
+[#88](https://github.com/skaphos/oiax/issues/88)). The decision text above is
+unchanged. Three delivery decisions made after the release are recorded
+elsewhere:
+
+- Finalization has a ten-minute budget, independent of the claim lease. See the
+  [notifications guide](../guides/notifications.md#delivery-and-recovery) and
+  [research §4](../../specs/001-promotion-notifications/research.md#4-retry-policy-and-bounded-work).
+- A claim covers one destination's batch per run. Before each send, the worker
+  rereads the ledger and confirms the batch still owns the destination and
+  record at the run's configuration revision. See the
+  [notifications guide](../guides/notifications.md#delivery-and-recovery).
+- The ledger records the receiver's HTTP status as `lastStatus`. Once a newer
+  binary records it, older binaries reject the ledger. Removing notification
+  configuration still lets an older binary run without notifications, but does
+  not make the ledger readable to it. See
+  [ADR 0018](0018-notification-terminal-outcome-rollout.md) and the
+  [notifications guide](../guides/notifications.md#changing-destination-identity-and-rollback).
 
 ## Consequences
 
