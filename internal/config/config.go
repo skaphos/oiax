@@ -86,6 +86,12 @@ func Parse(data []byte) (*v1.PromotionGraph, error) {
 		if errors.Is(err, io.EOF) {
 			return nil, errors.New("configuration is empty")
 		}
+		if key, since, ok := newerMajorSpecField(data); ok {
+			return nil, fmt.Errorf("parse configuration: this graph uses spec.%s, which needs Oiax %s or later, "+
+				"but this job runs Oiax 1.x. Upgrade the Oiax wrapper in this branch's workflow "+
+				"(for example skaphos/oiax@v1 to skaphos/oiax@v2) and run again; see %s (%w)",
+				key, since, upgradeGuideURL, err)
+		}
 		return nil, fmt.Errorf("parse configuration: %w", err)
 	}
 
@@ -101,6 +107,42 @@ func Parse(data []byte) (*v1.PromotionGraph, error) {
 		return nil, fmt.Errorf("unsupported kind %q (want %q)", cfg.Kind, v1.KindPromotionGraph)
 	}
 	return &cfg, nil
+}
+
+// newerMajorSpecFields lists spec keys that a later Oiax major defines, with
+// the first release that accepts them. v1 still rejects them (strict decoding
+// is unchanged); recognizing them only turns the raw "field ... not found"
+// error into an actionable one.
+//
+// On a push-triggered branch-per-environment graph, every branch runs its own
+// copy of the workflow, but every run reads .oiax.yaml from the pinned
+// default-branch ref. Once v2-only configuration lands there, each branch whose
+// workflow still pins v1 fails to parse it. The fix is to upgrade that
+// branch's wrapper, which the raw decode error does not say (skaphos/oiax#129,
+// #147).
+var newerMajorSpecFields = []struct{ key, since string }{
+	{key: "notifications", since: "2.0.0"},
+}
+
+// upgradeGuideURL is the v2 upgrade guide's push-triggered-graph section.
+const upgradeGuideURL = "https://github.com/skaphos/oiax/blob/main/docs/guides/upgrading-v2.md#push-triggered-graphs-upgrade-the-wrapper-on-every-branch-first"
+
+// newerMajorSpecField reports the first newerMajorSpecFields key present in
+// the document's spec, decoding leniently so that the rest of the document
+// cannot hide it. It is consulted only after strict decoding has failed.
+func newerMajorSpecField(data []byte) (key, since string, ok bool) {
+	var doc struct {
+		Spec map[string]yaml.Node `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return "", "", false
+	}
+	for _, f := range newerMajorSpecFields {
+		if _, present := doc.Spec[f.key]; present {
+			return f.key, f.since, true
+		}
+	}
+	return "", "", false
 }
 
 // IsDeprecatedAPIVersion reports whether apiVersion is the deprecated

@@ -164,6 +164,67 @@ spec:
 	}
 }
 
+// TestParseNewerMajorField pins #147: v1 still rejects configuration that only
+// a later major understands, but names the field, the release that added it,
+// and the fix (upgrade this branch's wrapper) instead of the raw decode error.
+func TestParseNewerMajorField(t *testing.T) {
+	const base = `apiVersion: oiax.skaphos.dev/v1
+kind: PromotionGraph
+metadata:
+  name: g
+spec:
+  branches:
+    a: {}
+    b: {}
+  promotions:
+    - from: a
+      to: b
+`
+	t.Run("spec.notifications gets the upgrade message", func(t *testing.T) {
+		input := base + `  notifications:
+    destinations:
+      - name: ops
+        type: teams
+        endpointEnv: OIAX_TEAMS_WEBHOOK
+`
+		_, err := Parse([]byte(input))
+		if err == nil {
+			t.Fatal("Parse succeeded, want error: v1 must still reject spec.notifications")
+		}
+		for _, want := range []string{
+			"spec.notifications",
+			"needs Oiax 2.0.0 or later",
+			"this job runs Oiax 1.x",
+			"Upgrade the Oiax wrapper in this branch's workflow",
+			upgradeGuideURL,
+			"field notifications not found", // the raw decode error is kept for debugging
+		} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error %q does not contain %q", err, want)
+			}
+		}
+	})
+
+	t.Run("notifications outside spec keeps the raw error", func(t *testing.T) {
+		input := strings.Replace(base, "metadata:\n  name: g", "metadata:\n  name: g\n  notifications: x", 1)
+		_, err := Parse([]byte(input))
+		if err == nil {
+			t.Fatal("Parse succeeded, want error")
+		}
+		if strings.Contains(err.Error(), "needs Oiax") {
+			t.Errorf("error %q points at an upgrade for a field that is not spec.notifications", err)
+		}
+	})
+
+	t.Run("an unrelated unknown field keeps the raw error", func(t *testing.T) {
+		input := strings.Replace(base, "spec:", "spec:\n  hooks: [run-me]", 1)
+		_, err := Parse([]byte(input))
+		if err == nil || !strings.Contains(err.Error(), "field hooks not found") || strings.Contains(err.Error(), "needs Oiax") {
+			t.Errorf("error = %v, want the raw unknown-field error only", err)
+		}
+	})
+}
+
 // TestParseAPIVersions pins the apiVersion contract: the canonical
 // oiax.skaphos.dev/v1 parses, the deprecated oiax.skaphos.dev/v1alpha1 alias
 // still parses for backward compatibility, and only the alias is reported
