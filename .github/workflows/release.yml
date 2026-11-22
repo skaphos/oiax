@@ -129,14 +129,26 @@ jobs:
             fi
           done
 
-          # When CHANGELOG.md had a section for this version, its first line
-          # must appear in the published body.
-          expected="$(grep -m1 '[^[:space:]]' /tmp/release-notes.md || true)"
-          if [ -n "${expected}" ]; then
+          # Every entry line of this version's CHANGELOG.md section must appear
+          # in the published body. Section headings ("### Bug Fixes") are generic
+          # and would also match another release's notes, so check the entries;
+          # each one names a specific change and commit. A section with no entry
+          # lines falls back to its first non-blank line.
+          if grep -q '[^[:space:]]' /tmp/release-notes.md; then
             body="$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
               --json body --jq .body)"
-            if ! grep -Fq -- "${expected}" <<<"${body}"; then
-              echo "::error title=Release notes::${RELEASE_TAG} was published without its CHANGELOG.md notes. Edit the release body; title and notes stay editable even on an immutable release."
+            mapfile -t entries < <(grep -E '^[*-] ' /tmp/release-notes.md || true)
+            if [ "${#entries[@]}" -eq 0 ]; then
+              mapfile -t entries < <(grep -m1 '[^[:space:]]' /tmp/release-notes.md)
+            fi
+            missing_notes=0
+            for entry in "${entries[@]}"; do
+              if ! grep -Fq -- "${entry}" <<<"${body}"; then
+                missing_notes=$((missing_notes + 1))
+              fi
+            done
+            if [ "${missing_notes}" -ne 0 ]; then
+              echo "::error title=Release notes::${RELEASE_TAG} is missing ${missing_notes} of ${#entries[@]} CHANGELOG.md entries. Edit the release body; title and notes stay editable even on an immutable release."
               failed=1
             fi
           fi
