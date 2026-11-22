@@ -260,6 +260,9 @@ Open a request from that branch into the target and keep the
 `(cherry picked from commit …)` provenance line intact — that line (or
 the resulting identical patch-id) is what the [identity
 ladder](#already-returned--the-identity-check) recognizes as returned.
+Trailers after it are fine: `git cherry-pick -x -s`, `--signoff`, or a DCO
+hook adds `Signed-off-by:` below the provenance line, and Oiax 2.1.2 and later
+still recognize it. Older versions need the provenance line last.
 Commits still unreturned after this one are picked up by the next
 reconcile, which replays them from the new state.
 
@@ -330,9 +333,9 @@ target another way.
 The durable fix is to **avoid squash merges on promotion-path branches** —
 prefer rebase or merge-commit merges there, which preserve the per-commit
 identity backflow relies on. A squashed *return* branch merged back into
-the source is fine: Oiax reads the provenance line at the tail of every
-paragraph of the squash, so all of the returned commits are recognized as
-already-returned and none is re-proposed.
+the source is fine: Oiax reads the provenance line from the trailer lines
+that end every paragraph of the squash, so all of the returned commits are
+recognized as already-returned and none is re-proposed.
 
 ## Requirements
 
