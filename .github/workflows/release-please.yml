@@ -1,13 +1,18 @@
 name: Release Please
 
+# release/v1 is the v1 maintenance line (cut from v1.3.0). This copy of the
+# workflow runs only for pushes to release/v1 and opens release PRs against it;
+# main's copy handles the 2.x line. Release PR titles carry the branch scope,
+# "chore(release/v1): release X.Y.Z" (pinned in release-please-config.json), so
+# each line's steps below recognize only their own release PRs.
 on:
   push:
-    branches: [main]
+    branches: [release/v1]
 
+# Every write in this workflow uses the release bot App token minted below, so
+# the default GITHUB_TOKEN stays read-only.
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
 
 jobs:
   release-please:
@@ -53,7 +58,7 @@ jobs:
             number="$(jq -r '.number' <<<"${pr}")"
             title="$(jq -r '.title' <<<"${pr}")"
 
-            if [[ ! "${title}" =~ ^chore\(main\):\ release\ ([^[:space:]]+) ]]; then
+            if [[ ! "${title}" =~ ^chore\(release/v1\):\ release\ ([^[:space:]]+) ]]; then
               echo "PR #${number} is pending but does not look like a release PR (${title}); skipping."
               continue
             fi
@@ -73,6 +78,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          target-branch: release/v1
           skip-github-release: true
       - uses: actions/checkout@v7
         with:
@@ -85,12 +91,12 @@ jobs:
           set -euo pipefail
 
           # Determine the release-please subject.
-          # - Squash merge: HEAD itself carries the "chore(main): release ..." subject.
+          # - Squash merge: HEAD itself carries the "chore(release/v1): release ..." subject.
           # - Regular merge commit: the second parent (the merged branch tip) carries it.
           subject="$(git log -1 --pretty=%s)"
           if git rev-parse -q --verify HEAD^2 >/dev/null 2>&1; then
             merged_subject="$(git log -1 --pretty=%s HEAD^2 2>/dev/null || true)"
-            if [[ "${merged_subject}" == "chore(main): release "* ]]; then
+            if [[ "${merged_subject}" == "chore(release/v1): release "* ]]; then
               subject="${merged_subject}"
             fi
           fi
@@ -110,7 +116,7 @@ jobs:
               pr_number="$(
                 gh pr list --state merged --label "autorelease: pending" \
                   --json number,title \
-                  | jq -r --arg t "chore(main): release ${version}" \
+                  | jq -r --arg t "chore(release/v1): release ${version}" \
                       '.[] | select(.title == $t) | .number' \
                   | head -n1
               )"
@@ -131,7 +137,7 @@ jobs:
           }
 
           case "${subject}" in
-            "chore(main): release "*)
+            "chore(release/v1): release "*)
               ;;
             *)
               echo "HEAD is not a release commit (${subject}); skipping tag creation."

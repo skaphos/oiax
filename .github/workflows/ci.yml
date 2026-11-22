@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [release/v1]
   pull_request:
-    branches: [main]
+    branches: [release/v1]
 
 # Least-privilege default: every job here only reads the repository
 # (checkout + build/test/lint; no repo writes, releases, or PR mutations).

@@ -34,11 +34,23 @@ archives:
 checksum:
   name_template: checksums.txt
 
-changelog:
-  disable: true # CHANGELOG.md is release-please managed
+# CHANGELOG.md is managed by release-please. release.yml extracts this tag's
+# section and passes it with --release-notes, which replaces GoReleaser's own
+# generated changelog. Do not set `changelog.disable: true`: GoReleaser then
+# ignores the --release-notes file as well and publishes an empty body
+# (skaphos/oiax#144).
 
 release:
+  # Created as a draft, all assets uploaded, then published: the order GitHub
+  # immutable releases require (assets and tag lock on publish).
   draft: false
-  make_latest: true
+  # release/v1 is a maintenance line. A v1 patch must never become the
+  # repository's latest release: that is the 2.x line, and the GitHub
+  # Marketplace listing follows "latest".
+  make_latest: false
+  # Abort before building when a preflight check fails, for example a token
+  # that cannot publish, or a tag already published as an immutable release.
+  preflight:
+    fail_on_error: true
   footer: |
     See [CHANGELOG.md](https://github.com/skaphos/oiax/blob/{{ .Tag }}/CHANGELOG.md) for the full release notes.

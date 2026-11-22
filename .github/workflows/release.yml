@@ -30,10 +30,32 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: Extract this release's notes from CHANGELOG.md
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        # The release body is the release-please-written CHANGELOG.md section
+        # for this version: everything after its "## [x.y.z](...)" heading up
+        # to the next level-2 heading. A missing section degrades to the
+        # link-only body rather than failing the release. Backported from main
+        # (skaphos/oiax#145).
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          awk -v ver="${version}" '
+            !found && index($0, "## [" ver "]") == 1 { found=1; flag=1; next }
+            flag && /^## / { flag=0 }
+            flag { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          if ! grep -q '[^[:space:]]' /tmp/release-notes.md; then
+            echo "::warning::no CHANGELOG.md section found for ${version}; publishing with link-only release notes"
+            : > /tmp/release-notes.md
+          fi
       - uses: goreleaser/goreleaser-action@v7
         with:
-          version: "~> v2"
-          args: release --clean
+          # Pinned (not "~> v2") so a v1 maintenance release is reproducible and
+          # has release.preflight (v2.18+).
+          version: v2.20.0
+          args: release --clean --release-notes /tmp/release-notes.md
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
       - name: Advance floating major Action tag
@@ -72,3 +94,47 @@ jobs:
           git tag --force --annotate "${major_tag}" "${release_commit}" --message "${major_tag}"
           git push --force origin "refs/tags/${major_tag}"
           echo "Advanced ${major_tag} to ${RELEASE_TAG} (${release_commit})."
+      # Check the published release itself (backported from main, skaphos/oiax#145):
+      # every expected asset, the CHANGELOG notes in the body, and, on this
+      # maintenance line, that the release did NOT become the repository's latest.
+      - name: Verify the published release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          failed=0
+
+          assets="$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+            --json assets --jq '.assets[].name')"
+          for name in checksums.txt \
+            "oiax_${version}_linux_amd64.tar.gz" "oiax_${version}_linux_arm64.tar.gz" \
+            "oiax_${version}_darwin_amd64.tar.gz" "oiax_${version}_darwin_arm64.tar.gz" \
+            "oiax_${version}_windows_amd64.zip" "oiax_${version}_windows_arm64.zip"; do
+            if ! grep -Fxq "${name}" <<<"${assets}"; then
+              echo "::error title=Release assets::${RELEASE_TAG} is missing ${name}"
+              failed=1
+            fi
+          done
+
+          expected="$(grep -m1 '[^[:space:]]' /tmp/release-notes.md || true)"
+          if [ -n "${expected}" ]; then
+            body="$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+              --json body --jq .body)"
+            if ! grep -Fq -- "${expected}" <<<"${body}"; then
+              echo "::error title=Release notes::${RELEASE_TAG} was published without its CHANGELOG.md notes. Edit the release body; notes stay editable on an immutable release."
+              failed=1
+            fi
+          fi
+
+          latest="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
+          if [ "${latest}" = "${RELEASE_TAG}" ]; then
+            echo "::error title=Latest release::${RELEASE_TAG} became the repository's latest release. Mark the 2.x release as latest again."
+            failed=1
+          fi
+
+          if [ "${failed}" -ne 0 ]; then
+            exit 1
+          fi
+          echo "${RELEASE_TAG}: all assets present, notes published, and latest is still ${latest}."

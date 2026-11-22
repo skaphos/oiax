@@ -1,5 +1,6 @@
 {
   "signoff": "skaphos-release-bot[bot] <261675299+skaphos-release-bot[bot]@users.noreply.github.com>",
+  "pull-request-title-pattern": "chore(release/v1): release${component} ${version}",
   "bump-minor-pre-major": true,
   "bump-patch-for-minor-pre-major": true,
   "changelog-sections": [
