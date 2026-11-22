@@ -34,12 +34,20 @@ archives:
 checksum:
   name_template: checksums.txt
 
-changelog:
-  disable: true # CHANGELOG.md is release-please managed; release.yml passes
-  # the tag's changelog section to GoReleaser via --release-notes.
+# CHANGELOG.md is managed by release-please. release.yml extracts this tag's
+# section and passes it with --release-notes, which replaces GoReleaser's own
+# generated changelog. Do not set `changelog.disable: true`: GoReleaser then
+# ignores the --release-notes file as well and publishes an empty body, which
+# is how every release through v2.1.2 shipped footer-only (#144).
 
 release:
+  # Created as a draft, all assets uploaded, then published: the order GitHub
+  # immutable releases require (assets and tag lock on publish).
   draft: false
   make_latest: true
+  # Abort before building when a preflight check fails, for example a token
+  # that cannot publish, or a tag already published as an immutable release.
+  preflight:
+    fail_on_error: true
   footer: |
     See [CHANGELOG.md](https://github.com/skaphos/oiax/blob/{{ .Tag }}/CHANGELOG.md) for the release history.
