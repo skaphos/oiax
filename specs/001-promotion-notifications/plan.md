@@ -60,7 +60,7 @@ Pre-research review found no inherent conflict with optional notifications; stat
 | IX | Proposed status, explicit scope and endpoint-acceptance limits; no deployment claim | PASS |
 | X | Engine independent; add depguard denial of effects/HTTP for pure notification code | PASS |
 | XI | Explicit maintainer extension to `refs/notes/oiax/` in ADR 0015/Constitution v2.0.0; notification target remains narrower, expected-tip and append-only, no rewind/deletion or long-lived-branch force-push; T001 evidence recorded | PASS — authority resolved; enforcement tests still required |
-| XII | Proposed [0013](../../docs/adr/0013-notification-configuration-contract.md) and [0014](../../docs/adr/0014-notification-delivery-ledger.md) cover additive contracts; no existing removal/deprecation | PASS |
+| XII | Accepted [0013](../../docs/adr/0013-notification-configuration-contract.md) and [0014](../../docs/adr/0014-notification-delivery-ledger.md) cover additive contracts; no existing removal/deprecation | PASS |
 
 Implementation gates: race/shuffle tests, fuzz untrusted origin/ledger/URL/template inputs, at least 85% statement coverage on new notification packages, generated-reference drift checks, and same-change operator docs. Existing Taskfile targets do not enforce race/shuffle or a coverage floor; add reproducible feature verification targets and wire them into CI when implementing. This plan does not claim to resolve unrelated constitution TODOs.
 

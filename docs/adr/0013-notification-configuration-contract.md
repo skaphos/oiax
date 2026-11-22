@@ -2,7 +2,7 @@
 
 - Status: accepted (maintainer decision; repository publication remains PR-based); amended 2026-11-07 — see [Amendment](#amendment-2026-11-07)
 - Date: 2026-09-04
-- Deciders: Oiax maintainers (proposal awaiting repository review)
+- Deciders: Oiax maintainers
 
 ## Context
 
