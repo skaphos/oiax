@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/skaphos/oiax/v2/internal/git"
 	"github.com/skaphos/oiax/v2/internal/gittest"
@@ -68,7 +67,7 @@ func TestNotificationUnreachableRevisionRecovery(t *testing.T) {
 	// A healthy ledger with a real delivery receipt: the recovery must not cost
 	// the operator any of this.
 	f.run(0, "reconcile")
-	f.setSeeds(f.seed(42, "promotion", "merged", time.Now().UTC(), true))
+	f.setSeeds(f.seed(42, "promotion", "merged", f.eventTime(f.ledger()), true))
 	f.run(0, "reconcile")
 	seeded := f.ledger()
 	if len(seeded.Events) == 0 || len(seeded.Deliveries) == 0 {

@@ -3,7 +3,6 @@ package cli
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestNotificationTemplatesBinary(t *testing.T) {
@@ -13,7 +12,7 @@ func TestNotificationTemplatesBinary(t *testing.T) {
 		t.Run(provider, func(t *testing.T) {
 			f := newNotificationBinaryFixture(t, binary, provider, "webhook", "    environmentNames: {test: Testing, dev: Development}", "    templates:", "      title: '{{.Event}} {{.RequestType}}'", "      body: 'These commits were promoted to the {{.DestinationEnvironment}} environment.'")
 			f.run(0, "reconcile")
-			f.setSeeds(f.seed(42, "promotion", "merged", time.Now().UTC(), true))
+			f.setSeeds(f.seed(42, "promotion", "merged", f.eventTime(f.ledger()), true))
 			f.run(0, "reconcile")
 			messages := f.messages()
 			if len(messages) != 1 {

@@ -86,15 +86,22 @@ func compileNotificationBinary() (dir, binary string, err error) {
 	if strings.Count(string(source), constructor) != 1 {
 		return dir, "", errors.New("notification constructor moved; review the fixture overlay boundary")
 	}
+	const clock = "Now:         func() time.Time { return time.Now().UTC() },"
+	if strings.Count(string(source), clock) != 1 {
+		return dir, "", errors.New("notification clock moved; review the fixture overlay boundary")
+	}
+	overridden := strings.Replace(string(source), constructor,
+		"return delivery.NewFixtureClient(destination.Type, destination.AllowPrivateNetwork)", 1)
+	overridden = strings.Replace(overridden, clock, "Now:         fixtureNotificationNow,", 1)
 	override := filepath.Join(dir, "notification_runtime.go")
-	if err := os.WriteFile(override, []byte(strings.Replace(string(source), constructor,
-		"return delivery.NewFixtureClient(destination.Type, destination.AllowPrivateNetwork)", 1)), 0o600); err != nil {
+	if err := os.WriteFile(override, []byte(overridden), 0o600); err != nil {
 		return dir, "", err
 	}
 	overlay := map[string]map[string]string{"Replace": {
 		runtimePath: override,
 		filepath.Join(root, "internal/cli/notification_fixture.go"):                   filepath.Join(root, "internal/cli/testdata/notification-binary/forge.go"),
 		filepath.Join(root, "internal/notification/delivery/notification_fixture.go"): filepath.Join(root, "internal/cli/testdata/notification-binary/delivery.go"),
+		filepath.Join(root, "internal/reconcile/notification_fixture.go"):             filepath.Join(root, "internal/cli/testdata/notification-binary/clock.go"),
 	}}
 	data, err := json.Marshal(overlay)
 	if err != nil {
@@ -152,7 +159,11 @@ type notificationBinaryFixture struct {
 	// configRef overrides the pinned configuration commit every invocation is
 	// run against. Empty means oid — the commit the fixture graph was created
 	// at — which is what every test but the revision-recovery one wants.
-	configRef       string
+	configRef string
+	// clockFloor, when set, is the earliest time any later invocation's
+	// notification clock may read (see eventTime). Guarded by mu: the forge
+	// raises it when it stamps a creation.
+	clockFloor      time.Time
 	server          *httptest.Server
 	mu              sync.Mutex
 	seeds           []forgetest.LifecycleSeed
@@ -224,6 +235,12 @@ func (f *notificationBinaryFixture) run(want int, args ...string) (string, strin
 	if f.missingEndpoint {
 		cmd.Env = append(cmd.Env, "OIAX_FIXTURE_ENDPOINT=")
 	}
+	f.mu.Lock()
+	floor := f.clockFloor
+	f.mu.Unlock()
+	if !floor.IsZero() {
+		cmd.Env = append(cmd.Env, "OIAX_FIXTURE_CLOCK_FLOOR="+floor.Format(time.RFC3339Nano))
+	}
 	var out, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &stderr
 	err := cmd.Run()
@@ -279,6 +296,44 @@ func (f *notificationBinaryFixture) ledger() *notification.LedgerV1 {
 		f.t.Fatal(err)
 	}
 	return l
+}
+
+// eventTime returns the forge timestamp for an event the next invocation must
+// admit, and floors every later invocation's clock at it.
+//
+// The timestamp comes from this process's wall clock, but the fixture binary's
+// clock set the subscription cutoff and scan watermark it must not precede.
+// Both are the host's wall clock, so on a host whose wall clock gets stepped
+// backwards a plain time.Now() can land before them. The event is then dropped
+// as before-subscription-cutoff (#143). So the timestamp is never earlier than
+// the latest time the ledger records, and the floor keeps the next scan's upper
+// bound from falling behind it.
+func (f *notificationBinaryFixture) eventTime(l *notification.LedgerV1) time.Time {
+	var latest time.Time
+	for _, d := range l.Destinations {
+		for _, sub := range d.Subscriptions {
+			if sub.Cutoff.After(latest) {
+				latest = sub.Cutoff
+			}
+		}
+	}
+	for _, scan := range l.Scans {
+		if scan.Through.After(latest) {
+			latest = scan.Through
+		}
+	}
+	at := time.Now().UTC()
+	if floor := latest.UTC().Add(time.Millisecond); at.Before(floor) {
+		at = floor
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if at.Before(f.clockFloor) {
+		// A floor the forge already set (a creation stamp) is never lowered.
+		at = f.clockFloor
+	}
+	f.clockFloor = at
+	return at
 }
 
 func (f *notificationBinaryFixture) seed(id int, kind, state string, at time.Time, managed bool) forgetest.LifecycleSeed {
@@ -499,7 +554,18 @@ func (f *notificationBinaryFixture) create(w http.ResponseWriter, r *http.Reques
 	f.createdTargets = append(f.createdTargets, target)
 	s := f.seed(100+len(f.createdTargets), "promotion", "open", time.Now().UTC(), true)
 	s.Source, s.Destination = source, target
-	s.CreatedAt = time.Now().UTC().Truncate(time.Second) // exercise coarse API timestamps
+	// A real forge stamps creation after the runner's pre-POST observation.
+	// This one uses the test's clock, which a backward wall-clock step can put
+	// behind that observation (#143), so it never stamps earlier than the
+	// origin evidence in the body, and later invocations are floored there.
+	created := time.Now().UTC()
+	if origin, ok := mk.ParseNotificationOrigin(body); ok && created.Before(origin.ObservedAt) {
+		created = origin.ObservedAt.UTC()
+	}
+	if created.After(f.clockFloor) {
+		f.clockFloor = created
+	}
+	s.CreatedAt = created.Truncate(time.Second) // exercise coarse API timestamps
 	f.seeds = append(f.seeds, s)
 	f.bodies[s.ID] = body
 	pr := f.pull(s)
@@ -538,7 +604,7 @@ func TestNotificationMergeBinary(t *testing.T) {
 				if len(initial.Deliveries) != 0 || len(f.messages()) != 0 {
 					t.Fatal("activation sent historical merge")
 				}
-				at := time.Now().UTC()
+				at := f.eventTime(initial)
 				promotion := f.seed(42, "promotion", "merged", at, true)
 				backflow := f.seed(43, "backflow", "merged", at, true)
 				promotion.CreatedAt, backflow.CreatedAt = at, at // short-lived requests between runs
@@ -613,7 +679,7 @@ func checkNotificationCoreExit(t *testing.T, binary, provider string, coreExit i
 	f := newNotificationBinaryFixture(t, binary, provider, "webhook",
 		"      - {name: audit, type: webhook, endpointEnv: OIAX_FIXTURE_AUDIT}\n")
 	f.run(0, "reconcile")
-	f.setSeeds(f.seed(42, "promotion", "merged", time.Now().UTC(), true))
+	f.setSeeds(f.seed(42, "promotion", "merged", f.eventTime(f.ledger()), true))
 	f.mu.Lock()
 	f.failDelivery = true
 	if coreExit == 1 {

@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	mk "github.com/skaphos/oiax/v2/internal/forge/marker"
 	"github.com/skaphos/oiax/v2/internal/gittest"
@@ -85,9 +84,10 @@ func TestNotificationCreationBinary(t *testing.T) {
 					t.Fatal("baseline update changed creation provenance or receipts")
 				}
 				// Fixture-owned merge after the original create is a second event.
+				merged := f.eventTime(f.ledger())
 				f.mu.Lock()
 				f.seeds[0].State = notification.LifecycleMerged
-				f.seeds[0].MergedAt = time.Now().UTC()
+				f.seeds[0].MergedAt = merged
 				f.mu.Unlock()
 				// Sync both targets so no new core request is needed after merge.
 				head := gittest.Run(t, f.dir, "rev-parse", "dev")
