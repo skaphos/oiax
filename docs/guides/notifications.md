@@ -296,9 +296,10 @@ notifications are already enabled, suspend notification I/O first:
    wait for runs already in progress to finish.
 2. Roll the new version out to every workflow that reconciles the graph. Before
    re-enabling, cancel any queued runs that still use the old version.
-3. Set the destinations back to `enabled: true` without other changes. The
-   prior epoch and backlog resume, including eligible events from the disabled
-   interval (see
+3. Restore each destination's previous `enabled` value, and change nothing
+   else. A destination that was already disabled before the upgrade stays
+   disabled. For the ones you re-enable, the prior epoch and backlog resume,
+   including eligible events from the disabled interval (see
    [changing destination identity](#changing-destination-identity-and-rollback)).
 
 The [two-phase upgrade](upgrading-v2.md#push-triggered-graphs-upgrade-the-wrapper-on-every-branch-first)
