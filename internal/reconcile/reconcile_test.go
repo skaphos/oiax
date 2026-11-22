@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1697,6 +1698,65 @@ func TestPlanBackflowProvenanceMatchesSquashedReturn(t *testing.T) {
 	}
 	if len(st.ToReturn) != 0 {
 		t.Fatalf("ToReturn = %+v, want empty (both returned by squash provenance)", st.ToReturn)
+	}
+}
+
+func TestPlanBackflowProvenanceFollowedBySignoff(t *testing.T) {
+	// A hand replay made with `git cherry-pick -x -s` (or a DCO hook) records
+	// provenance with a Signed-off-by trailer AFTER it (#138). The replayed
+	// commit's content differs from the original, as a resolved conflict does,
+	// so only the identity rung can recognize it as returned. It must, or the
+	// returned hotfix is proposed again on every reconcile.
+	r, commit := gitHarness(t)
+
+	checkout(t, r, "main")
+	hFix := commit("fix.txt", "f\n", "hotfix on main")
+
+	checkout(t, r, "development")
+	commit("fix-resolved.txt", "f resolved\n",
+		"hotfix on main\n\n(cherry picked from commit "+hFix+")\nSigned-off-by: Dev <dev@example.invalid>")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			t.Fatalf("planned a backflow action; want none (the signed-off hand replay returned the hotfix)")
+		}
+	}
+	assertExclusionReason(t, plan, hFix, engine.BackflowExcludedProvenance)
+}
+
+func TestProvenanceSHAs(t *testing.T) {
+	const a = "1111111111111111111111111111111111111111"
+	const b = "2222222222222222222222222222222222222222"
+	pick := func(sha string) string { return "(cherry picked from commit " + sha + ")" }
+	tests := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"final line", "subject\n\n" + pick(a), []string{a}},
+		{"followed by sign-off", "subject\n\n" + pick(a) + "\nSigned-off-by: Dev <dev@example.invalid>", []string{a}},
+		{"after an existing sign-off, then another", "subject\n\nSigned-off-by: A <a@example.invalid>\n" + pick(a) + "\nSigned-off-by: B <b@example.invalid>", []string{a}},
+		{"followed by several trailers", "subject\n\n" + pick(a) + "\nSigned-off-by: Dev <dev@example.invalid>\nReviewed-by: R <r@example.invalid>\nChange-Id: I0123", []string{a}},
+		{"followed by an indented continuation", "subject\n\n" + pick(a) + "\nCo-authored-by: Dev\n  <dev@example.invalid>", []string{a}},
+		{"two in one trailer block keep message order", "subject\n\n" + pick(a) + "\n" + pick(b) + "\nSigned-off-by: Dev <dev@example.invalid>", []string{a, b}},
+		{"followed by prose", "subject\n\n" + pick(a) + "\nThis line is prose, not a trailer.", nil},
+		{"followed by a URL", "subject\n\n" + pick(a) + "\nhttps://example.invalid/x", nil},
+		{"embedded in a sentence", "subject\n\nrestores work " + pick(a) + " done earlier\nSigned-off-by: Dev <dev@example.invalid>", nil},
+		{"not standalone", "subject\n\nsee " + pick(a), nil},
+		{"one per squashed block", "squash\n\n* one\n\n" + pick(a) + "\nSigned-off-by: Dev <dev@example.invalid>\n\n* two\n\n" + pick(b) + "\n\nCo-authored-by: Dev <dev@example.invalid>", []string{a, b}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := provenanceSHAs(tt.body); !slices.Equal(got, tt.want) {
+				t.Errorf("provenanceSHAs() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
