@@ -251,6 +251,41 @@ notes ref to clear a warning: that loses duplicate-prevention evidence. Missing
 notes cannot be distinguished automatically from first activation, so protect and
 back up the ref using your repository's normal reviewed recovery process.
 
+## Operating assumptions: runner clocks and one version per graph
+
+Two assumptions hold delivery together. Oiax does not detect when either one is
+broken, so treat both as deployment requirements.
+
+**Runner clocks agree.** Keep every runner that reconciles a graph within a few
+seconds of the others and of the forge. In practice this means NTP-synchronized
+hosted or self-hosted runners. Clock skew causes two failures:
+
+- A claim lease's expiry is written from the claiming runner's own clock, and
+  other runners compare it with theirs. A runner that is behind writes leases
+  that the others already see as expired, so two runs can send the same batch
+  at once. The two-minute lease absorbs small skew, not minutes of it.
+- The first enabled run sets the subscription cutoff from the runner's clock.
+  It admits its own `request-created` events only when the forge's creation time
+  is not before that cutoff, and tolerates only sub-second differences. A runner
+  one second or more ahead of the forge can therefore drop the requests it just
+  opened as `subscription-not-active` / `before-subscription-cutoff`. Merge
+  events are unaffected.
+
+**One Oiax version per graph.** Do not let two binary versions reconcile the
+same graph, even briefly during a rollout. That includes a queued run on the old
+version that starts after the new one. The ledger reader rejects fields it does
+not recognize ([ADR 0014](../adr/0014-notification-delivery-ledger.md)). When an
+older run re-reads a ledger that a newer run has just written with an additive
+field such as `lastStatus`, it fails to decode it mid-batch, and its receipt
+write fails too. The records it had already sent are claimed again after the
+lease expires, which duplicates messages. Roll out by updating every workflow
+that reconciles the graph before the next scheduled or push-triggered run. For
+push-triggered graphs, see the
+[two-phase upgrade](upgrading-v2.md#push-triggered-graphs-upgrade-the-wrapper-on-every-branch-first).
+
+Deriving the cutoff from the forge's clock and tolerating additive record
+fields on read are tracked in [#97](https://github.com/skaphos/oiax/issues/97).
+
 ## Recovering an unreachable configuration revision
 
 Policy only advances onto a revision Oiax can prove is a descendant of the

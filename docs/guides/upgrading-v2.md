@@ -101,7 +101,9 @@ with `oiax version` rather than assuming.
 After upgrading every job that reads the graph, follow the
 [notification setup guide](notifications.md). Older binaries do not understand
 `spec.notifications`, so do not add it while v1 jobs still consume that pinned
-configuration ref.
+configuration ref. On a push-triggered graph, each branch's own workflow is
+one of those jobs; see
+[upgrading the wrapper on every branch first](#push-triggered-graphs-upgrade-the-wrapper-on-every-branch-first).
 
 - Bind endpoint variables through the runner's secret store; never commit
   webhook URLs or other credential values.
@@ -119,6 +121,52 @@ receiver and inspect subsequent runs for a saved delivery receipt. Live endpoint
 acceptance was deferred to post-release adoption; passing unit/CI tests is not
 evidence of recipient visibility. Ambiguous HTTP acceptance can still produce
 duplicates; there is no exactly-once delivery guarantee.
+
+### Push-triggered graphs: upgrade the wrapper on every branch first
+
+When the Action runs `reconcile` on pushes to every graph branch, each branch
+runs **its own copy** of the workflow, with its own `skaphos/oiax@…` pin, while
+every run reads `.oiax.yaml` from the pinned default-branch ref. Each of those
+per-branch copies is one of the "v1 jobs" above until the wrapper bump reaches
+that branch.
+
+If the wrapper bump and `spec.notifications` land on the default branch in the
+same change, every push to another graph branch still runs v1 against v2-only
+configuration and fails:
+
+```
+oiax: .oiax.yaml at ref origin/main: parse configuration: yaml: unmarshal errors:
+  line 71: field notifications not found in type v1.PromotionGraphSpec
+```
+
+Only the default branch can reconcile, so the whole graph stalls. Upgrade in two
+phases instead:
+
+1. **Land only the wrapper bump** (`skaphos/oiax@v1` → `@v2`) and let promotion
+   and backflow carry it to every graph branch. Confirm it arrived on each one,
+   for example:
+
+   ```sh
+   git fetch origin
+   for b in development test qa main; do
+     echo "== $b"; git grep -n 'skaphos/oiax@' "origin/$b" -- .github/workflows
+   done
+   ```
+
+2. **Only then add `spec.notifications`**, or any other v2-only configuration,
+   on the default branch.
+
+If you already hit the error, remove `spec.notifications` from the default
+branch, which makes the other branches reconcile again. Finish phase 1, then add
+it back.
+
+If backflow halts on the wrapper-bump commit with a conflict, for example
+because an unrelated edit touched the same workflow lines, resolve it by hand as
+the [conflict playbook](backflow.md#when-a-replay-conflicts) describes. Keep
+the `(cherry picked from commit …)` line in the replayed commit. Oiax 2.1.2 and
+later still recognize it when a `Signed-off-by:` trailer follows it, as
+`git cherry-pick -x -s` or a DCO hook writes. Older versions need it as the
+last line.
 
 ## If you need to return to v1
 
