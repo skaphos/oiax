@@ -88,7 +88,10 @@ func allowedAddress(ip netip.Addr, allowPrivate bool) bool {
 	}
 	// Shared-address, documentation, benchmarking, reserved, transition and
 	// metadata ranges are not public receivers (even with private opt-in).
-	for _, cidr := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "100:0:0:1::/64", "2001::/23", "2001:db8::/32", "2002::/16", "3fff::/20", "5f00::/16", "fec0::/10"} {
+	// IPv4 metadata (169.254.169.254) is link-local and refused above; the AWS
+	// IPv6 instance metadata endpoint (fd00:ec2::254) is unique-local, so it is
+	// listed here to keep private opt-in from reaching it.
+	for _, cidr := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "100:0:0:1::/64", "2001::/23", "2001:db8::/32", "2002::/16", "3fff::/20", "5f00::/16", "fec0::/10", "fd00:ec2::/32"} {
 		if netip.MustParsePrefix(cidr).Contains(ip) {
 			return false
 		}
