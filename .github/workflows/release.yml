@@ -43,15 +43,18 @@ jobs:
         # sections), not just a link to CHANGELOG.md. release-please writes
         # exactly one "## [x.y.z](...)" heading per release; take everything
         # from that heading (exclusive — the release title already names the
-        # version) to the next release heading. Missing section degrades to
-        # the link-only body rather than failing the release: publishing
-        # artifacts must never be blocked by notes formatting.
+        # version) to the next level-2 heading. Stop at ANY "## " heading, not
+        # only "## [": the first release's heading is "## 1.0.0 (...)" with no
+        # link, and a bracket-only stop let v1.0.1's section run into it.
+        # Missing section degrades to the link-only body rather than failing
+        # the release: publishing artifacts must never be blocked by notes
+        # formatting.
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
           awk -v ver="${version}" '
             !found && index($0, "## [" ver "]") == 1 { found=1; flag=1; next }
-            flag && /^## \[/ { flag=0 }
+            flag && /^## / { flag=0 }
             flag { print }
           ' CHANGELOG.md > /tmp/release-notes.md
           if ! grep -q '[^[:space:]]' /tmp/release-notes.md; then
