@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/skaphos/oiax/compare/v1.3.0...v1.3.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **config:** name the upgrade when a v1 job reads v2-only configuration ([#156](https://github.com/skaphos/oiax/issues/156)) ([e63a8c7](https://github.com/skaphos/oiax/commit/e63a8c7f3acbc3dcad6f108799f95feae757d9ac))
+
 ## [1.3.0](https://github.com/skaphos/oiax/compare/v1.2.0...v1.3.0) (2026-07-29)
 
 
