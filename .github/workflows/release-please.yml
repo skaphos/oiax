@@ -4,10 +4,10 @@ on:
   push:
     branches: [main]
 
+# Every write in this workflow uses the release bot App token minted below, so
+# the default GITHUB_TOKEN stays read-only.
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
 
 concurrency:
   group: release-please
