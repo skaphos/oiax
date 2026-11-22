@@ -264,24 +264,45 @@ hosted or self-hosted runners. Clock skew causes two failures:
   other runners compare it with theirs. A runner that is behind writes leases
   that the others already see as expired, so two runs can send the same batch
   at once. The two-minute lease absorbs small skew, not minutes of it.
-- The first enabled run sets the subscription cutoff from the runner's clock.
-  It admits its own `request-created` events only when the forge's creation time
-  is not before that cutoff, and tolerates only sub-second differences. A runner
-  one second or more ahead of the forge can therefore drop the requests it just
-  opened as `subscription-not-active` / `before-subscription-cutoff`. Merge
-  events are unaffected.
+- A subscription's cutoff is set from the activating runner's clock, and each
+  event is admitted only when its forge timestamp is not before that cutoff.
+  This applies to merges and creations alike. A runner ahead of the forge
+  therefore drops events that the forge timestamps just after activation, as
+  `subscription-not-active` / `before-subscription-cutoff`. The first enabled
+  run's own `request-created` events are the most exposed, because Oiax opens
+  them immediately after setting the cutoff. Only a sub-second difference on
+  those is tolerated. A merge that lands within the skew window after
+  activation is dropped the same way.
 
 **One Oiax version per graph.** Do not let two binary versions reconcile the
-same graph, even briefly during a rollout. That includes a queued run on the old
-version that starts after the new one. The ledger reader rejects fields it does
-not recognize ([ADR 0014](../adr/0014-notification-delivery-ledger.md)). When an
-older run re-reads a ledger that a newer run has just written with an additive
-field such as `lastStatus`, it fails to decode it mid-batch, and its receipt
-write fails too. The records it had already sent are claimed again after the
-lease expires, which duplicates messages. Roll out by updating every workflow
-that reconciles the graph before the next scheduled or push-triggered run. For
-push-triggered graphs, see the
-[two-phase upgrade](upgrading-v2.md#push-triggered-graphs-upgrade-the-wrapper-on-every-branch-first).
+same graph while notifications are enabled, even briefly. The ledger reader
+rejects fields it does not recognize
+([ADR 0014](../adr/0014-notification-delivery-ledger.md)). When an older run
+re-reads a ledger that a newer run has just written with an additive field such
+as `lastStatus`, it fails to decode it mid-batch, and its receipt write fails
+too. The records it had already sent are claimed again after the lease expires,
+which duplicates messages.
+
+Editing workflow files does not prevent this. It does not stop runs that are
+already in progress or queued on the old version, and on a push-triggered graph
+the change reaches each branch only through further runs, so an exact-pin
+rollout always overlaps versions for a while. To upgrade a graph whose
+notifications are already enabled, suspend notification I/O first:
+
+1. Set `enabled: false` on **every** destination and merge it to the branch
+   the configuration is pinned to. With all destinations disabled, Oiax does
+   no discovery, ledger reads or writes, or sends, and every 2.x binary honors
+   the setting. A run that started before the change can still be sending, so
+   wait for runs already in progress to finish.
+2. Roll the new version out to every workflow that reconciles the graph. Before
+   re-enabling, cancel any queued runs that still use the old version.
+3. Set the destinations back to `enabled: true` without other changes. The
+   prior epoch and backlog resume, including eligible events from the disabled
+   interval (see
+   [changing destination identity](#changing-destination-identity-and-rollback)).
+
+The [two-phase upgrade](upgrading-v2.md#push-triggered-graphs-upgrade-the-wrapper-on-every-branch-first)
+covers the separate case of moving from v1, before notifications are enabled.
 
 Deriving the cutoff from the forge's clock and tolerating additive record
 fields on read are tracked in [#97](https://github.com/skaphos/oiax/issues/97).
