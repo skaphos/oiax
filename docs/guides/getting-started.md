@@ -186,8 +186,14 @@ resolve the repository. Locally:
 
 ```bash
 export GITHUB_TOKEN=ghp_...          # a token with repo access
+git fetch origin                     # Oiax reads branches from origin/<branch>
 oiax plan
 ```
+
+Oiax reads each branch from its origin-tracking ref (`origin/<branch>`),
+which is what the forge holds and what `reconcile` acts on. Fetch first:
+unpushed local commits and stale local branches are ignored. A branch
+with no origin-tracking ref falls back to its local head.
 
 Typical output when work is pending:
 

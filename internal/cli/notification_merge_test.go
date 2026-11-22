@@ -150,6 +150,16 @@ func newNotificationBinaryFixture(t *testing.T, binary, provider, transport stri
 	return f
 }
 
+// publish pushes local graph-branch changes to the fixture remote, which also
+// moves their refs/remotes/origin/* tracking refs. A test that commits or
+// moves a branch locally stands in for a change that landed on the forge, and
+// Oiax plans against the origin-tracking ref (#108), so the change must be
+// published before the next run can see it.
+func (f *notificationBinaryFixture) publish(branches ...string) {
+	f.t.Helper()
+	gittest.Run(f.t, f.dir, append([]string{"push", "-q", "--force", "origin"}, branches...)...)
+}
+
 func (f *notificationBinaryFixture) run(want int, args ...string) (string, string) {
 	f.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -579,6 +589,7 @@ func checkNotificationCoreExit(t *testing.T, binary, provider string, coreExit i
 		writeNotificationFixture(t, filepath.Join(f.dir, "app.txt"), []byte("new content\n"))
 		gittest.Run(t, f.dir, "add", "app.txt")
 		gittest.Run(t, f.dir, "commit", "-qm", "branch change")
+		f.publish(branch)
 	}
 	before := gittest.Run(t, f.remote, "for-each-ref", "refs/notes/")
 	planJSON, _ := f.run(planExit, "plan", "--detailed-exitcode")
