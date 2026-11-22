@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -26,14 +26,14 @@
 
 - [x] All functional requirements have clear acceptance criteria
 - [x] User scenarios cover primary flows
-- [ ] Feature meets measurable outcomes defined in Success Criteria
+- [x] Feature meets measurable outcomes defined in Success Criteria
 - [ ] No implementation details leak into specification
 
 ## Notes
 
 - Items marked incomplete require spec updates before `$speckit-clarify` or `$speckit-plan`.
 - One iteration of validation, with fixes: an overstated current-behavior claim was corrected (the artifact text is rendered only on runs that reach the record step), SC-005 was reworded to stop naming a test suite, and the spec was tightened to stay smaller than 001.
-- **Open marker (1 of max 3)**: FR-003, the source of the summary's guidance body (issue #107 question 1). The recommendation is A (render the same `backflowConflict` slot). SC-003 is written for A and states its B/C variant, so "meets measurable outcomes" stays unchecked until `$speckit-clarify` settles FR-003.
+- **Resolved (2026-11-22)**: FR-003 resolved to A (render the same `backflowConflict` slot). See the spec's Clarifications section. SC-003 applies as written.
 - **Implementation details, deliberate and bounded**:
   - FR-012 and FR-014 name host logging-command syntax and escape sequences. These are the user-observable surfaces the feature changes, and issue #107 requires them to be specified testably, so the first Content Quality item is checked.
   - The Assumptions section names `forge.Forge` and `internal/forge/forgetest` as an input to the plan step, because the specification brief asks the plan to address a possible interface change and its conformance gate.

@@ -10,7 +10,13 @@
 
 **Input**: User description: "reconcile: surface the backflow conflict artifact and its resolution steps from the failing run" (issue #107 and its 2026-11-07 "Before implementation" questions).
 
-## Current Behavior *(verified against `main` at `7d1d835`)*
+## Clarifications
+
+### Session 2026-11-22
+
+- Q: Where does the job-summary section's guidance body come from (FR-003): (A) the same resolved `spec.templates.backflowConflict` slot the artifact uses, (B) always the built-in playbook, or (C) the built-in steps plus the artifact link? → A: **A**, the same resolved slot, so a customized artifact and the summary cannot drift (#107's acceptance). SC-003 applies as written.
+
+## Current Behavior *(re-verified against `main` at `d774e90`)*
 
 - On a replay conflict, `reconcile` logs `backflow <source> -> <target> halted on … conflict at <sha> "<subject>" …; no request created` **before** it records the artifact. Under CI that line also becomes a `::warning::` or `##vso[task.logissue type=warning]` command.
 - The artifact ([ADR 0008](../../docs/adr/0008-durable-backflow-conflict-artifact.md)) is a GitHub issue or an Azure Boards work item. Its text is rendered from `spec.templates.backflowConflict` ([ADR 0011](../../docs/adr/0011-templatable-request-text.md)). The create result is discarded, the re-found paths use only the identifier, and the artifact view has no web address.
@@ -150,11 +156,7 @@ Several backflow sources can conflict into the same target in one run.
   3. the artifact link, or the FR-008 statement;
   4. the guidance body (FR-003);
   5. an absolute link to the backflow guide's [When a replay conflicts](../../docs/guides/backflow.md#when-a-replay-conflicts) section.
-- **FR-003**: The guidance body MUST be rendered from [NEEDS CLARIFICATION: (A) the same resolved `spec.templates.backflowConflict` slot the artifact uses (built-in when unconfigured), over this run's context; (B) always the built-in playbook; or (C) built-in steps plus the artifact link?
-
-  **Recommendation: A.** It is the only option under which a customized artifact and the summary cannot drift (the issue's acceptance). It also carries governance framing ([governance templates guide](../../docs/guides/governance-templates.md)) to the red run, which matters most when no artifact exists.
-
-  The cost is that a custom template may omit the steps or refer to "this issue", which is the operator's choice. B and C keep the steps Oiax-owned and complete, but diverge from a customized artifact and lose its framing entirely when no artifact exists.]
+- **FR-003**: The guidance body MUST be rendered from the same resolved `spec.templates.backflowConflict` slot the artifact uses (the built-in template when unconfigured), over this run's context. A customized artifact and the summary therefore cannot drift, and the template's governance framing ([governance templates guide](../../docs/guides/governance-templates.md)) reaches the failing run, which matters most when no artifact exists. A custom template may omit the steps or refer to "this issue"; that is the template author's choice, and the Oiax-owned header (FR-002 items 1–3) and the guide link (item 5) still give the edge, the failing commit, the artifact link or FR-008 statement, and the playbook location.
 - **FR-004**: The built-in guidance shown in a section MUST keep every element of today's built-in artifact body:
   - the strategy-specific sequence: branch from `origin/<target>`, `cherry-pick -x` or `merge --no-ff`, resolve, continue or commit, then push a branch of your own;
   - open a request into the target, either keeping the `(cherry picked from commit …)` line or landing a merge commit;
@@ -246,7 +248,7 @@ Several backflow sources can conflict into the same target in one run.
 
 - **SC-001**: The matrix covers both hosts, each supported forge, and four artifact states: created, re-found, unhostable, and failed. In 100% of matrix runs, the warnings and summary show the edge, the failing commit, and either a working artifact link or an explicit no-artifact statement, without the raw log.
 - **SC-002**: At least three people new to Oiax backflow conflicts each find the steps from the failed run page in under two minutes, without the raw log or the issue tracker, and correctly say that the fix goes on a branch of their own.
-- **SC-003**: In 100% of template fixtures (built-in and customized), section guidance and artifact body differ only in contained untrusted spans, the Oiax-owned header and footer, and the artifact-only closing text. If FR-003 resolves to B or C, the criterion becomes that the steps come from one shared source.
+- **SC-003**: In 100% of template fixtures (built-in and customized), section guidance and artifact body differ only in contained untrusted spans, the Oiax-owned header and footer, and the artifact-only closing text. 
 - **SC-004**: Across at least 50 adversarial subjects (including every User Story 2 vector) on both hosts, there are zero injected commands, set variables, forged warnings, links, images, raw HTML, mentions, or broken summary structures.
 - **SC-005**: On both forges, 100% of existing exit-code, plan-document, and artifact-lifecycle acceptance cases are unchanged.
 - **SC-006**: For N = 1, 2, and 3 conflicting edges, there are exactly N sections, N warnings, and N named conflict edges, in the same order across 20 repeated runs.
@@ -257,6 +259,6 @@ Several backflow sources can conflict into the same target in one run.
 - **Plan-step assumption**: surfacing the address likely changes the provider-neutral artifact view (identifier, edge, recorded head) or the `forge.Forge` interface. Both providers MUST still pass the shared conformance suite (`internal/forge/forgetest`, conflict-artifact lifecycle), extended to assert the address. Per-edge outcomes also need a path from apply to the CLI outside the plan document.
 - Building addresses from repository identity follows precedent: both providers already build notification request links that way.
 - No ADR is expected (issue #107). A surface variable for FR-004, if added, is additive under ADR 0011 ("fields may be added within v1").
-- ADR 0008 and [ADR 0009](../../docs/adr/0009-azure-devops-forge-provider.md) are still marked Proposed but describe implemented behavior. This spec contradicts neither.
+- ADR 0008 and [ADR 0009](../../docs/adr/0009-azure-devops-forge-provider.md) are accepted (#124) and describe implemented behavior. This spec contradicts neither.
 - Whether hosts make URLs in plain-text warnings clickable is unverified. Live acceptance confirms it, and the warning carries the full address either way.
 - Linux is the supported automation platform ([ADR 0016](../../docs/adr/0016-linux-automation-support.md)). GitHub's 1 MiB per-step summary limit bounds FR-005.
