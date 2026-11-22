@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [release/v1]
   pull_request:
-    branches: [main]
+    branches: [release/v1]
 
 # Least-privilege default: every job here only reads the repository
 # (checkout + build/test/lint; no repo writes, releases, or PR mutations).
@@ -80,7 +80,7 @@ jobs:
       - name: Run coverage test task
         run: go -C tools tool task test-cover
       - name: Upload coverage artifact
-        if: matrix.os == 'ubuntu-latest' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: matrix.os == 'ubuntu-latest' && github.event_name == 'push' && github.ref == 'refs/heads/release/v1'
         uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ github.sha }}
