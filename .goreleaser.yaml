@@ -21,6 +21,32 @@ builds:
       - -X github.com/skaphos/oiax/v2/internal/version.Commit={{.Commit}}
       - -X github.com/skaphos/oiax/v2/internal/version.Date={{.Date}}
 
+# macOS code signing and notarization, cross-platform via quill, so no Mac
+# runner is needed. It skips itself unless all five MACOS_* secrets are set,
+# which keeps local and snapshot builds (task build-ci) working without them;
+# release.yml refuses to publish when any of them is missing. It runs after
+# build and before archive, so the signed and notarized binary is what gets
+# archived, checksummed, SBOM'd, and covered by the cosign bundle.
+notarize:
+  macos:
+    - enabled: >-
+        {{ and (isEnvSet "MACOS_SIGN_P12") (isEnvSet "MACOS_SIGN_PASSWORD")
+        (isEnvSet "MACOS_NOTARY_ISSUER_ID") (isEnvSet "MACOS_NOTARY_KEY_ID")
+        (isEnvSet "MACOS_NOTARY_KEY") }}
+      ids:
+        - oiax
+      sign:
+        # base64-encoded Developer ID Application .p12 (certificate + private key)
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        # App Store Connect API key (issuer UUID, key ID, base64-encoded .p8)
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+
 archives:
   - id: default
     formats: [tar.gz]
@@ -33,6 +59,26 @@ archives:
 
 checksum:
   name_template: checksums.txt
+
+sboms:
+  - id: archives
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.sbom.json"
+
+# Keyless cosign signature over the checksum manifest, bound to this
+# repository's release workflow identity through the job's OIDC token. One
+# bundle covers every archive, because each archive's digest is listed in
+# checksums.txt.
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - --bundle=${signature}
+      - ${artifact}
+      - --yes
 
 changelog:
   disable: true # CHANGELOG.md is release-please managed; release.yml passes
