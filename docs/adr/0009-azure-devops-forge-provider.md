@@ -1,6 +1,6 @@
 # 0009 — Azure DevOps forge provider
 
-- Status: Proposed
+- Status: accepted (maintainer decision; repository publication remains PR-based)
 - Date: 2026-07-18
 
 ## Context

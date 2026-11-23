@@ -6,7 +6,7 @@
 
 **Tracking**: [#75](https://github.com/skaphos/oiax/issues/75); email follow-up [#76](https://github.com/skaphos/oiax/issues/76).
 
-**Status**: Setup and foundation T001–T015 are complete, with local test evidence in [implementation-validation.md](checklists/implementation-validation.md). Lifecycle discovery and delivery remain pending (T016–T080); this is not a shipped notification feature. Namespace authority comes from ADR 0015 and Constitution XI v2.0.0. ADRs 0013/0014 remain proposed for their broader contracts. Setup reports the feature directory key `001-promotion-notifications`; the actual Git branch is shown above.
+**Status**: Implemented (shipped in 2.0.0). Live conformance tasks T076 and T077 are deferred to adoption by the maintainer; local test evidence is in [implementation-validation.md](checklists/implementation-validation.md). Namespace authority comes from ADR 0015 and Constitution XI v2.0.0. ADRs 0013 and 0014 are accepted. Setup reports the feature directory key `001-promotion-notifications`; the actual Git branch is shown above.
 
 ## Summary
 
@@ -60,7 +60,7 @@ Pre-research review found no inherent conflict with optional notifications; stat
 | IX | Proposed status, explicit scope and endpoint-acceptance limits; no deployment claim | PASS |
 | X | Engine independent; add depguard denial of effects/HTTP for pure notification code | PASS |
 | XI | Explicit maintainer extension to `refs/notes/oiax/` in ADR 0015/Constitution v2.0.0; notification target remains narrower, expected-tip and append-only, no rewind/deletion or long-lived-branch force-push; T001 evidence recorded | PASS — authority resolved; enforcement tests still required |
-| XII | Proposed [0013](../../docs/adr/0013-notification-configuration-contract.md) and [0014](../../docs/adr/0014-notification-delivery-ledger.md) cover additive contracts; no existing removal/deprecation | PASS |
+| XII | Accepted [0013](../../docs/adr/0013-notification-configuration-contract.md) and [0014](../../docs/adr/0014-notification-delivery-ledger.md) cover additive contracts; no existing removal/deprecation | PASS |
 
 Implementation gates: race/shuffle tests, fuzz untrusted origin/ledger/URL/template inputs, at least 85% statement coverage on new notification packages, generated-reference drift checks, and same-change operator docs. Existing Taskfile targets do not enforce race/shuffle or a coverage floor; add reproducible feature verification targets and wire them into CI when implementing. This plan does not claim to resolve unrelated constitution TODOs.
 

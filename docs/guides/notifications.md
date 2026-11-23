@@ -251,6 +251,63 @@ notes ref to clear a warning: that loses duplicate-prevention evidence. Missing
 notes cannot be distinguished automatically from first activation, so protect and
 back up the ref using your repository's normal reviewed recovery process.
 
+## Operating assumptions: runner clocks and one version per graph
+
+Two assumptions hold delivery together. Oiax does not detect when either one is
+broken, so treat both as deployment requirements.
+
+**Runner clocks agree.** Keep every runner that reconciles a graph within a few
+seconds of the others and of the forge. In practice this means NTP-synchronized
+hosted or self-hosted runners. Clock skew causes two failures:
+
+- A claim lease's expiry is written from the claiming runner's own clock, and
+  other runners compare it with theirs. A runner that is behind writes leases
+  that the others already see as expired, so two runs can send the same batch
+  at once. The two-minute lease absorbs small skew, not minutes of it.
+- A subscription's cutoff is set from the activating runner's clock, and each
+  event is admitted only when its forge timestamp is not before that cutoff.
+  This applies to merges and creations alike. A runner ahead of the forge
+  therefore drops events that the forge timestamps just after activation, as
+  `subscription-not-active` / `before-subscription-cutoff`. The first enabled
+  run's own `request-created` events are the most exposed, because Oiax opens
+  them immediately after setting the cutoff. Only a sub-second difference on
+  those is tolerated. A merge that lands within the skew window after
+  activation is dropped the same way.
+
+**One Oiax version per graph.** Do not let two binary versions reconcile the
+same graph while notifications are enabled, even briefly. The ledger reader
+rejects fields it does not recognize
+([ADR 0014](../adr/0014-notification-delivery-ledger.md)). When an older run
+re-reads a ledger that a newer run has just written with an additive field such
+as `lastStatus`, it fails to decode it mid-batch, and its receipt write fails
+too. The records it had already sent are claimed again after the lease expires,
+which duplicates messages.
+
+Editing workflow files does not prevent this. It does not stop runs that are
+already in progress or queued on the old version, and on a push-triggered graph
+the change reaches each branch only through further runs, so an exact-pin
+rollout always overlaps versions for a while. To upgrade a graph whose
+notifications are already enabled, suspend notification I/O first:
+
+1. Set `enabled: false` on **every** destination and merge it to the branch
+   the configuration is pinned to. With all destinations disabled, Oiax does
+   no discovery, ledger reads or writes, or sends, and every 2.x binary honors
+   the setting. A run that started before the change can still be sending, so
+   wait for runs already in progress to finish.
+2. Roll the new version out to every workflow that reconciles the graph. Before
+   re-enabling, cancel any queued runs that still use the old version.
+3. Restore each destination's previous `enabled` value, and change nothing
+   else. A destination that was already disabled before the upgrade stays
+   disabled. For the ones you re-enable, the prior epoch and backlog resume,
+   including eligible events from the disabled interval (see
+   [changing destination identity](#changing-destination-identity-and-rollback)).
+
+The [two-phase upgrade](upgrading-v2.md#push-triggered-graphs-upgrade-the-wrapper-on-every-branch-first)
+covers the separate case of moving from v1, before notifications are enabled.
+
+Deriving the cutoff from the forge's clock and tolerating additive record
+fields on read are tracked in [#97](https://github.com/skaphos/oiax/issues/97).
+
 ## Recovering an unreachable configuration revision
 
 Policy only advances onto a revision Oiax can prove is a descendant of the

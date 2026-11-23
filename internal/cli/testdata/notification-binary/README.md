@@ -1,7 +1,7 @@
 # Local notification CLI fixture
 
-`TestNotificationMergeBinary` builds `cmd/oiax` into a disposable directory using
-Go's build overlay. The overlay adds these two files and substitutes **only**
+The notification CLI tests share one `cmd/oiax` build per package run, made into
+a disposable directory using Go's build overlay. The overlay adds these two files and substitutes **only**
 the sender constructor call in `FinalizeNotifications`. No production source on
 disk is changed, and the ordinary binary cannot read these fixture variables.
 

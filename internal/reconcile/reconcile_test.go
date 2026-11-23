@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1141,6 +1142,79 @@ func TestPlanBackflowIdentityLookupResolvesOriginTrackingRefs(t *testing.T) {
 	}
 }
 
+// TestPlanUsesOriginTrackingTipOverStaleLocalHead reproduces #108. A re-run, or
+// a queued run under a concurrency group, checks out the SHA it was started
+// for as the local head, and the CI wrapper then fetches every branch's live
+// tip into refs/remotes/origin/*. Here a hotfix on main has already been
+// returned to development on the remote (`git cherry-pick -x`, with
+// provenance), but the stale checked-out development predates that return.
+// Planning against the stale head re-planned the backflow, which re-opened the
+// conflict artifact a newer run had cleared, and under-counted
+// development -> test. The plan must come from the fetched tip, and the run
+// must say, once and without a CI annotation, that it ignored the local head.
+func TestPlanUsesOriginTrackingTipOverStaleLocalHead(t *testing.T) {
+	r, commit := gitHarness(t)
+	dir := r.Dir
+
+	checkout(t, r, "main")
+	hotfix := commit("hotfix.txt", "urgent\n", "hotfix on main")
+
+	checkout(t, r, "development")
+	stale := commit("feature.txt", "feat\n", "feature on development")
+	gitExec(t, dir, "cherry-pick", "-x", hotfix)
+	live := gitExec(t, dir, "rev-parse", "HEAD")
+
+	// The CI wrapper fetched every branch's live tip...
+	for _, b := range []string{"development", "test", "main"} {
+		gitExec(t, dir, "update-ref", "refs/remotes/origin/"+b, gitExec(t, dir, "rev-parse", b))
+	}
+	// ...but the re-run's checkout materialised the superseded SHA.
+	gitExec(t, dir, "reset", "-q", "--hard", stale)
+
+	var buf bytes.Buffer
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph(),
+		Log: slog.New(slog.NewJSONHandler(&buf, nil))}
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	var promotion *engine.Action
+	for i, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			t.Fatalf("planned a backflow for a hotfix already returned on the fetched tip: %+v", a)
+		}
+		if a.Type == engine.ActionCreatePromotionRequest && a.From == "development" && a.To == "test" {
+			promotion = &plan.Actions[i]
+		}
+	}
+	if promotion == nil {
+		t.Fatalf("want a development -> test promotion request, got %+v", plan.Actions)
+	}
+	// The fetched tip carries the feature and the returned hotfix; the stale
+	// head carries only the feature.
+	if promotion.Unpromoted != 2 {
+		t.Errorf("development -> test moves %d commits, want 2 (counted from the fetched tip, not the stale head)", promotion.Unpromoted)
+	}
+
+	var notes int
+	for line := range strings.Lines(buf.String()) {
+		if !strings.Contains(line, "planning against the fetched origin tip") {
+			continue
+		}
+		notes++
+		if !strings.Contains(line, live) || !strings.Contains(line, stale) || !strings.Contains(line, `\"development\"`) {
+			t.Errorf("divergence note must name the branch, the fetched tip %s, and the ignored local head %s: %s", live, stale, line)
+		}
+		if !strings.Contains(line, `"level":"INFO"`) {
+			t.Errorf("divergence note must be INFO, not a CI annotation: %s", line)
+		}
+	}
+	if notes != 1 {
+		t.Errorf("got %d divergence notes, want exactly 1 (only development differs): %s", notes, buf.String())
+	}
+}
+
 func TestPlanBackflowSkipMentionInProseStillReturns(t *testing.T) {
 	// The O6 override is a git TRAILER, not any occurrence of the text. A hotfix
 	// whose body merely mentions 'Oiax-Backflow: skip' in prose (with more text
@@ -1624,6 +1698,65 @@ func TestPlanBackflowProvenanceMatchesSquashedReturn(t *testing.T) {
 	}
 	if len(st.ToReturn) != 0 {
 		t.Fatalf("ToReturn = %+v, want empty (both returned by squash provenance)", st.ToReturn)
+	}
+}
+
+func TestPlanBackflowProvenanceFollowedBySignoff(t *testing.T) {
+	// A hand replay made with `git cherry-pick -x -s` (or a DCO hook) records
+	// provenance with a Signed-off-by trailer AFTER it (#138). The replayed
+	// commit's content differs from the original, as a resolved conflict does,
+	// so only the identity rung can recognize it as returned. It must, or the
+	// returned hotfix is proposed again on every reconcile.
+	r, commit := gitHarness(t)
+
+	checkout(t, r, "main")
+	hFix := commit("fix.txt", "f\n", "hotfix on main")
+
+	checkout(t, r, "development")
+	commit("fix-resolved.txt", "f resolved\n",
+		"hotfix on main\n\n(cherry picked from commit "+hFix+")\nSigned-off-by: Dev <dev@example.invalid>")
+
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: testGraph()}
+
+	plan, err := c.Plan(context.Background())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	for _, a := range plan.Actions {
+		if a.Type == engine.ActionCreateBackflowRequest {
+			t.Fatalf("planned a backflow action; want none (the signed-off hand replay returned the hotfix)")
+		}
+	}
+	assertExclusionReason(t, plan, hFix, engine.BackflowExcludedProvenance)
+}
+
+func TestProvenanceSHAs(t *testing.T) {
+	const a = "1111111111111111111111111111111111111111"
+	const b = "2222222222222222222222222222222222222222"
+	pick := func(sha string) string { return "(cherry picked from commit " + sha + ")" }
+	tests := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"final line", "subject\n\n" + pick(a), []string{a}},
+		{"followed by sign-off", "subject\n\n" + pick(a) + "\nSigned-off-by: Dev <dev@example.invalid>", []string{a}},
+		{"after an existing sign-off, then another", "subject\n\nSigned-off-by: A <a@example.invalid>\n" + pick(a) + "\nSigned-off-by: B <b@example.invalid>", []string{a}},
+		{"followed by several trailers", "subject\n\n" + pick(a) + "\nSigned-off-by: Dev <dev@example.invalid>\nReviewed-by: R <r@example.invalid>\nChange-Id: I0123", []string{a}},
+		{"followed by an indented continuation", "subject\n\n" + pick(a) + "\nCo-authored-by: Dev\n  <dev@example.invalid>", []string{a}},
+		{"two in one trailer block keep message order", "subject\n\n" + pick(a) + "\n" + pick(b) + "\nSigned-off-by: Dev <dev@example.invalid>", []string{a, b}},
+		{"followed by prose", "subject\n\n" + pick(a) + "\nThis line is prose, not a trailer.", nil},
+		{"followed by a URL", "subject\n\n" + pick(a) + "\nhttps://example.invalid/x", nil},
+		{"embedded in a sentence", "subject\n\nrestores work " + pick(a) + " done earlier\nSigned-off-by: Dev <dev@example.invalid>", nil},
+		{"not standalone", "subject\n\nsee " + pick(a), nil},
+		{"one per squashed block", "squash\n\n* one\n\n" + pick(a) + "\nSigned-off-by: Dev <dev@example.invalid>\n\n* two\n\n" + pick(b) + "\n\nCo-authored-by: Dev <dev@example.invalid>", []string{a, b}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := provenanceSHAs(tt.body); !slices.Equal(got, tt.want) {
+				t.Errorf("provenanceSHAs() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

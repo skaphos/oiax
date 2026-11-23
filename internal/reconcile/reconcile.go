@@ -43,6 +43,14 @@ import (
 // for provenance.
 var cherryPickedFromRE = regexp.MustCompile(`(?m)^\(cherry picked from commit ([0-9a-f]{7,64})\)$`)
 
+// trailerLineRE matches one line of a git trailer block: a "Token: value"
+// trailer (token letters, digits and hyphens, as git accepts) or an indented
+// continuation of the previous trailer. provenanceSHAs walks back through
+// these to find a provenance line that other trailers, such as Signed-off-by,
+// follow. A URL ("https://…") is not a trailer: its colon is not followed by
+// whitespace.
+var trailerLineRE = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9-]*:(?:[ \t].*)?|[ \t]+\S.*)$`)
+
 // Coordinator wires the git layer and a forge provider to the engine. It
 // holds no mutable state of its own; Plan and Apply take a context and
 // operate against the injected dependencies.
@@ -112,6 +120,7 @@ func (c *Coordinator) Plan(ctx context.Context) (engine.Plan, error) {
 	c.warnMergeMethodMismatch(ctx)
 	c.warnSourceBranchDeletion(ctx)
 	c.warnConflictArtifactSupport(ctx)
+	c.noteLocalHeadDivergence(ctx)
 
 	// A shallow clone (actions/checkout's default fetch-depth: 1) has no merge
 	// base for fork points that predate the fetch depth, so the patch-identity
@@ -797,26 +806,33 @@ func (c *Coordinator) commitBodies(ctx context.Context, revs ...string) (map[str
 }
 
 // provenanceSHAs returns every source object id named by a standalone
-// "(cherry picked from commit <sha>)" line that sits at the END of any
-// blank-line-delimited paragraph of a commit body.
+// "(cherry picked from commit <sha>)" line that sits in the TRAILING TRAILER
+// BLOCK of any blank-line-delimited paragraph of a commit body: the run of
+// trailer lines that ends the paragraph.
 //
-// `git cherry-pick -x` always writes its provenance as the FINAL line of the
-// message, so on an ordinary returned commit the line is the tail of the body's
-// last paragraph. When several -x'd commits are combined into one — a backflow
-// return branch squash-merged into the target — each original commit's
-// provenance line survives as the tail of its own block, and only the very last
-// block's line sits in the body's final paragraph. Scanning the tail of EVERY
-// paragraph recovers all of them, so a squash-merged return is recognized as
-// already-returned by identity instead of being re-proposed (and then failing
-// as a spurious divergence or conflict) on the next reconcile.
+// `git cherry-pick -x` writes its provenance into the message's trailer block,
+// so on an ordinary returned commit the line is in the body's last paragraph.
+// It is usually that paragraph's final line, but not always:
+// `git cherry-pick -x -s`, --signoff, or a DCO hook appends a Signed-off-by
+// trailer after it (#138). Accepting the line anywhere in the trailing run of
+// trailers, rather than only as the final line, recognizes those returns
+// instead of re-proposing them.
 //
-// Matching only a paragraph's final line preserves the guard the previous
-// last-paragraph-only rule provided: a provenance line merely quoted inside a
-// prose paragraph — not at its tail — is not read as genuine provenance, so a
-// stray mention cannot falsely mark a live hotfix already-returned and silently
-// drop it. This mirrors git's own trailer semantics (a trailer is the last
-// blank-line-delimited block's key:value lines), which backflowSkipTrailers
-// leans on for the O6 skip trailer.
+// When several -x'd commits are combined into one — a backflow return branch
+// squash-merged into the target — each original commit's provenance survives
+// in the trailer run of its own block, and only the very last block's sits in
+// the body's final paragraph. Scanning EVERY paragraph recovers all of them,
+// so a squash-merged return is recognized as already-returned by identity
+// instead of being re-proposed (and then failing as a spurious divergence or
+// conflict) on the next reconcile.
+//
+// Walking back only through trailer lines preserves the guard the earlier
+// rules provided: a provenance phrase quoted inside prose — embedded in a
+// sentence, or followed by a non-trailer line — is not read as genuine
+// provenance, so a stray mention cannot falsely mark a live hotfix
+// already-returned and silently drop it. This follows git's own trailer
+// parsing, which counts "(cherry picked from commit " as a trailer prefix and
+// treats indented lines as continuations.
 func provenanceSHAs(body string) []string {
 	var shas []string
 	for _, para := range strings.Split(strings.TrimRight(body, "\n"), "\n\n") {
@@ -824,12 +840,21 @@ func provenanceSHAs(body string) []string {
 		if para == "" {
 			continue
 		}
-		last := para
-		if i := strings.LastIndex(para, "\n"); i >= 0 {
-			last = para[i+1:]
+		lines := strings.Split(para, "\n")
+		var found []string
+		for i := len(lines) - 1; i >= 0; i-- {
+			line := lines[i]
+			if m := cherryPickedFromRE.FindStringSubmatch(line); m != nil {
+				found = append(found, m[1])
+				continue
+			}
+			if !trailerLineRE.MatchString(line) {
+				break
+			}
 		}
-		if m := cherryPickedFromRE.FindStringSubmatch(last); m != nil {
-			shas = append(shas, m[1])
+		// Walking backward collected them last-first; keep message order.
+		for i := len(found) - 1; i >= 0; i-- {
+			shas = append(shas, found[i])
 		}
 	}
 	return shas
@@ -1439,6 +1464,36 @@ func (c *Coordinator) warnMergeMethodMismatch(ctx context.Context) {
 					"enable it in the repository's merge settings or change mergeMethod",
 				w.method, w.edge, w.method))
 		}
+	}
+}
+
+// noteLocalHeadDivergence logs, once per graph branch, when the checked-out
+// local head differs from the fetched origin-tracking ref. Oiax plans against
+// the origin-tracking ref (see git.Runner.resolveBranchRef), so this line is
+// what explains why a re-run, a queued run, or a stale local checkout reports
+// different numbers from the run it was started for (#108). It is
+// informational, not a CI annotation: the plan is correct. A lookup failure is
+// logged at debug and skipped; the edge observation that follows surfaces any
+// real git failure.
+func (c *Coordinator) noteLocalHeadDivergence(ctx context.Context) {
+	names := make([]string, 0, len(c.Graph.Branches))
+	for name := range c.Graph.Branches {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		local, origin, diverged, err := c.Git.LocalHeadDivergence(ctx, name)
+		if err != nil {
+			c.log().Debug(fmt.Sprintf("skipping local-head divergence check for branch %q: %v", name, err))
+			continue
+		}
+		if !diverged {
+			continue
+		}
+		c.log().Info(fmt.Sprintf(
+			"branch %q: planning against the fetched origin tip %s, not the checked-out local head %s "+
+				"(a re-run, a queued run, or a local branch that differs from origin)",
+			name, origin, local))
 	}
 }
 

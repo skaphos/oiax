@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.1.2](https://github.com/skaphos/oiax/compare/v2.1.1...v2.1.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* **backflow:** recognize a provenance line followed by Signed-off-by or other trailers ([#141](https://github.com/skaphos/oiax/issues/141)) ([fbf779c](https://github.com/skaphos/oiax/commit/fbf779ca0038b0c2214207d41fc500bb521299e2))
+* **deps:** build with Go 1.27.4 for GO-2026-6859 ([#134](https://github.com/skaphos/oiax/issues/134)) ([3fa7530](https://github.com/skaphos/oiax/commit/3fa7530ed6a67dc6e6af91332ef6495775589dc2))
+* **git:** plan against the fetched origin tip instead of a stale checked-out head ([#127](https://github.com/skaphos/oiax/issues/127)) ([02ba2f6](https://github.com/skaphos/oiax/commit/02ba2f69dd92d9e8df3e0a467e99eadc5d1ce8ad))
+* **security:** tighten workflow tokens and refuse the IPv6 metadata address ([#136](https://github.com/skaphos/oiax/issues/136)) ([9058207](https://github.com/skaphos/oiax/commit/9058207c81687c1a700b732f393dd037e7c24e45))
+
 ## [2.1.1](https://github.com/skaphos/oiax/compare/v2.1.0...v2.1.1) (2026-11-06)
 
 
