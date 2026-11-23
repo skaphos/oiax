@@ -47,11 +47,17 @@ Expected:
    - stderr ends with `converged with reported divergence on 1 edge:` and the edge line;
    - `exit=3`.
 
-Repeat with `GITHUB_STEP_SUMMARY` unset to check that no surface mentions a summary and the pointers use the guide address (FR-010).
+Then repeat with `GITHUB_STEP_SUMMARY` unset (`unset GITHUB_STEP_SUMMARY`):
+
+- **Known artifact (this scenario, Issues enabled)**: no section is written and no surface mentions a summary, but the warning and the exit-3 line **still end with the artifact address**; the address never depends on the summary (FR-001, contract §1).
+- **No artifact** (Issues disabled, or artifact list/create failing): no surface mentions a summary, and the warning and exit-3 line point to the backflow guide address instead (FR-010, US4 AS3).
 
 ## 3. Azure Pipelines
 
+`internal/cienv` gives `GITHUB_ACTIONS` precedence over `TF_BUILD`, so clear the GitHub variables from §2 first:
+
 ```sh
+unset GITHUB_ACTIONS GITHUB_STEP_SUMMARY
 export TF_BUILD=True AGENT_TEMPDIRECTORY="$(mktemp -d)"
 oiax reconcile 2>stderr.txt; echo "exit=$?"
 grep -F '##vso[task.logissue type=warning]' stderr.txt

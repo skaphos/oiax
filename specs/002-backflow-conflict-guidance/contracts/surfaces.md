@@ -43,10 +43,12 @@ No request was created for this edge.
 See [When a replay conflicts](<guide>) in the backflow guide.
 ```
 
-- `<from>`, `<to>` are escaped for Markdown (trusted, but may contain `|`, `` ` ``, `*`, `_`, `<`, `@`).
+- `<from>`, `<to>` are passed through `textsafe.Markdown` (trusted, but may contain `|`, `` ` ``, `*`, `_`, `<`, `@`).
+- `<subject>` is the cleaned value with Markdown containment applied on emission (`tmpl.Untrusted`); the template's conditionals see the cleaned value (FR-016).
 - Unhostable (FR-008a): the statement says this section is the only guidance for the conflict, that it lasts only as long as the CI host retains the run, and links the operating guide's [Keep Issues enabled](../../../docs/guides/operating.md#keep-issues-enabled-github-backflow-only) section.
 - Render failure (FR-005): the guidance body is replaced by `The configured conflict text could not be rendered; see the run log.`
-- Size budget (FR-005, R8): when a full section would exceed the remaining budget, the section is written without the guidance body and ends with `Some conflict guidance was shortened to fit the summary size limit.`
+- Unsafe placement (FR-016): when the configured template places commit text in a link destination, autolink, or HTML attribute, the guidance body is the built-in one, preceded by `The configured conflict text places commit text where it could form a link, so Oiax shows its built-in steps here.`
+- Size budget (FR-005, R8): space for every reduced section (no guidance body) and the note is reserved first; full sections are upgraded in plan order while they fit. When any section is reduced, the summary ends with one `Some conflict guidance was shortened to fit the summary size limit.` When even the reduced sections and the note do not fit (including a zero budget), no section is written, and the warnings and exit-3 output treat the summary as not written (§1, §3).
 
 ## 3. Exit-3 output (stderr, printed by `Execute`)
 

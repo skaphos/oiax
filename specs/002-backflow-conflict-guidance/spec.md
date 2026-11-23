@@ -23,6 +23,12 @@
 - The unescaped Azure summary upload path in the notification summary is fixed in this feature, as a bug fix with a regression test (FR-012).
 - Left to the plan's research: the Azure Pipelines summary size limit (FR-005) and whether the Azure Boards address uses the project name or ID (FR-006).
 
+### Review on PR #126, 2026-11-22
+
+- The 200-rune cap includes the truncation mark (FR-013).
+- Containment happens when a value is emitted, not before templates branch on it, and must work in any Markdown position, so look-alike substitution replaces backslash escaping. Template placements that no value transform can make inert (link destinations, autolinks, HTML attributes) make the summary fall back to the built-in body; the template is never rejected at load, which would break previously accepted configuration (FR-016, SC-003).
+- The size budget reserves room for every reduced section and the note first, and when nothing fits the summary counts as not written (FR-005).
+
 ## Current Behavior *(re-verified against `main` at `d774e90`)*
 
 - On a replay conflict, `reconcile` logs `backflow <source> -> <target> halted on … conflict at <sha> "<subject>" …; no request created` **before** it records the artifact. Under CI that line also becomes a `::warning::` or `##vso[task.logissue type=warning]` command.
@@ -152,7 +158,7 @@ Several backflow sources can conflict into the same target in one run.
 
 ### Functional Requirements
 
-**Contained text** (used throughout): an untrusted value (today, the failing commit's subject) after it is capped at 200 runes (FR-013), stripped of control and bidi-formatting characters, and made inert for the surface it appears on: escaped for host logging commands (FR-014), defanged against linkification in plain text (FR-015), and Markdown-inert in the summary (FR-016).
+**Contained text** (used throughout): an untrusted value (today, the failing commit's subject) after it is capped at 200 runes in total, including any truncation mark (FR-013), stripped of control and bidi-formatting characters, and made inert for the surface it appears on: escaped for host logging commands (FR-014), defanged against linkification in plain text (FR-015), and Markdown-inert in the summary (FR-016).
 
 **Warning and summary**
 
@@ -174,7 +180,7 @@ Several backflow sources can conflict into the same target in one run.
   - the squash note.
 
   It MUST NOT make artifact-only claims ("this issue closes automatically", "metadata block below"), nor imply that an artifact exists when none does. Because the built-in body contains those claims today and FR-003 renders the section from the same slot, the render context MUST carry a trusted variable naming the surface being rendered (working name `.Surface`, values `artifact` and `summary`). It is additive under ADR 0011 and documented in the templates reference. The built-in template MUST confine its artifact-only sentences to the artifact surface, and SHOULD use a forge-neutral noun for the artifact, since the same text serves Azure Boards work items. Custom templates MAY use the variable; a custom template that does not is rendered as written on both surfaces (FR-003).
-- **FR-005**: If the guidance body cannot be rendered, the section MUST still carry FR-002 items 1–3 and 5, plus a note that the configured text failed to render. One run's sections MUST fit the host's summary size limit (GitHub: 1 MiB per step; the Azure Pipelines limit is established in the plan's research, and the smaller of the two applies when it is unknown). When they would not, later sections MUST be reduced to items 1–3 and 5, with a truncation note. Exit 3 and the artifact's best-effort posture are unchanged.
+- **FR-005**: If the guidance body cannot be rendered, the section MUST still carry FR-002 items 1–3 and 5, plus a note that the configured text failed to render. One run's sections MUST fit the host's summary size limit (GitHub: 1 MiB per step; the Azure Pipelines limit is established in the plan's research, and the smaller of the two applies when it is unknown). When they would not, later sections MUST be reduced to items 1–3 and 5, with a truncation note. Space for every reduced section and the note MUST be reserved before any full guidance body is added, so the written sections can never exceed the remaining budget. If even the reduced sections and the note do not fit (including when the host's summary is already at its limit), no conflict section is written, the summary counts as not written for FR-010, and the warnings and exit-3 output use the artifact or guide pointers. Exit 3 and the artifact's best-effort posture are unchanged.
 
 **Artifact address**
 
@@ -222,14 +228,19 @@ Several backflow sources can conflict into the same target in one run.
 
 **Untrusted text** (commit subjects, per the [templates reference](../../docs/reference/templates.md#variable-context))
 
-- **FR-013**: The failing-commit subject MUST be capped at 200 runes in the shared render context, matching ADR 0011, which also aligns the artifact body. Control and bidi-formatting characters MUST be removed on every surface this feature adds or changes.
+- **FR-013**: The failing-commit subject MUST be capped at 200 runes in total, including the `…` truncation mark (199 runes of text plus `…` when truncated), in the shared render context, matching ADR 0011, which also aligns the artifact body. Control and bidi-formatting characters MUST be removed on every surface this feature adds or changes.
 - **FR-014**: In every line this feature emits or changes (the warning command, its plain log copy, the exit-3 output), untrusted text MUST NOT end the line or appear in command properties. It also MUST NOT introduce a host command anywhere in the line:
   - GitHub: a leading `::` (after whitespace), or `##[` anywhere, because the runner honors its legacy form mid-line;
   - Azure: `##vso[` or `##[` anywhere, because the agent matches `##vso[` anywhere in a line.
 
   Message data MUST use host escaping. GitHub: `%`→`%25`, CR→`%0D`, LF→`%0A`. Azure: `%`→`%AZP25`, CR→`%0D`, LF→`%0A`.
 - **FR-015**: In plain-text warnings, untrusted text MUST NOT carry a sequence a host could linkify, such as a URL scheme or a leading `www.`. The only links MUST be the addresses Oiax derives.
-- **FR-016**: In the summary, untrusted values MUST render as visible, inert text wherever the header or the template places them. Because one template renders for both surfaces (FR-003), inertness MUST be applied to the untrusted values handed to the summary render, not to its rendered output, since rendered output cannot tell template-authored Markdown from values. The artifact render keeps receiving the values unescaped (OOS-004). They MUST NOT produce any of the following: a link, autolink, or image with an absolute target taken from the value; raw HTML; a mention; a heading, list, or blockquote; a table-cell break; emphasis that spills over; a code span or fence break-out; a line break. This MUST hold on both hosts' summary renderers. Escaping or look-alike substitution is acceptable.
+- **FR-016**: In the summary, untrusted values MUST render as visible, inert text wherever the header or the template places them. They MUST NOT produce any of the following: a link, autolink, or image with an absolute target taken from the value; raw HTML; a mention; a heading, list, or blockquote; a table-cell break; emphasis that spills over; a code span or fence break-out; a line break. This MUST hold on both hosts' summary renderers. Three rules make that hold for templates Oiax does not control:
+  - **Contain on emission, not before decisions.** Inertness applies where an untrusted value is written into the summary output, not to the value templates compare or branch on. A template's conditionals and functions MUST see the same cleaned value (FR-013) on both surfaces, so a custom template takes the same branches for the artifact and the summary. Rendered output cannot be escaped after the fact, because it cannot tell template-authored Markdown from values.
+  - **Context-independent containment.** Emitted values MUST be inert in any Markdown position a template can place them, including inside a template-authored code span. Look-alike substitution of Markdown-active characters satisfies this; backslash escaping alone does not (a backtick can close a code span).
+  - **Unsafe placements fall back, never fail.** Some positions cannot be made inert by transforming the value: a template-authored link destination, autolink, or HTML attribute turns even plain text such as `attacker.example` into a target. When the resolved template places an untrusted value in such a position on the summary surface, the section MUST use the built-in guidance body instead, with a note that the configured text was not shown. Configuration that loaded before this feature MUST still load (Constitution XII), so this is never a load-time rejection.
+
+  The artifact render keeps receiving the cleaned values without Markdown containment (OOS-004).
 
 **Unchanged**
 
@@ -259,7 +270,7 @@ Several backflow sources can conflict into the same target in one run.
 
 - **SC-001**: The matrix covers both hosts, each supported forge, and every artifact path: created, adopted, advanced, advance failed, left alone, canonical after consolidation (FR-007), unhostable, and failed to record or confirm (FR-008). In 100% of matrix runs, the warnings and summary show the edge, the failing commit, and either a working artifact link or an explicit no-artifact statement, without the raw log.
 - **SC-002** *(live acceptance, not a CI gate)*: At least three people new to Oiax backflow conflicts each find the steps from the failed run page in under two minutes, without the raw log or the issue tracker, and correctly say that the fix goes on a branch of their own.
-- **SC-003**: In 100% of template fixtures, section guidance and artifact body differ only in contained untrusted spans, the Oiax-owned header and footer, and text the template places behind the surface variable (FR-004). This holds for the built-in template and for customized templates that use the surface variable; a customized template that does not use it renders identically apart from contained spans.
+- **SC-003**: In 100% of template fixtures, section guidance and artifact body differ only in contained untrusted spans, the Oiax-owned header and footer, and text the template places behind the surface variable (FR-004). This holds for the built-in template and for customized templates that use the surface variable; a customized template that does not use it renders identically apart from contained spans, including templates that branch on or transform untrusted values (FR-016). A customized template that places an untrusted value in an unsafe position renders the built-in body in the summary (FR-016) and is measured against the built-in fixture.
 - **SC-004**: Across at least 50 adversarial subjects (including every User Story 2 vector) on both hosts, there are zero injected commands, set variables, forged warnings, links, images, raw HTML, mentions, or broken summary structures.
 - **SC-005**: On both forges, 100% of existing exit-code, plan-document, and artifact-lifecycle acceptance cases are unchanged.
 - **SC-006**: For N = 1, 2, and 3 conflicting edges, there are exactly N sections, N warnings, and N named conflict edges, in the same order across 20 repeated runs.

@@ -56,7 +56,18 @@ Adds `URL string`: the artifact's forge web page, built by the provider from its
 
 ## tmpl.Context (`internal/tmpl`, changed)
 
-Adds `Surface string`: `"artifact"` or `"summary"` (R4). Additive under ADR 0011. `tmpl.Conflict.Subject` now receives `textsafe.Subject(...)` (spec FR-013); on the summary surface the coordinator passes `textsafe.Markdown(textsafe.Subject(...))`, so the template never sees raw Markdown-active text there.
+Adds `Surface string`: `"artifact"` or `"summary"` (R4). Additive under ADR 0011.
+
+`tmpl.Conflict.Subject` and `tmpl.Commit.Subject` change type to `any`, holding the **cleaned value** `textsafe.Subject(raw)` on both surfaces (spec FR-013, FR-016):
+
+- artifact surface: a plain `string`;
+- summary surface: `tmpl.Untrusted` (named string type; `String()` returns `textsafe.Markdown` of the value), so comparisons see the cleaned value and printing emits contained text ([contracts/forge-and-templates.md](contracts/forge-and-templates.md)).
+
+`text/template` indirects interface values, so templates use the fields exactly as before. The `trunc` and `shortSHA` funcs accept both forms and return the same form they were given.
+
+## tmpl.Untrusted (`internal/tmpl`, new)
+
+`type Untrusted string` with `String() string { return textsafe.Markdown(string(u)) }`. Used only in the summary render context.
 
 ## Contained text (`internal/textsafe`, new)
 
