@@ -37,13 +37,15 @@ const (
 // logger (research R6).
 func ConflictWarning(r DivergenceReport, summaryWritten bool) string {
 	g := r.Conflict
-	subject := textsafe.PlainLink(textsafe.Subject(g.Subject))
+	// Quoted like %q for '"' and '\\', but without %q's \u escapes: the word
+	// joiners PlainLink and the logger insert must stay invisible.
+	subject := `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(textsafe.PlainLink(textsafe.Subject(g.Subject))) + `"`
 	var lead string
 	if g.Whole {
-		lead = fmt.Sprintf("backflow %s -> %s halted on merge conflict at %s %q; no request created",
+		lead = fmt.Sprintf("backflow %s -> %s halted on merge conflict at %s %s; no request created",
 			r.From, r.To, g.SHA, subject)
 	} else {
-		lead = fmt.Sprintf("backflow %s -> %s halted on cherry-pick conflict at %s %q after %d applied cleanly; no request created",
+		lead = fmt.Sprintf("backflow %s -> %s halted on cherry-pick conflict at %s %s after %d applied cleanly; no request created",
 			r.From, r.To, g.SHA, subject, g.Applied)
 	}
 	steps := "resolution steps: " + BackflowGuideURL
