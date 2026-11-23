@@ -132,7 +132,7 @@ func TestDefaultConflictBody(t *testing.T) {
 				"Alternatively, mark the commit `Oiax-Backflow: skip` if it should never return. "+
 				"See the [backflow guide](https://github.com/skaphos/oiax/blob/main/docs/guides/backflow.md#when-a-replay-conflicts) "+
 				"for the full playbook.\n\n"+
-				"Oiax manages this issue. It closes automatically once the conflict clears "+
+				"Oiax manages this conflict record. It closes automatically once the conflict clears "+
 				"(the replay succeeds, the edge converges, or the commit becomes "+
 				"returned/skipped). Do not edit the metadata block below.",
 			from, to, from, to, short, sha, subject, mechanism,
