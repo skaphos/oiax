@@ -174,6 +174,13 @@ does for the same state, so a CI gate can rely on it:
   divergence — `reconcile` surfaces it and also exits 3. It is the same
   code, with the same meaning, in both commands.
 
+On exit 3, `reconcile` prints a message whose first line begins
+`converged with reported divergence on <N> edge(s):`, followed by one line
+per diverging edge in plan order: a backflow conflict names where its
+resolution steps are (the conflict record's address, this run's summary,
+or the backflow guide), and any other divergence reads
+`reported divergence`. The code is the contract; the message text is not.
+
 So a gate may treat `plan` exit 2 as "safe to reconcile" and exit 3 as
 "needs a human," and expect `reconcile` to agree. The one state `plan`
 cannot foresee is a backflow whose commits conflict only when cherry-picked

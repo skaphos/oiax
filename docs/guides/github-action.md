@@ -267,10 +267,21 @@ When it runs under Actions, Oiax:
 - appends a Markdown table of the plan to the job's **step summary**
   (`$GITHUB_STEP_SUMMARY`), so the run page shows what it did at a glance;
 - surfaces warnings and errors as workflow **annotations** (`::warning::`
-  / `::error::` on stderr), so they appear inline in the run.
+  / `::error::` on stderr), so they appear inline in the run;
+- when a backflow replay conflicts, appends one **Backflow conflict**
+  section per conflicting edge after the plan table, and emits one
+  warning per edge whose last words point at the steps: the conflict
+  issue's address, or this run's summary when no issue could be kept.
+  See [When a replay conflicts](backflow.md#when-a-replay-conflicts).
 
 Machine output (`-o json`) always goes to stdout uncorrupted; annotations
-and logs go to stderr.
+and logs go to stderr. Every log line, annotation or not, has CI command
+sequences (`::`, `##vso[`, `##[`) from untrusted text such as commit
+subjects or forge errors broken, so they cannot inject a workflow command.
+The conflict sections share the step summary's 1 MiB limit with the plan
+table; when they would not fit, later sections are shortened, and when
+none fits, no section is written and the warnings point at the backflow
+guide instead.
 
 ## Auditable sign-off on promotions
 
