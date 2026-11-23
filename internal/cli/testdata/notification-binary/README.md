@@ -2,15 +2,18 @@
 
 The notification CLI tests share one `cmd/oiax` build per package run, made into
 a disposable directory using Go's build overlay. The overlay adds these three files and substitutes **only**
-two lines of the notification runtime's construction: the sender constructor
-call, and its `Now` clock. No production source on disk is changed, and the
+three expressions in `internal/reconcile/notification_runtime.go`: the sender
+constructor call, the runtime's `Now` clock, and the clock read for a create's
+pre-POST origin stamp. No production source on disk is changed, and the
 ordinary binary cannot read these fixture variables.
 
-The clock is the wall clock unless a test sets `OIAX_FIXTURE_CLOCK_FLOOR`. Then
-it never reads earlier than that floor (plus the process's own elapsed time). A
-test that seeds a forge event with its own clock uses the floor so that a host
-whose wall clock is stepped backwards between invocations cannot place the event
-before the binary's subscription cutoff or scan watermark (#143).
+The fixture clock is the wall clock, but it never reads earlier than a floor plus
+the process's own monotonic elapsed time. The floor is the process's own start,
+or `OIAX_FIXTURE_CLOCK_FLOOR` when that is later. A test that seeds a forge event
+with its own clock sets that floor, and the test fixture carries the floor
+forward before every launch, past whatever the ledger records. Together they keep
+cutoffs, scan watermarks, origin evidence and seeded events ordered on a host
+whose wall clock is stepped backwards (#143), inside one run and across runs.
 
 The forge factory supplies the real GitHub/Azure providers with a local HTTPS
 API, a fixture-only CA, and a bare Git remote. The notification client uses its

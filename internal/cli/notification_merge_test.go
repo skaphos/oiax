@@ -93,6 +93,14 @@ func compileNotificationBinary() (dir, binary string, err error) {
 	overridden := strings.Replace(string(source), constructor,
 		"return delivery.NewFixtureClient(destination.Type, destination.AllowPrivateNetwork)", 1)
 	overridden = strings.Replace(overridden, clock, "Now:         fixtureNotificationNow,", 1)
+	// The pre-POST creation-origin stamp reads the clock directly rather than
+	// through Now. It must be ordered against the cutoff that Now set earlier
+	// in the same run.
+	const originClock = "ObservedAt: time.Now().UTC(), LogicalSource: source"
+	if strings.Count(overridden, originClock) != 1 {
+		return dir, "", errors.New("notification origin clock moved; review the fixture overlay boundary")
+	}
+	overridden = strings.Replace(overridden, originClock, "ObservedAt: fixtureNotificationNow(), LogicalSource: source", 1)
 	override := filepath.Join(dir, "notification_runtime.go")
 	if err := os.WriteFile(override, []byte(overridden), 0o600); err != nil {
 		return dir, "", err
