@@ -67,8 +67,8 @@ func (res *Result) repointConflictArtifacts(canon map[[2]string]forge.ConflictAr
 		if g == nil || g.Artifact != ArtifactKnown {
 			continue
 		}
-		if art, ok := canon[[2]string{r.From, r.To}]; ok && art.ID != g.artifactID {
-			g.artifactID = art.ID
+		if art, ok := canon[[2]string{r.From, r.To}]; ok && string(art.ID) != g.ArtifactID {
+			g.ArtifactID = string(art.ID)
 			g.ArtifactURL = art.URL
 		}
 	}
@@ -88,9 +88,11 @@ type ConflictGuidance struct {
 	Applied int
 	// Whole is true for the merge strategy.
 	Whole bool
-	// Artifact is the artifact's status; ArtifactURL is set only when it is
-	// ArtifactKnown, and is built by the provider (never forge text).
+	// Artifact is the artifact's status; ArtifactID and ArtifactURL are set
+	// only when it is ArtifactKnown. The URL is built by the provider from
+	// configured identity, never from forge text.
 	Artifact    ArtifactStatus
+	ArtifactID  string
 	ArtifactURL string
 	// ArtifactNoun is "issue" or "work item", from the forge kind.
 	ArtifactNoun string
@@ -102,8 +104,4 @@ type ConflictGuidance struct {
 	// BuiltinFallback is true when the configured conflict template reads
 	// commit text, so SummaryBody is the built-in body.
 	BuiltinFallback bool
-
-	// artifactID is the known artifact's ID, for re-pointing after
-	// consolidation.
-	artifactID forge.ConflictArtifactID
 }

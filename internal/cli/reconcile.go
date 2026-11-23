@@ -81,11 +81,15 @@ conflict at cherry-pick time surfaces here as exit 3 after a plan of 2.`,
 				}
 			}
 			writeNotificationSummary(cmd, coord.NotificationDiagnostics)
+			// Conflict guidance is published last, also when apply failed, so
+			// the conflict sections are the final summary write (spec 002
+			// research R8) and every pointer matches what was written.
+			summaryWritten := publishConflicts(cmd, coord.Log, res.Divergences)
 			if applyErr != nil {
 				return applyErr
 			}
 			if res.Divergence {
-				return exitCodeError{code: 3, msg: "converged with reported divergence"}
+				return exitCodeError{code: 3, msg: divergenceMessage(res.Divergences, summaryWritten)}
 			}
 			return nil
 		},

@@ -1786,8 +1786,8 @@ func (c *Coordinator) recordBackflowConflict(
 	res.addReport(DivergenceReport{From: a.From, To: a.To, Kind: KindConflict, Conflict: g})
 	known := func(art forge.ConflictArtifact) {
 		g.Artifact = ArtifactKnown
+		g.ArtifactID = string(art.ID)
 		g.ArtifactURL = art.URL
-		g.artifactID = art.ID
 	}
 
 	// (3) The template context, shared by the artifact and the summary. The
