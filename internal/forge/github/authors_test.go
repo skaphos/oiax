@@ -108,6 +108,7 @@ func strictProvider(t *testing.T, api *authorAPI, trusted ...string) (*Provider,
 		Owner: "acme", Repo: "widgets", Token: testToken,
 		BaseURL: srv.URL, HTTP: srv.Client(), retryBackoff: time.Microsecond,
 		retryMax:       1,
+		identityRetry:  time.Nanosecond,
 		TrustedAuthors: trusted,
 		Warn:           func(msg string) { warnings = append(warnings, msg) },
 	}
@@ -431,5 +432,26 @@ func TestManagedUserLoginIsRecognized(t *testing.T) {
 	got, err := p.ListManagedRequests(context.Background(), promotionFilter)
 	if err != nil || len(got) != 2 {
 		t.Fatalf("ListManagedRequests = %+v, %v; want #9 and #8", got, err)
+	}
+}
+
+func TestFailedLookupIsNotRepeatedPerRequest(t *testing.T) {
+	t.Parallel()
+	// With declared authors covering the gap, a lookup that just failed is
+	// left alone for the retry interval instead of being repeated for every
+	// marker-bearing request on the page.
+	api := &authorAPI{pulls: []map[string]any{
+		promotionBy(7, "old-app[bot]"), promotionBy(8, "old-app[bot]"), promotionBy(9, "old-app[bot]"),
+	}}
+	p, _ := strictProvider(t, api, "old-app[bot]")
+	p.identityRetry = time.Hour
+	for range 2 {
+		got, err := p.ListManagedRequests(context.Background(), promotionFilter)
+		if err != nil || len(got) != 3 {
+			t.Fatalf("ListManagedRequests = %+v, %v; want all three", got, err)
+		}
+	}
+	if api.identityHit != 1 {
+		t.Errorf("identity lookups = %d, want 1 within the retry interval", api.identityHit)
 	}
 }

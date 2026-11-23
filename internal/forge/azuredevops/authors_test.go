@@ -34,6 +34,7 @@ type authorAPI struct {
 	pulls       []map[string]any
 	identityHit int
 	writes      []string
+	failStatus  int // status for a failed identity lookup; zero means 401
 }
 
 func (a *authorAPI) handler(t *testing.T) http.Handler {
@@ -45,7 +46,11 @@ func (a *authorAPI) handler(t *testing.T) http.Handler {
 		case strings.HasSuffix(path, "/_apis/connectionData"):
 			a.identityHit++
 			if a.self == "" {
-				writeJSON(t, w, http.StatusUnauthorized, map[string]string{"message": "denied"})
+				status := http.StatusUnauthorized
+				if a.failStatus != 0 {
+					status = a.failStatus
+				}
+				writeJSON(t, w, status, map[string]string{"message": "denied"})
 				return
 			}
 			writeJSON(t, w, http.StatusOK, map[string]any{
@@ -105,6 +110,7 @@ func strictProvider(t *testing.T, api *authorAPI, trusted ...string) (*Provider,
 		Repo:  Repo{Organization: "acme", Project: "platform", Name: "deploy"},
 		Token: testToken, BaseURL: srv.URL, HTTP: srv.Client(),
 		retryBackoff: time.Microsecond, retryMax: 1,
+		identityRetry:  time.Nanosecond,
 		TrustedAuthors: trusted,
 		Warn:           func(msg string) { warnings = append(warnings, msg) },
 	}
@@ -315,5 +321,42 @@ func TestCreateWarnsWhenCreatorIsNotTrusted(t *testing.T) {
 	p.warnForeignAuthor(context.Background(), adoPull{PullRequestID: 43, CreatedBy: adoIdentityRef{ID: selfID}})
 	if len(*warnings) != 1 {
 		t.Errorf("warned about a request created by the token identity: %q", *warnings)
+	}
+}
+
+func TestLifecycleIdentity404IsUnavailableNotMissing(t *testing.T) {
+	t.Parallel()
+	// The request itself reads fine; it is the identity lookup that answers
+	// 404. That must not be reported as the request being missing.
+	api := &authorAPI{failStatus: http.StatusNotFound, pulls: []map[string]any{promotionBy(9, selfID)}}
+	p, _ := strictProvider(t, api)
+	_, err := p.GetLifecycleRequest(context.Background(), "9")
+	if !errors.Is(err, notification.ErrLifecycleUnavailable) {
+		t.Errorf("GetLifecycleRequest err = %v, want ErrLifecycleUnavailable", err)
+	}
+	// Control: a request that really is absent is still reported missing.
+	if _, err := p.GetLifecycleRequest(context.Background(), "404"); !errors.Is(err, notification.ErrRequestMissing) {
+		t.Errorf("GetLifecycleRequest(absent) err = %v, want ErrRequestMissing", err)
+	}
+}
+
+func TestFailedLookupIsNotRepeatedPerRequest(t *testing.T) {
+	t.Parallel()
+	// With declared authors covering the gap, a lookup that just failed is
+	// left alone for the retry interval instead of being repeated for every
+	// marker-bearing request on the page.
+	api := &authorAPI{pulls: []map[string]any{
+		promotionBy(7, previousID), promotionBy(8, previousID), promotionBy(9, previousID),
+	}}
+	p, _ := strictProvider(t, api, previousID)
+	p.identityRetry = time.Hour
+	for range 2 {
+		got, err := p.ListManagedRequests(context.Background(), promotionFilter)
+		if err != nil || len(got) != 3 {
+			t.Fatalf("ListManagedRequests = %+v, %v; want all three", got, err)
+		}
+	}
+	if api.identityHit != 1 {
+		t.Errorf("identity lookups = %d, want 1 within the retry interval", api.identityHit)
 	}
 }

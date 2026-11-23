@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Author provenance (ADR 0020).
@@ -59,6 +60,17 @@ func (p *Provider) managed(ctx context.Context, pr ghPull) (marker, bool, error)
 	return marker{}, false, nil
 }
 
+// defaultIdentityRetryInterval is how long a failed token-identity lookup is
+// left alone before it is tried again, when declared authors cover the gap.
+const defaultIdentityRetryInterval = 30 * time.Second
+
+func (p *Provider) identityRetryInterval() time.Duration {
+	if p.identityRetry > 0 {
+		return p.identityRetry
+	}
+	return defaultIdentityRetryInterval
+}
+
 // trustedAuthors returns the lower-cased logins whose pull requests may be
 // oiax's own: the token's identity plus Provider.TrustedAuthors. The set is
 // resolved on first need (a run that sees no marker-bearing pull request never
@@ -83,16 +95,25 @@ func (p *Provider) trustedAuthors(ctx context.Context) (map[string]struct{}, err
 		}
 		set[strings.ToLower(login)] = struct{}{}
 	}
+	// A lookup that just failed is not repeated for a short while when the
+	// declared authors can stand in. Recognition is asked once per
+	// marker-bearing request, so without this a page of such requests would
+	// spend a full retry budget on each one while the lookup stays down.
+	if len(set) > 0 && time.Now().Before(p.lookupRetryAt) {
+		return set, nil
+	}
 	self, err := p.viewerLogin(ctx)
 	if err != nil {
 		if len(set) == 0 {
 			return nil, fmt.Errorf("%w: %w", errNoIdentity, err)
 		}
 		// The operator named the authors explicitly; that is sufficient on
-		// its own for this call. Nothing is cached, so the next call retries
-		// the lookup and the token's own identity joins the set as soon as it
-		// resolves. Say so once: until then, requests opened by this run's
-		// identity are recognized only if that identity is in the list.
+		// its own for now. The partial set is never cached as the answer:
+		// the lookup is retried after identityRetryInterval, and the token's
+		// own identity joins the set as soon as it resolves. Say so once:
+		// until then, requests opened by this run's identity are recognized
+		// only if that identity is in the list.
+		p.lookupRetryAt = time.Now().Add(p.identityRetryInterval())
 		if p.Warn != nil && !p.lookupWarned {
 			p.lookupWarned = true
 			p.Warn("could not look up the token's own identity; recognizing managed requests by OIAX_TRUSTED_AUTHORS only")

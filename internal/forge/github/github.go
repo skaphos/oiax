@@ -150,6 +150,8 @@ type Provider struct {
 	authors         map[string]struct{}
 	untrustedWarned map[int]struct{}
 	lookupWarned    bool
+	lookupRetryAt   time.Time
+	identityRetry   time.Duration // test tunable; zero means the default
 	anyAuthor       bool
 
 	// repoSettingsCache holds the first successfully decoded repository

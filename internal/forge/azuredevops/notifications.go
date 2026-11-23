@@ -175,6 +175,13 @@ func (p *Provider) GetLifecycleRequest(ctx context.Context, id forge.RequestID) 
 		if errors.Is(err, errNotManaged) {
 			return notification.LifecycleRequest{}, notification.ErrNotManaged
 		}
+		// The request was read; it is its provenance that could not be
+		// established. That must be decided before the 404 check below: the
+		// identity lookup's own API error (which may itself be a 404) is
+		// wrapped in this error and would otherwise read as a missing request.
+		if errors.Is(err, errNoIdentity) {
+			return notification.LifecycleRequest{}, notification.ErrLifecycleUnavailable
+		}
 		var api *apiError
 		if errors.As(err, &api) && api.StatusCode == 404 {
 			return notification.LifecycleRequest{}, notification.ErrRequestMissing
