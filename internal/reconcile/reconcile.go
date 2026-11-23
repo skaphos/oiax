@@ -1877,6 +1877,19 @@ func (c *Coordinator) recordBackflowConflict(
 	// (9) Absent: create.
 	if !ok {
 		created, err := c.Forge.CreateConflictArtifact(ctx, spec)
+		if errors.Is(err, forge.ErrConflictArtifactsUnsupported) {
+			// The forge refused the write because the repository cannot host
+			// artifacts (GitHub's create-time 410, reachable when the advisory
+			// capability read failed or was stale): the same outcome as the
+			// capability gate, not a retry.
+			g.Artifact = ArtifactUnhostable
+			c.log().Warn(fmt.Sprintf(
+				"cannot record a durable conflict artifact for %s -> %s: the repository cannot host "+
+					"conflict artifacts (on GitHub, the Issues feature is disabled); enable Issues in "+
+					"Settings -> General -> Features to get durable backflow-conflict records",
+				a.From, a.To), "err", err)
+			return nil
+		}
 		if err != nil {
 			c.log().Warn(fmt.Sprintf(
 				"backflow conflict artifact create failed for %s -> %s; leaving for next run",

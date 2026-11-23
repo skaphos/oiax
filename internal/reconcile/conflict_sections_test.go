@@ -148,3 +148,44 @@ func TestConflictWarningPointers(t *testing.T) {
 		t.Fatalf("merge warning = %q", got)
 	}
 }
+
+// With no artifact the section states why and still gives the steps
+// (spec 002 FR-008, contracts/surfaces.md §2; T050).
+func TestRenderConflictSectionNoArtifact(t *testing.T) {
+	unhostable := knownReport("main", "development", false)
+	unhostable.Conflict.Artifact = ArtifactUnhostable
+	unhostable.Conflict.ArtifactID, unhostable.Conflict.ArtifactURL = "", ""
+	got, _ := renderSections(t, []DivergenceReport{unhostable}, SummaryLimit)
+	for _, want := range []string{
+		"- **Conflict record:** none. No durable conflict record can be kept (Issues are disabled), so this section " +
+			"is the only guidance for this conflict, and it lasts only as long as the CI host keeps this run. " +
+			"See [Keep Issues enabled](" + keepIssuesURL + ").\n",
+		"\nGUIDANCE BODY\n",
+		"(" + BackflowGuideURL + ")",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("unhostable section lacks %q:\n%s", want, got)
+		}
+	}
+
+	notRecorded := knownReport("main", "development", false)
+	notRecorded.Conflict.Artifact = ArtifactNotRecorded
+	notRecorded.Conflict.ArtifactNoun = "work item"
+	notRecorded.Conflict.ArtifactID, notRecorded.Conflict.ArtifactURL = "", ""
+	got, _ = renderSections(t, []DivergenceReport{notRecorded}, SummaryLimit)
+	if want := "- **Conflict record:** the conflict work item could not be recorded or confirmed this run and will be retried next run.\n"; !strings.Contains(got, want) {
+		t.Fatalf("not-recorded section lacks %q:\n%s", want, got)
+	}
+	if strings.Contains(got, "](https://github.com/acme") {
+		t.Fatalf("not-recorded section links an artifact:\n%s", got)
+	}
+
+	failed := notRecorded
+	g := *notRecorded.Conflict
+	g.RenderFailed, g.SummaryBody = true, ""
+	failed.Conflict = &g
+	got, _ = renderSections(t, []DivergenceReport{failed}, SummaryLimit)
+	if !strings.Contains(got, "\n"+renderFailedNote+"\n") || !strings.Contains(got, "will be retried next run") {
+		t.Fatalf("render-failure section lacks the note or the statement:\n%s", got)
+	}
+}

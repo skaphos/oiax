@@ -272,3 +272,62 @@ func TestReconcileConflictAzureSurfaces(t *testing.T) {
 		t.Fatalf("sections differ beyond the noun and address:\n%s\n---\n%s", a, b)
 	}
 }
+
+// With no artifact, the warning and the exit-3 line point at this run's
+// summary only when it was written; otherwise both point at the backflow
+// guide and never mention a summary (spec 002 FR-010, US4 AS3; T051).
+func TestReconcileConflictNoArtifactPointers(t *testing.T) {
+	forges := map[string]struct {
+		mk        func() *fakeForge
+		statement string
+		exitLine  string
+	}{
+		"unhostable": {func() *fakeForge { return &fakeForge{artifactsUnsupported: true} },
+			"No durable conflict record can be kept (Issues are disabled); ",
+			"backflow conflict; no durable conflict record (Issues are disabled); "},
+		"not recorded": {func() *fakeForge { return &fakeForge{createConflictErr: errors.New("502")} },
+			"The conflict issue could not be recorded or confirmed this run and will be retried next run; ",
+			"backflow conflict; conflict issue not recorded this run, will be retried next run; "},
+	}
+	summaries := map[string]func(t *testing.T) (written bool){
+		"summary written":        func(t *testing.T) bool { githubActions(t); return true },
+		"no summary (local run)": func(t *testing.T) bool { return false },
+		"unwritable summary path": func(t *testing.T) bool {
+			t.Setenv("GITHUB_ACTIONS", "true")
+			t.Setenv("GITHUB_STEP_SUMMARY", filepath.Join(t.TempDir(), "missing", "summary.md"))
+			return false
+		},
+	}
+	for fname, fc := range forges {
+		for sname, setSummary := range summaries {
+			t.Run(fname+"/"+sname, func(t *testing.T) {
+				conflictRepo(t, exampleConfig, "main")
+				written := setSummary(t)
+				useForge(t, fc.mk())
+				out, code := runCode(t, "reconcile")
+				if code != 3 {
+					t.Fatalf("exit %d, want 3\n%s", code, out)
+				}
+				pointer := "resolution steps: " + reconcile.BackflowGuideURL
+				if written {
+					pointer = "resolution steps are in this run's summary"
+				}
+				var warning string
+				for _, line := range strings.Split(out, "\n") {
+					if strings.Contains(line, "halted on") && !strings.HasPrefix(line, "::") {
+						warning = line
+					}
+				}
+				if !strings.Contains(warning, fc.statement+pointer) {
+					t.Fatalf("plain warning = %q, want it to end with %q", warning, fc.statement+pointer)
+				}
+				if !strings.Contains(out, "  main -> development: "+fc.exitLine+pointer+"\n") {
+					t.Fatalf("exit-3 line lacks %q:\n%s", fc.exitLine+pointer, out)
+				}
+				if !written && strings.Contains(out, "summary") && strings.Contains(out, "this run's summary") {
+					t.Fatalf("a run with no summary mentions one:\n%s", out)
+				}
+			})
+		}
+	}
+}

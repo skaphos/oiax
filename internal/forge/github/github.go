@@ -616,7 +616,8 @@ func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.Confli
 		if errors.As(err, &ae) && ae.StatusCode == http.StatusGone {
 			return forge.ConflictArtifact{}, fmt.Errorf(
 				"create conflict artifact: %w (Issues appear to be disabled for this repository; "+
-					"enable them in Settings -> General -> Features so Oiax can record backflow conflicts)", err)
+					"enable them in Settings -> General -> Features so Oiax can record backflow conflicts): %w",
+				err, forge.ErrConflictArtifactsUnsupported)
 		}
 		return forge.ConflictArtifact{}, fmt.Errorf("create conflict artifact: %w", err)
 	}

@@ -22,6 +22,13 @@ import (
 // not yet built (see the roadmap in docs/architecture.md).
 var ErrNotImplemented = errors.New("not implemented")
 
+// ErrConflictArtifactsUnsupported marks a conflict-artifact write the forge
+// refused because the repository cannot host artifacts at all (GitHub with
+// Issues disabled answers 410 Gone). It is permanent until the repository's
+// settings change, unlike a transient failure; callers test it with
+// errors.Is.
+var ErrConflictArtifactsUnsupported = errors.New("the repository cannot host conflict artifacts")
+
 // RequestID identifies a change request within a provider.
 type RequestID string
 

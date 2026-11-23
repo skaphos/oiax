@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -191,6 +192,8 @@ func TestConflictReportNoArtifact(t *testing.T) {
 		status ArtifactStatus
 	}{
 		{"unhostable", &fakeForge{conflictArtifactsUnsupported: true}, nil, ArtifactUnhostable},
+		{"create refused as unhostable", &fakeForge{createConflictErr: fmt.Errorf("410 Gone: %w", forge.ErrConflictArtifactsUnsupported)},
+			nil, ArtifactUnhostable},
 		{"list failed", &fakeForge{listConflictsErr: errors.New("502")}, nil, ArtifactNotRecorded},
 		{"create failed", &fakeForge{createConflictErr: errors.New("502")}, nil, ArtifactNotRecorded},
 		{"artifact render failed", &fakeForge{}, failingArtifactTemplates(t), ArtifactNotRecorded},
