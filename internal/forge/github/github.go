@@ -559,6 +559,7 @@ func (p *Provider) ListConflictArtifacts(ctx context.Context, graph string) ([]f
 			Source:     m.Source,
 			Target:     m.Destination,
 			SourceHead: m.SourceHead,
+			URL:        p.issueWebURL(iss.Number),
 		})
 	}
 	return out, nil
@@ -640,7 +641,16 @@ func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.Confli
 		Source:     spec.Source,
 		Target:     spec.Target,
 		SourceHead: spec.SourceHead,
+		URL:        p.issueWebURL(created.Number),
 	}, nil
+}
+
+// issueWebURL is the web page of issue number n, built from the configured
+// owner and repository (the request-link precedent in notifications.go),
+// never from forge-returned text.
+func (p *Provider) issueWebURL(n int) string {
+	return "https://" + gitRemoteHost + "/" + url.PathEscape(p.Owner) + "/" + url.PathEscape(p.Repo) +
+		"/issues/" + strconv.Itoa(n)
 }
 
 // UpdateConflictArtifact refreshes an existing conflict artifact in place:

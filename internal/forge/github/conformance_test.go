@@ -24,6 +24,8 @@ func TestGitHubConformance(t *testing.T) {
 			Owner: "acme", Repo: "widgets", Token: testToken,
 			BaseURL: srv.URL, HTTP: srv.Client(), anyAuthor: true,
 		}
+	}, func(id forge.ConflictArtifactID) string {
+		return "https://github.com/acme/widgets/issues/" + string(id)
 	})
 }
 

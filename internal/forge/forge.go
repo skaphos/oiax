@@ -103,6 +103,11 @@ type ConflictArtifact struct {
 	Source     string
 	Target     string
 	SourceHead string
+	// URL is the artifact's forge web page. Providers build it from the
+	// repository identity they were configured with and the artifact ID,
+	// never from text the forge returned, so it is safe to print as a
+	// link on any surface.
+	URL string
 }
 
 // BranchPush pushes a branch in the oiax/ namespace. Force pushing is

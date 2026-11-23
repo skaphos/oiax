@@ -138,6 +138,7 @@ func (p *Provider) ListConflictArtifacts(ctx context.Context, graph string) ([]f
 			Source:     m.Source,
 			Target:     m.Destination,
 			SourceHead: m.SourceHead,
+			URL:        p.workItemURL(wi.ID),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -185,7 +186,16 @@ func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.Confli
 		Source:     spec.Source,
 		Target:     spec.Target,
 		SourceHead: spec.SourceHead,
+		URL:        p.workItemURL(created.ID),
 	}, nil
+}
+
+// workItemURL is the web page of work item id, built from the configured
+// organization and project name (the pull-request-link precedent in
+// notifications.go), never from forge-returned text.
+func (p *Provider) workItemURL(id int) string {
+	return "https://dev.azure.com/" + url.PathEscape(p.Repo.Organization) + "/" + url.PathEscape(p.Repo.Project) +
+		"/_workitems/edit/" + strconv.Itoa(id)
 }
 
 // UpdateConflictArtifact refreshes an existing conflict artifact in place: it

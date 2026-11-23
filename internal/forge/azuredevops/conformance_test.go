@@ -22,14 +22,20 @@ func TestAzureDevOpsConformance(t *testing.T) {
 		srv := httptest.NewServer(fake.handler(t))
 		t.Cleanup(srv.Close)
 		return &Provider{
-			Repo:      Repo{Organization: "acme", Project: "platform", Name: "deploy"},
+			Repo:      Repo{Organization: "acme", Project: adoConformanceProject, Name: "deploy"},
 			Token:     testToken,
 			BaseURL:   srv.URL,
 			HTTP:      srv.Client(),
 			anyAuthor: true,
 		}
+	}, func(id forge.ConflictArtifactID) string {
+		return "https://dev.azure.com/acme/My%20Platform/_workitems/edit/" + string(id)
 	})
 }
+
+// adoConformanceProject has a space so the work item address must escape the
+// project name.
+const adoConformanceProject = "My Platform"
 
 // adoFake is a minimal stateful Azure DevOps REST API: enough of pull requests
 // (with properties), work items, and their states for the conformance battery.
@@ -64,7 +70,7 @@ func (g *adoFake) handler(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		g.mu.Lock()
 		defer g.mu.Unlock()
-		p := strings.TrimPrefix(r.URL.Path, "/platform/_apis")
+		p := strings.TrimPrefix(r.URL.Path, "/"+adoConformanceProject+"/_apis")
 		switch {
 		case p == adoGit+"/pullrequests" && r.Method == http.MethodPost:
 			g.createPull(t, w, r)

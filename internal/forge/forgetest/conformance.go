@@ -27,13 +27,14 @@ import (
 
 // Run executes the conformance battery against providers produced by newSubject.
 // newSubject must return a forge.Forge whose backend starts empty; it is called
-// once per subtest so scenarios never share state.
-func Run(t *testing.T, newSubject func(t *testing.T) forge.Forge) {
+// once per subtest so scenarios never share state. artifactURL returns the web
+// address the provider must report for a conflict artifact ID.
+func Run(t *testing.T, newSubject func(t *testing.T) forge.Forge, artifactURL func(forge.ConflictArtifactID) string) {
 	t.Helper()
 	t.Run("PromotionRequestLifecycle", func(t *testing.T) { testPromotionLifecycle(t, newSubject(t)) })
 	t.Run("AdoptsDuplicateCreate", func(t *testing.T) { testAdoptDuplicate(t, newSubject(t)) })
 	t.Run("ListFiltersGraphAndType", func(t *testing.T) { testListFilters(t, newSubject(t)) })
-	t.Run("ConflictArtifactLifecycle", func(t *testing.T) { testConflictLifecycle(t, newSubject(t)) })
+	t.Run("ConflictArtifactLifecycle", func(t *testing.T) { testConflictLifecycle(t, newSubject(t), artifactURL) })
 	t.Run("NamespaceRefusal", func(t *testing.T) { testNamespaceRefusal(t, newSubject(t)) })
 }
 
@@ -105,7 +106,9 @@ func testListFilters(t *testing.T, f forge.Forge) {
 
 // testConflictLifecycle: durable conflict artifacts create, list ascending by id
 // (deterministic canonical order), update in place, and close out of the list.
-func testConflictLifecycle(t *testing.T, f forge.Forge) {
+// Every created and listed artifact carries the provider's web address for its
+// ID (spec 002 FR-006).
+func testConflictLifecycle(t *testing.T, f forge.Forge, artifactURL func(forge.ConflictArtifactID) string) {
 	ctx := context.Background()
 	a1 := mustCreateArtifact(t, f, "g", "dev", "main", "h1")
 	a2 := mustCreateArtifact(t, f, "g", "dev", "main", "h2")
@@ -116,6 +119,7 @@ func testConflictLifecycle(t *testing.T, f forge.Forge) {
 		t.Fatalf("list artifacts = %d, want 3", len(arts))
 	}
 	assertAscending(t, arts)
+	assertArtifactURLs(t, append([]forge.ConflictArtifact{a1, a2, a3}, arts...), artifactURL)
 
 	if err := f.UpdateConflictArtifact(ctx, a2.ID, forge.ConflictArtifactSpec{
 		Graph: "g", Source: "dev", Target: "main", SourceHead: "h2-new", Title: "t", Body: "b",
@@ -135,7 +139,17 @@ func testConflictLifecycle(t *testing.T, f forge.Forge) {
 		t.Fatalf("after close, list = %+v, want the closed artifact %s gone", arts, a1.ID)
 	}
 	assertAscending(t, arts)
-	_ = a3
+	assertArtifactURLs(t, arts, artifactURL)
+}
+
+// assertArtifactURLs checks every artifact's URL against the expected address.
+func assertArtifactURLs(t *testing.T, arts []forge.ConflictArtifact, artifactURL func(forge.ConflictArtifactID) string) {
+	t.Helper()
+	for _, a := range arts {
+		if want := artifactURL(a.ID); a.URL != want {
+			t.Errorf("artifact %s URL = %q, want %q", a.ID, a.URL, want)
+		}
+	}
 }
 
 // testNamespaceRefusal: mutation of any ref outside the oiax/ namespace is
