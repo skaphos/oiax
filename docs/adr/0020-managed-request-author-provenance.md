@@ -122,8 +122,11 @@ previous identity's requests have merged or closed.
   copied marker holds that scan incomplete. Closing the request does not
   release it — creation scans read requests in every state, and a closed
   request's provenance is just as unknown. The scan completes once the token
-  identity resolves (the request is then plainly unmanaged) or the marker is
-  removed from the request's body. Declaring the request's author also
+  identity resolves (the request is then plainly unmanaged) or the request
+  no longer carries a marker. On GitHub that means removing it from the body.
+  On Azure DevOps there are two copies and both must go: the description
+  marker and the `oiax.managedRequest` pull-request property, which single
+  request reads prefer. Declaring the request's author also
   completes it, but only by making that request managed, so it is a remedy
   for a forgotten previous identity and never for a request someone else
   wrote. A delayed notification is recoverable; a skipped one is not.
