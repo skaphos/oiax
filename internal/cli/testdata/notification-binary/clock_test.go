@@ -5,6 +5,7 @@ package reconcile
 // clock.go into internal/reconcile. Not part of the stock package.
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -50,6 +51,51 @@ func TestFixtureClockSequenceNeverDecreases(t *testing.T) {
 			t.Fatalf("step %d: %v is before floor %v", i, got, floor)
 		}
 		prev = got
+	}
+}
+
+// TestFixtureClockReorderedSamples is the case from the second review on #153:
+// with a floor of 100 s, a sample taken at elapsed 2 s / wall 102 s processed
+// before a delayed sample taken at elapsed 1 s / wall 101 s must not make the
+// clock decrease.
+func TestFixtureClockReorderedSamples(t *testing.T) {
+	resetFixtureClock()
+	floor := time.Unix(100, 0).UTC()
+	first := fixtureClockNext(time.Unix(102, 0).UTC(), 2*time.Second, floor)
+	second := fixtureClockNext(time.Unix(101, 0).UTC(), time.Second, floor)
+	if second.Before(first) {
+		t.Fatalf("reordered sample went backwards: %v then %v", first, second)
+	}
+}
+
+// TestFixtureClockConcurrentReadersNeverDecrease drives the real clock from
+// many goroutines and asserts the results, in the order the clock produced
+// them, never decrease.
+func TestFixtureClockConcurrentReadersNeverDecrease(t *testing.T) {
+	resetFixtureClock()
+	const workers, reads = 16, 200
+	var mu sync.Mutex
+	var seq []time.Time
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < reads; i++ {
+				fixtureClockMu.Lock()
+				got := fixtureClockNextLocked(time.Now().UTC(), time.Since(fixtureClockStart), fixtureClockStart.Round(0))
+				mu.Lock()
+				seq = append(seq, got)
+				mu.Unlock()
+				fixtureClockMu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	for i := 1; i < len(seq); i++ {
+		if seq[i].Before(seq[i-1]) {
+			t.Fatalf("result %d (%v) is before result %d (%v)", i, seq[i], i-1, seq[i-1])
+		}
 	}
 }
 
