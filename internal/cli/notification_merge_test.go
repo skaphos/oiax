@@ -187,6 +187,14 @@ type notificationBinaryFixture struct {
 	failTarget      string
 	createdTargets  []string
 	lifecycleReads  int
+	// allowIssues lets the fixture forge create the durable backflow
+	// conflict issue (spec 002); every other test keeps issue writes an
+	// unexpected mutation.
+	allowIssues   bool
+	createdIssues []map[string]any
+	// extraEnv is appended to every invocation's environment; later entries
+	// win, so a test can set the CI host variables the defaults clear.
+	extraEnv []string
 }
 
 func newNotificationBinaryFixture(t *testing.T, binary, provider, transport string, extraDestinations ...string) *notificationBinaryFixture {
@@ -245,6 +253,7 @@ func (f *notificationBinaryFixture) run(want int, args ...string) (string, strin
 	if f.missingEndpoint {
 		cmd.Env = append(cmd.Env, "OIAX_FIXTURE_ENDPOINT=")
 	}
+	cmd.Env = append(cmd.Env, f.extraEnv...)
 	if floor := f.launchFloor(); !floor.IsZero() {
 		cmd.Env = append(cmd.Env, "OIAX_FIXTURE_CLOCK_FLOOR="+floor.Format(time.RFC3339Nano))
 	}
@@ -517,6 +526,22 @@ func (f *notificationBinaryFixture) serve(w http.ResponseWriter, r *http.Request
 		respond(map[string]any{"data": map[string]any{"viewer": map[string]string{"login": fixtureLogin}}})
 		return
 	}
+	if f.allowIssues && f.provider == "github" && r.Method == http.MethodPost {
+		switch r.URL.Path {
+		case "/repos/example/repo/issues":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				f.t.Error(err)
+			}
+			f.createdIssues = append(f.createdIssues, payload)
+			w.WriteHeader(http.StatusCreated)
+			respond(map[string]any{"number": 77, "state": "open", "body": payload["body"]})
+			return
+		case "/repos/example/repo/issues/77/labels":
+			respond([]any{})
+			return
+		}
+	}
 	if r.URL.Path == "/project/_apis/wit/wiql" && r.Method == http.MethodPost {
 		respond(map[string]any{"workItems": []any{}}) // read-only artifact query
 		return
@@ -556,7 +581,7 @@ func (f *notificationBinaryFixture) serve(w http.ResponseWriter, r *http.Request
 	case r.URL.Path == "/repos/example/repo/issues":
 		respond([]any{})
 	case r.URL.Path == "/repos/example/repo":
-		respond(map[string]any{"id": 123, "full_name": "example/repo", "allow_merge_commit": true, "allow_squash_merge": true, "allow_rebase_merge": true})
+		respond(map[string]any{"id": 123, "full_name": "example/repo", "allow_merge_commit": true, "allow_squash_merge": true, "allow_rebase_merge": true, "has_issues": true})
 	case r.URL.Path == "/project/_apis/git/repositories/repo":
 		respond(map[string]any{"id": "repository-id", "name": "repo", "project": map[string]string{"id": "project-id"}})
 	case r.URL.Path == "/_apis/connectionData":
