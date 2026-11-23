@@ -481,3 +481,90 @@ func TestReconcileConflictSummaryCombinedWriters(t *testing.T) {
 		t.Fatalf("pointers do not match what was written (section written: %v):\n%s", wrote, out)
 	}
 }
+
+// Every host x forge x artifact status names the edge, the failing commit,
+// and either the artifact link or the no-artifact statement on the warning
+// and in the summary (spec 002 SC-001; T059). The reconcile per-path tests
+// remain the proof for each FR-007/FR-008 path.
+func TestReconcileConflictMatrix(t *testing.T) {
+	const workItemURL = "https://dev.azure.com/acme/My%20Platform/_workitems/edit/7"
+	forges := []struct {
+		name, noun, url string
+	}{
+		{"github", "", fakeIssueURL},
+		{"azure devops", "work item", workItemURL},
+	}
+	statuses := []struct {
+		name    string
+		mk      func(noun, url string) *fakeForge
+		warning func(noun, url string) string
+		summary func(noun, url string) string
+	}{
+		{"known",
+			func(noun, url string) *fakeForge { return &fakeForge{noun: noun, conflictURL: url} },
+			func(_, url string) string { return ". Resolution steps: " + url },
+			func(noun, url string) string { return "[" + noun + " 7](" + url + ")" }},
+		{"unhostable",
+			func(noun, _ string) *fakeForge { return &fakeForge{noun: noun, artifactsUnsupported: true} },
+			func(_, _ string) string { return ". No durable conflict record can be kept (Issues are disabled)" },
+			func(_, _ string) string { return "No durable conflict record can be kept (Issues are disabled)" }},
+		{"not recorded",
+			func(noun, _ string) *fakeForge { return &fakeForge{noun: noun, createConflictErr: errors.New("502")} },
+			func(noun, _ string) string {
+				return ". The conflict " + noun + " could not be recorded or confirmed this run and will be retried next run"
+			},
+			func(noun, _ string) string {
+				return "the conflict " + noun + " could not be recorded or confirmed this run and will be retried next run"
+			}},
+	}
+	for _, host := range []string{"github actions", "azure pipelines"} {
+		for _, fg := range forges {
+			if host == "github actions" && fg.name == "azure devops" {
+				continue // GitHub Actions with an Azure Repos forge is not a supported pairing.
+			}
+			for _, st := range statuses {
+				t.Run(host+"/"+fg.name+"/"+st.name, func(t *testing.T) {
+					noun := fg.noun
+					if noun == "" {
+						noun = "issue"
+					}
+					conflictRepo(t, exampleConfig, "main")
+					var summary func() string
+					if host == "github actions" {
+						path := githubActions(t)
+						summary = func() string { return readFile(t, path) }
+					} else {
+						summary = azurePipelines(t)
+					}
+					useForge(t, st.mk(fg.noun, fg.url))
+					out, code := runCode(t, "reconcile")
+					if code != 3 {
+						t.Fatalf("exit %d, want 3\n%s", code, out)
+					}
+					var warning string
+					for _, line := range strings.Split(out, "\n") {
+						if strings.Contains(line, "halted on") && (strings.HasPrefix(line, "::warning::") ||
+							strings.HasPrefix(line, "##vso[task.logissue type=warning]")) {
+							warning = strings.ReplaceAll(line, "%AZP25", "%")
+						}
+					}
+					if !strings.Contains(warning, "backflow main -> development halted on cherry-pick conflict at ") ||
+						!strings.Contains(warning, `"fix: conflicting hotfix"`) ||
+						!strings.Contains(warning, st.warning(noun, fg.url)) {
+						t.Fatalf("warning = %q", warning)
+					}
+					sec := summary()
+					for _, want := range []string{
+						"### Backflow conflict: main → development",
+						"— fix: conflicting hotfix",
+						st.summary(noun, fg.url),
+					} {
+						if !strings.Contains(sec, want) {
+							t.Fatalf("summary lacks %q:\n%s", want, sec)
+						}
+					}
+				})
+			}
+		}
+	}
+}
