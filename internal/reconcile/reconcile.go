@@ -30,6 +30,7 @@ import (
 	"github.com/skaphos/oiax/v2/internal/engine"
 	"github.com/skaphos/oiax/v2/internal/forge"
 	"github.com/skaphos/oiax/v2/internal/git"
+	"github.com/skaphos/oiax/v2/internal/textsafe"
 	"github.com/skaphos/oiax/v2/internal/tmpl"
 	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
@@ -983,6 +984,7 @@ func (c *Coordinator) Apply(ctx context.Context, plan engine.Plan) (Result, erro
 
 		case engine.ActionReportDivergence:
 			res.Divergence = true
+			res.addReport(DivergenceReport{From: a.From, To: a.To, Kind: KindOther})
 			// A merge-strategy backflow edge can diverge here (never entering
 			// applyBackflow) via the ADR-0006 amendments — a skip trailer in
 			// range, or a target that forbids merge commits (planMergeBackflow).
@@ -1085,10 +1087,9 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 		if err != nil {
 			var conflict *git.MergeConflict
 			if errors.As(err, &conflict) {
+				// The conflict warning is emitted by the CLI after apply, once
+				// the artifact's address is known (spec 002 FR-001).
 				res.Divergence = true
-				c.log().Warn(fmt.Sprintf(
-					"backflow %s -> %s halted on merge conflict at %s %q; no request created",
-					a.From, a.To, conflict.SHA, conflict.Subject))
 				// Merge attempts the whole source set (no per-commit clean
 				// count), so whole == true and applied is ignored. Best-effort;
 				// never downgrades the exit-3 divergence above.
@@ -1110,10 +1111,9 @@ func (c *Coordinator) applyBackflow(ctx context.Context, a engine.Action, res *R
 			if errors.As(err, &conflict) {
 				// Reported divergence (reconcile exit 3): surface the failing
 				// commit and how many applied cleanly, push nothing, create nothing.
+				// The conflict warning is emitted by the CLI after apply, once
+				// the artifact's address is known (spec 002 FR-001).
 				res.Divergence = true
-				c.log().Warn(fmt.Sprintf(
-					"backflow %s -> %s halted on cherry-pick conflict at %s %q after %d applied cleanly; no request created",
-					a.From, a.To, conflict.SHA, conflict.Subject, conflict.Applied))
 				// Cherry-pick carries a per-commit clean count, so whole ==
 				// false. Best-effort; never downgrades the exit-3 divergence.
 				return c.recordBackflowConflict(ctx, a, st, conflict.SHA, conflict.Subject, conflict.Applied, false, conflicted, res)
@@ -1617,6 +1617,14 @@ func toEngineCommits(cs []git.Commit) []engine.Commit {
 // none was injected — mirroring log()'s nil-safety. The rendered human
 // text always sits ABOVE the machine-readable marker the provider appends;
 // the marker itself is never templatable (see internal/tmpl).
+// artifactNoun is ArtifactNoun, defaulting to "issue".
+func (c *Coordinator) artifactNoun() string {
+	if c.ArtifactNoun != "" {
+		return c.ArtifactNoun
+	}
+	return "issue"
+}
+
 func (c *Coordinator) templates() *tmpl.Set {
 	if c.Templates != nil {
 		return c.Templates
@@ -1738,14 +1746,17 @@ func (c *Coordinator) canonicalConflictArtifacts(ctx context.Context, arts []for
 }
 
 // recordBackflowConflict ensures a durable conflict artifact exists for the
-// (a.From -> a.To) edge, keyed to the live source head. It first marks the edge
-// conflicted for this run (before any forge I/O), then best-effort ensures the
-// artifact: create-if-absent, adopt-if-same-head, advance-to-live-tip
-// otherwise, under a guard that never regresses the record to a staler run's
-// head. A forge failure logs a warning and returns nil so the exit-3
-// divergence is never downgraded to exit 1 (ADR 0008). Only called inside the
-// errors.As conflict branches. whole distinguishes merge (true) from
-// cherry-pick (false); applied is the clean count and is ignored when whole.
+// (a.From -> a.To) edge, keyed to the live source head, and reports the
+// conflict for the CLI's surfaces (spec 002). It first marks the edge
+// conflicted for this run (before any forge I/O) and appends the edge's
+// KindConflict report, then renders the summary guidance, then best-effort
+// ensures the artifact: create-if-absent, adopt-if-same-head,
+// advance-to-live-tip otherwise, under a guard that never regresses the record
+// to a staler run's head. Every exit path leaves the report's ArtifactStatus
+// set. A forge failure logs a warning and returns nil so the exit-3 divergence
+// is never downgraded to exit 1 (ADR 0008). Only called inside the errors.As
+// conflict branches. whole distinguishes merge (true) from cherry-pick
+// (false); applied is the clean count and is ignored when whole.
 func (c *Coordinator) recordBackflowConflict(
 	ctx context.Context, a engine.Action, st engine.EdgeState,
 	sha, subject string, applied int, whole bool,
@@ -1756,10 +1767,57 @@ func (c *Coordinator) recordBackflowConflict(
 	edge := [2]string{a.From, a.To}
 	conflicted[edge] = true
 
-	// (2) The full live source head is the ancestry key.
-	curHead := st.To.Head
+	// (2) The report the CLI prints. Not recorded until a path below says
+	// otherwise. The subject is cleaned once here (spec 002 FR-013) and every
+	// surface applies its own containment on output.
+	cleanSubject := textsafe.Subject(subject)
+	g := &ConflictGuidance{
+		Strategy:     string(c.Graph.Backflow.Strategy),
+		SHA:          sha,
+		Subject:      cleanSubject,
+		Applied:      applied,
+		Whole:        whole,
+		Artifact:     ArtifactNotRecorded,
+		ArtifactNoun: c.artifactNoun(),
+	}
+	if g.Strategy == "" {
+		g.Strategy = string(v1.BackflowStrategyCherryPick)
+	}
+	res.addReport(DivergenceReport{From: a.From, To: a.To, Kind: KindConflict, Conflict: g})
+	known := func(art forge.ConflictArtifact) {
+		g.Artifact = ArtifactKnown
+		g.ArtifactURL = art.URL
+		g.artifactID = art.ID
+	}
 
-	// (3) Capability gate (best-effort). A forge that cannot host conflict
+	// (3) The template context, shared by the artifact and the summary. The
+	// failing subject is attacker-influenceable free text and lives ONLY in
+	// the rendered human text, never in a marker identity field. Commit
+	// subjects are cleaned for both surfaces (tmpl.NewCommit only caps them).
+	tc := c.backflowContext(a, st, "conflict")
+	for i := range tc.Commits {
+		tc.Commits[i].Subject = textsafe.Subject(tc.Commits[i].Subject)
+	}
+	tc.Conflict = &tmpl.Conflict{
+		SHA: sha, Subject: cleanSubject, Applied: applied, Whole: whole,
+		// Best-effort: enriches the operator guidance when the failing commit is
+		// a squash rollup, never gates the exit-3 record.
+		SquashCommits: c.squashCommitCount(ctx, sha),
+	}
+
+	// (4) The summary guidance, rendered whatever happens to the artifact:
+	// when no artifact can be kept it is the only guidance. A configured body
+	// that reads commit text is replaced by the built-in one (spec 002 FR-016).
+	if body, builtin, err := c.templates().BackflowConflictSummary(tc); err != nil {
+		g.RenderFailed = true
+		c.log().Warn(fmt.Sprintf(
+			"backflow conflict summary text render failed for %s -> %s", a.From, a.To), "err", err)
+	} else {
+		g.SummaryBody = body
+		g.BuiltinFallback = builtin
+	}
+
+	// (5) Capability gate (best-effort). A forge that cannot host conflict
 	// artifacts at all — GitHub with Issues disabled — would fail every write
 	// below with a 410 that reads as transient, and every reconcile would
 	// re-attempt and re-warn forever. Name the actual problem and skip the
@@ -1768,6 +1826,7 @@ func (c *Coordinator) recordBackflowConflict(
 	// path — the advisory check must never suppress recording on a working
 	// forge.
 	if supported, err := c.Forge.SupportsConflictArtifacts(ctx); err == nil && !supported {
+		g.Artifact = ArtifactUnhostable
 		c.log().Warn(fmt.Sprintf(
 			"cannot record a durable conflict artifact for %s -> %s: the repository cannot host "+
 				"conflict artifacts (on GitHub, the Issues feature is disabled); enable Issues in "+
@@ -1776,7 +1835,7 @@ func (c *Coordinator) recordBackflowConflict(
 		return nil
 	}
 
-	// (4) List (best-effort). The conflicted flag is already set, so a list
+	// (6) List (best-effort). The conflicted flag is already set, so a list
 	// failure leaves any existing artifact untouched and exit 3 intact.
 	arts, err := c.Forge.ListConflictArtifacts(ctx, c.Graph.Name)
 	if err != nil {
@@ -1786,23 +1845,19 @@ func (c *Coordinator) recordBackflowConflict(
 		return nil
 	}
 
-	// (5) Consolidate duplicates on the read path and pick the canonical.
+	// (7) Consolidate duplicates on the read path and pick the canonical.
 	canon := c.canonicalConflictArtifacts(ctx, arts)
 	existing, ok := canon[edge]
-
-	// (6) The spec to create or refresh with, keyed to this run's live head.
-	// The failing subject is attacker-influenceable free text and lives ONLY
-	// in the rendered human text, never in a marker identity field. Unlike
-	// the create paths, a render failure here follows this function's
-	// best-effort posture (ADR 0008): warn and leave the artifact for the
-	// next run rather than downgrade the exit-3 divergence to exit 1.
-	tc := c.backflowContext(a, st, "conflict")
-	tc.Conflict = &tmpl.Conflict{
-		SHA: sha, Subject: subject, Applied: applied, Whole: whole,
-		// Best-effort: enriches the operator guidance when the failing commit is
-		// a squash rollup, never gates the exit-3 record.
-		SquashCommits: c.squashCommitCount(ctx, sha),
+	if ok {
+		known(existing)
 	}
+
+	// (8) The spec to create or refresh with, keyed to this run's live head.
+	// Unlike the create paths, a render failure here follows this function's
+	// best-effort posture (ADR 0008): warn and leave the artifact for the
+	// next run rather than downgrade the exit-3 divergence to exit 1. A known
+	// artifact stays the pointer (spec 002 FR-007).
+	curHead := st.To.Head
 	title, body, terr := c.templates().BackflowConflict(tc)
 	if terr != nil {
 		c.log().Warn(fmt.Sprintf(
@@ -1819,17 +1874,22 @@ func (c *Coordinator) recordBackflowConflict(
 		Body:       body,
 	}
 
-	// (7) Absent: create.
+	// (9) Absent: create.
 	if !ok {
-		if _, err := c.Forge.CreateConflictArtifact(ctx, spec); err != nil {
+		created, err := c.Forge.CreateConflictArtifact(ctx, spec)
+		if err != nil {
 			c.log().Warn(fmt.Sprintf(
 				"backflow conflict artifact create failed for %s -> %s; leaving for next run",
 				a.From, a.To), "err", err)
 			return nil
 		}
+		known(created)
 		res.Conflicts++
 		return nil
 	}
+
+	// From here the canonical artifact is known and stays the pointer on every
+	// path: adopted, advanced, advance failed, or left alone.
 
 	// updateArtifact refreshes the canonical artifact in place (best-effort). An
 	// advance is not a new artifact, so it never bumps res.Conflicts.
@@ -1842,7 +1902,7 @@ func (c *Coordinator) recordBackflowConflict(
 		return nil
 	}
 
-	// (8) Present: decide the write on the recorded head vs the live head.
+	// (10) Present: decide the write on the recorded head vs the live head.
 	if existing.SourceHead == curHead {
 		// Adopt, no write: the recorded head matches this run's source head, so
 		// the artifact already points the operator at the right stuck head. We
@@ -1903,6 +1963,11 @@ func (c *Coordinator) resolveBackflowConflicts(ctx context.Context, conflicted m
 	}
 	// Consolidate any leaked duplicate on the read path, then sweep canonicals.
 	canon := c.canonicalConflictArtifacts(ctx, arts)
+	// A concurrent run can have created a lower-numbered artifact for an edge
+	// this run just recorded; consolidation then closed this run's. Point the
+	// edge's report at the surviving canonical so no surface links a closed
+	// duplicate.
+	res.repointConflictArtifacts(canon)
 	if len(canon) == 0 {
 		// Nothing to sweep — skip the git ancestry work entirely.
 		return nil

@@ -1,5 +1,7 @@
 package reconcile
 
+import "github.com/skaphos/oiax/v2/internal/forge"
+
 // Divergence reports (spec 002): what each edge that contributed to exit 3
 // needs the CLI to tell the operator. Reports are not serialized; the JSON
 // plan, request metadata, and exit codes are unchanged.
@@ -41,6 +43,37 @@ const (
 	ArtifactNotRecorded
 )
 
+// addReport appends r, keeping at most one report per edge: a conflict
+// replaces another divergence on the same edge, and a later report never
+// replaces a conflict. Order is first appearance, which is plan order.
+func (res *Result) addReport(r DivergenceReport) {
+	for i, have := range res.Divergences {
+		if have.From != r.From || have.To != r.To {
+			continue
+		}
+		if r.Kind == KindConflict && have.Kind != KindConflict {
+			res.Divergences[i] = r
+		}
+		return
+	}
+	res.Divergences = append(res.Divergences, r)
+}
+
+// repointConflictArtifacts points each known conflict report at its edge's
+// canonical artifact when consolidation closed the one the report named.
+func (res *Result) repointConflictArtifacts(canon map[[2]string]forge.ConflictArtifact) {
+	for _, r := range res.Divergences {
+		g := r.Conflict
+		if g == nil || g.Artifact != ArtifactKnown {
+			continue
+		}
+		if art, ok := canon[[2]string{r.From, r.To}]; ok && art.ID != g.artifactID {
+			g.artifactID = art.ID
+			g.ArtifactURL = art.URL
+		}
+	}
+}
+
 // ConflictGuidance is what the CLI needs to print one conflict's warning,
 // summary section, and exit-3 line.
 type ConflictGuidance struct {
@@ -69,4 +102,8 @@ type ConflictGuidance struct {
 	// BuiltinFallback is true when the configured conflict template reads
 	// commit text, so SummaryBody is the built-in body.
 	BuiltinFallback bool
+
+	// artifactID is the known artifact's ID, for re-pointing after
+	// consolidation.
+	artifactID forge.ConflictArtifactID
 }
