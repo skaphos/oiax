@@ -325,3 +325,49 @@ func TestDivergenceReportsOnePerEdge(t *testing.T) {
 		t.Fatalf("reports = %+v", res.Divergences)
 	}
 }
+
+// Two conflicting backflow sources give two conflict reports in plan action
+// order, and another edge's reported divergence gives one KindOther report;
+// repeated runs keep the same order (spec 002 FR-011, SC-006; T054).
+func TestDivergenceReportsFollowPlanOrder(t *testing.T) {
+	ctx := context.Background()
+	r, commit := gitHarness(t)
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "dev-change\n", "dev edit")
+	checkout(t, r, "test")
+	commitOn(t, r.Dir, "app.txt", "test-hotfix\n", "test hotfix")
+	checkout(t, r, "main")
+	commit("app.txt", "main-hotfix\n", "main hotfix")
+
+	g := testGraph()
+	g.Backflow.Sources = []string{"main", "test"}
+	action := func(from string) engine.Action {
+		short, _ := r.ShortSHA(ctx, from)
+		return engine.Action{Type: engine.ActionCreateBackflowRequest, From: from, To: "development",
+			Unpromoted: 1, Branch: engine.BackflowBranchName(from, "development", short)}
+	}
+	plan := engine.Plan{Actions: []engine.Action{
+		action("test"),
+		{Type: engine.ActionReportDivergence, From: "development", To: "test", Reason: "drift"},
+		action("main"),
+	}}
+	c := &Coordinator{Git: r, Forge: &fakeForge{}, Graph: g}
+	want := []string{"test->development conflict", "development->test other", "main->development conflict"}
+	for run := range 20 {
+		res, err := c.Apply(ctx, plan)
+		if err != nil {
+			t.Fatalf("run %d: %v", run, err)
+		}
+		var got []string
+		for _, d := range res.Divergences {
+			kind := "other"
+			if d.Kind == KindConflict {
+				kind = "conflict"
+			}
+			got = append(got, d.From+"->"+d.To+" "+kind)
+		}
+		if strings.Join(got, ", ") != strings.Join(want, ", ") {
+			t.Fatalf("run %d: reports = %v, want %v", run, got, want)
+		}
+	}
+}

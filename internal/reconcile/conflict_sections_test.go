@@ -189,3 +189,67 @@ func TestRenderConflictSectionNoArtifact(t *testing.T) {
 		t.Fatalf("render-failure section lacks the note or the statement:\n%s", got)
 	}
 }
+
+// The size budget (spec 002 FR-005, research R8; T056).
+func TestRenderConflictSectionsBudget(t *testing.T) {
+	reports := []DivergenceReport{
+		knownReport("main", "development", false),
+		knownReport("hotfix", "development", false),
+		knownReport("release", "development", true),
+	}
+	for i := range reports {
+		reports[i].Conflict.SummaryBody = strings.Repeat("guidance ", 200)
+	}
+	fullText, _ := renderSections(t, reports, SummaryLimit)
+	full := len(fullText)
+	var reduced int
+	for _, r := range reports {
+		reduced += len(conflictSection(r, false))
+	}
+	reserve := reduced + len("\n"+truncationNote+"\n")
+
+	t.Run("everything fits: no note", func(t *testing.T) {
+		got, written := renderSections(t, reports, full+100)
+		if !written || got != fullText || strings.Contains(got, truncationNote) {
+			t.Fatalf("written=%v, note present=%v", written, strings.Contains(got, truncationNote))
+		}
+	})
+	t.Run("exactly the full size: every section full, no note", func(t *testing.T) {
+		got, written := renderSections(t, reports, full)
+		if !written || got != fullText {
+			t.Fatalf("a budget equal to the full total shortened the guidance (written=%v, %d of %d bytes)", written, len(got), full)
+		}
+	})
+	t.Run("between the reserve and the full size", func(t *testing.T) {
+		budget := reserve + (full-reduced)/3
+		got, written := renderSections(t, reports, budget)
+		if !written || len(got) > budget {
+			t.Fatalf("written=%v, %d bytes for a %d budget", written, len(got), budget)
+		}
+		if strings.Count(got, truncationNote) != 1 || !strings.HasSuffix(got, truncationNote+"\n") {
+			t.Fatalf("want one truncation note at the end:\n%s", got)
+		}
+		if strings.Count(got, "### Backflow conflict:") != 3 {
+			t.Fatalf("a reduced section was dropped:\n%s", got)
+		}
+		first := got[:strings.Index(got, "### Backflow conflict: hotfix")]
+		if !strings.Contains(first, "guidance guidance") {
+			t.Fatal("the first section was not kept in full")
+		}
+		last := got[strings.Index(got, "### Backflow conflict: release"):]
+		if strings.Contains(last, "guidance guidance") {
+			t.Fatal("the last section was not reduced")
+		}
+	})
+	t.Run("below the reserve: nothing", func(t *testing.T) {
+		got, written := renderSections(t, reports, reserve-1)
+		if written || got != "" {
+			t.Fatalf("wrote %d bytes below the reserve", len(got))
+		}
+	})
+	t.Run("zero budget: nothing", func(t *testing.T) {
+		if got, written := renderSections(t, reports, 0); written || got != "" {
+			t.Fatalf("wrote %d bytes with no budget", len(got))
+		}
+	})
+}

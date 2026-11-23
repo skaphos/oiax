@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -329,5 +330,154 @@ func TestReconcileConflictNoArtifactPointers(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// twoSourceConfig backflows both main and test into development.
+const twoSourceConfig = `apiVersion: oiax.skaphos.dev/v1
+kind: PromotionGraph
+metadata:
+  name: environments
+spec:
+  branches:
+    development:
+      role: source
+    test: {}
+    main:
+      role: terminal
+  promotions:
+    - from: development
+      to: test
+    - from: test
+      to: main
+  backflow:
+    sources: [test, main]
+    target: development
+`
+
+// twoConflictRepo makes both backflow sources conflict with development.
+func twoConflictRepo(t *testing.T) {
+	t.Helper()
+	git := conflictRepo(t, twoSourceConfig, "main")
+	git("checkout", "-q", "test")
+	git("write", "app.txt", "test-hotfix\n")
+	git("add", "app.txt")
+	git("commit", "-q", "-m", "fix: test hotfix")
+	git("checkout", "-q", "main")
+}
+
+// Several conflicting edges: one warning and one self-contained section per
+// conflict, and an exit-3 message naming every diverging edge with its own
+// pointer, in plan order (spec 002 US5, FR-011; T055).
+func TestReconcileMultipleConflictsOrdered(t *testing.T) {
+	twoConflictRepo(t)
+	summary := githubActions(t)
+	useForge(t, &fakeForge{})
+
+	out, code := runCode(t, "reconcile")
+	if code != 3 {
+		t.Fatalf("reconcile exit = %d, want 3\n%s", code, out)
+	}
+	var warnings []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "::warning::") && strings.Contains(line, "halted on") {
+			warnings = append(warnings, line)
+		}
+	}
+	if len(warnings) != 2 || !strings.Contains(warnings[0], "backflow test -> development") ||
+		!strings.Contains(warnings[1], "backflow main -> development") {
+		t.Fatalf("want the test then main conflict warnings, got:\n%s", strings.Join(warnings, "\n"))
+	}
+	if strings.HasSuffix(warnings[0], "/issues/7") == strings.HasSuffix(warnings[1], "/issues/7") {
+		t.Fatalf("both warnings point at the same record:\n%s", strings.Join(warnings, "\n"))
+	}
+	sum := readFile(t, summary)
+	if strings.Count(sum, "### Backflow conflict:") != 2 ||
+		strings.Index(sum, "### Backflow conflict: test") > strings.Index(sum, "### Backflow conflict: main") {
+		t.Fatalf("want two sections, test before main:\n%s", sum)
+	}
+
+	msg := out[strings.Index(out, "converged with reported divergence on "):]
+	lines := strings.Split(strings.TrimSpace(msg), "\n")
+	wantFirst := "converged with reported divergence on " + strconv.Itoa(len(lines)-1) + " edges:"
+	if lines[0] != wantFirst {
+		t.Fatalf("first line = %q, want %q", lines[0], wantFirst)
+	}
+	conflicts := 0
+	for _, l := range lines[1:] {
+		switch {
+		case strings.Contains(l, ": backflow conflict; resolution steps: https://github.com/acme/widgets/issues/"):
+			conflicts++
+		case strings.HasSuffix(l, ": reported divergence"):
+		default:
+			t.Fatalf("unexpected exit-3 line %q", l)
+		}
+	}
+	if conflicts != 2 || strings.Index(msg, "test -> development: backflow") > strings.Index(msg, "main -> development: backflow") {
+		t.Fatalf("want both conflicts with their own pointers, test first:\n%s", msg)
+	}
+}
+
+// A step summary already at the 1 MiB limit gets no conflict section, and the
+// pointers never claim one: a known artifact keeps its address, no artifact
+// points at the guide (spec 002 FR-005, FR-010; T056).
+func TestReconcileConflictSummaryAtLimit(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		forge   func() *fakeForge
+		pointer string
+	}{
+		{"known artifact", func() *fakeForge { return &fakeForge{} }, ". Resolution steps: " + fakeIssueURL},
+		{"no artifact", func() *fakeForge { return &fakeForge{artifactsUnsupported: true} }, "; resolution steps: " + reconcile.BackflowGuideURL},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			conflictRepo(t, exampleConfig, "main")
+			path := githubActions(t)
+			if err := os.WriteFile(path, []byte(strings.Repeat("x", reconcile.SummaryLimit)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			useForge(t, tt.forge())
+			out, code := runCode(t, "reconcile")
+			if code != 3 {
+				t.Fatalf("exit %d, want 3\n%s", code, out)
+			}
+			if strings.Contains(readFile(t, path), "### Backflow conflict:") {
+				t.Fatal("a conflict section was appended to a full summary")
+			}
+			if strings.Contains(out, "this run's summary") {
+				t.Fatalf("pointers claim a summary that was not written:\n%s", out)
+			}
+			if !strings.Contains(out, tt.pointer) {
+				t.Fatalf("output lacks the pointer %q:\n%s", tt.pointer, out)
+			}
+		})
+	}
+}
+
+// The plan summary, notification diagnostics, and conflict sections share
+// one step-summary file. Starting near the limit, the conflict sections never
+// take the file past 1 MiB, and the pointers match what was written
+// (spec 002 research R8; T056).
+func TestReconcileConflictSummaryCombinedWriters(t *testing.T) {
+	conflictRepo(t, exampleConfig, "main")
+	path := githubActions(t)
+	// Leave room for the plan summary but not for full conflict guidance.
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", reconcile.SummaryLimit-6000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	useForge(t, &fakeForge{})
+	out, code := runCode(t, "reconcile")
+	if code != 3 {
+		t.Fatalf("exit %d, want 3\n%s", code, out)
+	}
+	sum := readFile(t, path)
+	wrote := strings.Contains(sum, "### Backflow conflict:")
+	if wrote && len(sum) > reconcile.SummaryLimit {
+		t.Fatalf("conflict sections took the summary to %d bytes (limit %d)", len(sum), reconcile.SummaryLimit)
+	}
+	// A known artifact's pointer is its address whether or not the section
+	// fit; nothing may claim a summary.
+	if strings.Contains(out, "this run's summary") || !strings.Contains(out, ". Resolution steps: "+fakeIssueURL) {
+		t.Fatalf("pointers do not match what was written (section written: %v):\n%s", wrote, out)
 	}
 }

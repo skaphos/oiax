@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -114,11 +115,13 @@ func (f *fakeForge) CreateConflictArtifact(_ context.Context, spec forge.Conflic
 	if f.createConflictErr != nil {
 		return forge.ConflictArtifact{}, f.createConflictErr
 	}
+	// Issue 7 first, then 8, 9, ... so several conflicts get distinct records.
+	id := strconv.Itoa(7 + len(f.conflicts))
 	u := f.conflictURL
 	if u == "" {
-		u = fakeIssueURL
+		u = strings.TrimSuffix(fakeIssueURL, "7") + id
 	}
-	art := forge.ConflictArtifact{ID: "7", Source: spec.Source, Target: spec.Target, SourceHead: spec.SourceHead, URL: u}
+	art := forge.ConflictArtifact{ID: forge.ConflictArtifactID(id), Source: spec.Source, Target: spec.Target, SourceHead: spec.SourceHead, URL: u}
 	f.conflicts = append(f.conflicts, art)
 	return art, nil
 }
