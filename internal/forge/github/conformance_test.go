@@ -22,7 +22,7 @@ func TestGitHubConformance(t *testing.T) {
 		t.Cleanup(srv.Close)
 		return &Provider{
 			Owner: "acme", Repo: "widgets", Token: testToken,
-			BaseURL: srv.URL, HTTP: srv.Client(),
+			BaseURL: srv.URL, HTTP: srv.Client(), anyAuthor: true,
 		}
 	})
 }

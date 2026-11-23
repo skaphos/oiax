@@ -14,6 +14,6 @@ func TestNotificationCreationConformance(t *testing.T) {
 		t.Helper()
 		server := httptest.NewServer(s)
 		t.Cleanup(server.Close)
-		return &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+		return &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 	})
 }

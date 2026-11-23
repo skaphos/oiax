@@ -22,10 +22,11 @@ func TestAzureDevOpsConformance(t *testing.T) {
 		srv := httptest.NewServer(fake.handler(t))
 		t.Cleanup(srv.Close)
 		return &Provider{
-			Repo:    Repo{Organization: "acme", Project: "platform", Name: "deploy"},
-			Token:   testToken,
-			BaseURL: srv.URL,
-			HTTP:    srv.Client(),
+			Repo:      Repo{Organization: "acme", Project: "platform", Name: "deploy"},
+			Token:     testToken,
+			BaseURL:   srv.URL,
+			HTTP:      srv.Client(),
+			anyAuthor: true,
 		}
 	})
 }

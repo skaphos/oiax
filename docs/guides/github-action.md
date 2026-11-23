@@ -59,6 +59,7 @@ The rest of this guide explains each part and why it is there.
 | `config` | `.oiax.yaml` | Path to the configuration file. |
 | `config-ref` | *(empty)* | Ref to read configuration from. Empty means the repository default branch — the [pinned-ref](promotion-graphs.md#where-configuration-is-read-from) default. |
 | `token` | `${{ github.token }}` | Token for forge API calls and pushing `oiax/` branches. **Change this** — see [Tokens](#tokens). |
+| `trusted-authors` | *(empty)* | Comma-separated extra GitHub logins whose pull requests may be Oiax-managed. The token's own identity is always trusted; list a **previous** identity here when you change tokens — see [Changing the token identity](tokens.md#changing-the-token-identity). |
 | `version` | Action ref's release | Optional exact binary override, e.g. `v2.0.0`. By default `@v2` reads the release manifest at that ref, so wrapper and binary advance together within v2. A cross-major override is rejected. |
 
 Release automation advances the floating `v2` tag only after a full

@@ -77,6 +77,21 @@ type Provider struct {
 	// warn-once guard (the GitHub provider's sync.Once) returns together with
 	// the first warning path that needs it.
 	Warn func(msg string)
+	// TrustedAuthors are additional identity ids (GUIDs) whose pull requests
+	// may be Oiax's own, beyond the identity Token itself acts as (which is
+	// always trusted). It exists for token migrations: requests opened under
+	// a previous identity stay managed only while that id is listed here
+	// (ADR 0020). Wired from OIAX_TRUSTED_AUTHORS.
+	TrustedAuthors []string
+
+	// authors is the resolved trusted-identity set (see trustedAuthors);
+	// untrustedWarned dedupes the per-request warning. anyAuthor disables the
+	// provenance check and is set only by this package's tests, whose
+	// fixtures predate it; nothing outside the package can reach it.
+	authorsMu       sync.Mutex
+	authors         map[string]struct{}
+	untrustedWarned map[int]struct{}
+	anyAuthor       bool
 
 	// Resilience tunables. Zero values use the production defaults; they exist
 	// only so tests can shrink backoff and the response cap. Not part of the
@@ -118,6 +133,15 @@ type adoPull struct {
 	// repository, so a fork PR is never one of its own (the provenance guard the
 	// GitHub provider gets from head.repo == base.repo).
 	ForkSource *forkRef `json:"forkSource"`
+	// CreatedBy is the identity that opened the pull request — the one field
+	// its author cannot choose, and so the provenance signal (ADR 0020).
+	CreatedBy adoIdentityRef `json:"createdBy"`
+}
+
+// adoIdentityRef is the subset of an Azure DevOps identity reference the
+// provider reads: the immutable identity id.
+type adoIdentityRef struct {
+	ID string `json:"id"`
 }
 
 type forkRef struct {
@@ -210,7 +234,10 @@ func (p *Provider) ListManagedRequests(ctx context.Context, filter forge.Request
 			if !ok {
 				continue
 			}
-			m, ok = p.managed(pr, m)
+			m, ok, err := p.managed(ctx, pr, m)
+			if err != nil {
+				return nil, fmt.Errorf("list managed requests: %w", err)
+			}
 			if !ok {
 				continue
 			}
@@ -250,17 +277,26 @@ func (p *Provider) ListManagedRequests(ctx context.Context, filter forge.Request
 // originating from a fork (the provenance guard: Oiax only opens same-repo
 // branch-to-branch requests). The tags are decorative — a human removing them
 // must not make Oiax lose track of its own request.
-func (p *Provider) managed(pr adoPull, m mk.Marker) (mk.Marker, bool) {
+//
+// Those three are all chosen by whoever opens or edits the pull request, so a
+// request that passes them must also have been created by a trusted Oiax
+// identity (trustedCreator, ADR 0020). The identity lookup is only reached by
+// a request that already has the shape of a managed one.
+func (p *Provider) managed(ctx context.Context, pr adoPull, m mk.Marker) (mk.Marker, bool, error) {
 	if !mk.VersionPattern.MatchString(m.Version) {
-		return mk.Marker{}, false
+		return mk.Marker{}, false, nil
 	}
 	if pr.SourceRefName != refHead(m.Source) || pr.TargetRefName != refHead(m.Destination) {
-		return mk.Marker{}, false
+		return mk.Marker{}, false, nil
 	}
 	if pr.ForkSource != nil {
-		return mk.Marker{}, false
+		return mk.Marker{}, false, nil
 	}
-	return m, true
+	ok, err := p.trustedCreator(ctx, pr)
+	if err != nil || !ok {
+		return mk.Marker{}, false, err
+	}
+	return m, true, nil
 }
 
 // managedRequest fetches a single pull request and resolves its marker,
@@ -279,7 +315,10 @@ func (p *Provider) managedRequest(ctx context.Context, id int) (adoPull, mk.Mark
 			return pr, mk.Marker{}, errNotManaged
 		}
 	}
-	m, ok = p.managed(pr, m)
+	m, ok, err = p.managed(ctx, pr, m)
+	if err != nil {
+		return pr, mk.Marker{}, err
+	}
 	if !ok {
 		return pr, mk.Marker{}, errNotManaged
 	}
@@ -406,6 +445,7 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 	// surfaced with the successful POST outcome. The initial description already
 	// contains ownership and creation origin, so discovery can recover both even
 	// if this process exits before supplemental properties are written.
+	p.warnForeignAuthor(ctx, created)
 	if err := p.putMarkerProperty(ctx, created.PullRequestID, serialized); err != nil {
 		return out, fmt.Errorf("create request: %w", err)
 	}

@@ -112,7 +112,7 @@ func TestNotificationSnapshotConformance(t *testing.T) {
 			}
 		}))
 		t.Cleanup(server.Close)
-		p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+		p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 		req, err := p.GetLifecycleRequest(context.Background(), "42")
 		if err != nil {
 			t.Fatal(err)
@@ -213,7 +213,7 @@ func TestNotificationCreationSnapshot(t *testing.T) {
 				}
 			}))
 			t.Cleanup(server.Close)
-			p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+			p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 			repo := notification.RepositoryIdentity{Provider: "github", Host: gitRemoteHost, ID: "123", Name: "example/repo"}
 			req := notification.LifecycleRequest{Repository: repo, Graph: "graph", State: notification.LifecycleOpen, CreatedAt: time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC), SourceOID: pr.Head.SHA, BaseOID: pr.Base.SHA, Origin: tc.origin,
 				Request: notification.RequestV1{ID: "42", Type: v1.NotificationPromotion, Source: "dev", Destination: "test", LogicalSource: "dev", LogicalDestination: "test", URL: "https://github.com/example/repo/pull/42"}}
@@ -282,7 +282,7 @@ func TestCreateRequestWritesOriginOnce(t *testing.T) {
 		}
 	}))
 	t.Cleanup(server.Close)
-	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 	out, err := p.CreateRequest(context.Background(), forge.CreateRequest{Graph: "graph", Type: engine.RequestTypePromotion, Source: "dev", Target: "test", SourceHead: origin.SourceOID, Body: "Human text", Origin: &origin})
 	if err != nil || out.Disposition != forge.RequestCreated || out.Request.ID != "42" || out.Origin == nil || *out.Origin != origin {
 		t.Fatalf("creation = %+v, %v", out, err)
@@ -313,7 +313,7 @@ func TestNotificationImmutableMergeFallback(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 	snapshot, err := p.immutableMergeSnapshot(context.Background(), notification.LifecycleRequest{SourceOID: head, MergeResultOID: result}, 1)
 	if err != nil || snapshot.CommitsUnavailable || snapshot.BaseOID != base || snapshot.Commits[0].SHA != head {
 		t.Fatal("immutable merge proof lost", err)

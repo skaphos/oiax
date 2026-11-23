@@ -433,6 +433,13 @@ func (f *notificationBinaryFixture) messages() []notificationReceived {
 	return append([]notificationReceived(nil), f.received...)
 }
 
+// The identity the fixture forge reports for the token and records as the
+// author of every request it serves.
+const (
+	fixtureLogin      = "oiax-fixture[bot]"
+	fixtureIdentityID = "0a0a0a0a-1111-2222-3333-444444444444"
+)
+
 func (f *notificationBinaryFixture) pull(s forgetest.LifecycleSeed) map[string]any {
 	body := "Human-authored request"
 	if s.Managed {
@@ -451,13 +458,15 @@ func (f *notificationBinaryFixture) pull(s forgetest.LifecycleSeed) map[string]a
 		}
 		return map[string]any{"pullRequestId": s.ID, "status": status, "description": body,
 			"sourceRefName": "refs/heads/" + s.Source, "targetRefName": "refs/heads/" + s.Destination,
-			"creationDate": s.CreatedAt.Format(time.RFC3339Nano), "closedDate": s.MergedAt.Format(time.RFC3339Nano)}
+			"creationDate": s.CreatedAt.Format(time.RFC3339Nano), "closedDate": s.MergedAt.Format(time.RFC3339Nano),
+			"createdBy": map[string]string{"id": fixtureIdentityID}}
 	}
 	state := "closed"
 	if s.State == notification.LifecycleOpen {
 		state = "open"
 	}
 	pr := map[string]any{"number": s.ID, "state": state, "body": body, "created_at": s.CreatedAt.Format(time.RFC3339Nano),
+		"user": map[string]string{"login": fixtureLogin},
 		"head": map[string]any{"ref": s.Source, "sha": f.oid, "repo": map[string]string{"full_name": "example/repo"}},
 		"base": map[string]any{"ref": s.Destination, "sha": f.oid, "repo": map[string]string{"full_name": "example/repo"}}}
 	if s.State == notification.LifecycleMerged {
@@ -500,6 +509,12 @@ func (f *notificationBinaryFixture) serve(w http.ResponseWriter, r *http.Request
 	}
 	if r.URL.Path == collection && r.Method == http.MethodPost {
 		f.create(w, r, respond)
+		return
+	}
+	// The token-identity lookup (ADR 0020): every fixture request is authored
+	// by this identity, so the real provenance check runs and passes.
+	if r.URL.Path == "/graphql" && r.Method == http.MethodPost {
+		respond(map[string]any{"data": map[string]any{"viewer": map[string]string{"login": fixtureLogin}}})
 		return
 	}
 	if r.URL.Path == "/project/_apis/wit/wiql" && r.Method == http.MethodPost {
@@ -545,7 +560,7 @@ func (f *notificationBinaryFixture) serve(w http.ResponseWriter, r *http.Request
 	case r.URL.Path == "/project/_apis/git/repositories/repo":
 		respond(map[string]any{"id": "repository-id", "name": "repo", "project": map[string]string{"id": "project-id"}})
 	case r.URL.Path == "/_apis/connectionData":
-		respond(map[string]string{"instanceId": "organization-id"})
+		respond(map[string]any{"instanceId": "organization-id", "authenticatedUser": map[string]string{"id": fixtureIdentityID}})
 	case r.URL.Path == "/project/_apis/policy/configurations":
 		respond(map[string]any{"value": []any{}})
 	case strings.HasPrefix(r.URL.Path, "/repos/example/repo/rules/branches/"):

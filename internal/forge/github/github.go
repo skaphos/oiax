@@ -133,8 +133,23 @@ type Provider struct {
 	// request will not trigger CI. The coordination layer wires this to
 	// its annotation sink; a nil sink discards the warning.
 	Warn func(msg string)
+	// TrustedAuthors are additional logins whose pull requests may be oiax's
+	// own, beyond the identity Token itself acts as (which is always
+	// trusted). It exists for token migrations: requests opened under a
+	// previous identity stay managed only while that login is listed here
+	// (ADR 0020). Wired from OIAX_TRUSTED_AUTHORS.
+	TrustedAuthors []string
 
 	warnOnce sync.Once
+
+	// authors is the resolved trusted-author set (see trustedAuthors);
+	// untrustedWarned dedupes the per-request warning. anyAuthor disables the
+	// provenance check and is set only by this package's tests, whose
+	// fixtures predate it; nothing outside the package can reach it.
+	authorsMu       sync.Mutex
+	authors         map[string]struct{}
+	untrustedWarned map[int]struct{}
+	anyAuthor       bool
 
 	// repoSettingsCache holds the first successfully decoded repository
 	// settings object, so every settings reader in a run shares one GET.
@@ -249,7 +264,10 @@ func (p *Provider) ListManagedRequests(ctx context.Context, filter forge.Request
 			if filter.State == forge.RequestStateMerged && pr.MergedAt == nil {
 				continue
 			}
-			m, ok := managedMarker(pr)
+			m, ok, err := p.managed(ctx, pr)
+			if err != nil {
+				return nil, fmt.Errorf("list managed requests: %w", err)
+			}
 			if !ok {
 				continue
 			}
@@ -412,6 +430,7 @@ func (p *Provider) CreateRequest(ctx context.Context, req forge.CreateRequest) (
 	if created.User.Login == botLogin {
 		p.warn(degradationWarning)
 	}
+	p.warnForeignAuthor(ctx, created)
 
 	return out, nil
 }
@@ -429,7 +448,10 @@ func (p *Provider) UpdateRequest(ctx context.Context, req forge.UpdateRequest) e
 	if err != nil {
 		return fmt.Errorf("update request %s: %w", req.ID, err)
 	}
-	m, ok := managedMarker(pr)
+	m, ok, err := p.managed(ctx, pr)
+	if err != nil {
+		return fmt.Errorf("update request %s: %w", req.ID, err)
+	}
 	if !ok {
 		return fmt.Errorf("update request %s: not a managed request", req.ID)
 	}
@@ -466,7 +488,10 @@ func (p *Provider) CloseRequest(ctx context.Context, id forge.RequestID, reason 
 	if err != nil {
 		return fmt.Errorf("close request %s: %w", id, err)
 	}
-	m, ok := managedMarker(pr)
+	m, ok, err := p.managed(ctx, pr)
+	if err != nil {
+		return fmt.Errorf("close request %s: %w", id, err)
+	}
 	if !ok {
 		return fmt.Errorf("close request %s: not a managed request", id)
 	}
@@ -1425,6 +1450,12 @@ func parseAPIError(resp *http.Response) error {
 // boundary the decorative label never enforced — only a collaborator with push
 // access can create a branch directly in the base repo, so a fork PR (head repo
 // != base repo) is never treated as managed even with a hand-written marker.
+//
+// That boundary is NOT sufficient on its own: a promotion request's head is an
+// existing graph branch, so opening one needs no push access. managedMarker is
+// only the shape check; Provider.managed adds the author-provenance check that
+// actually decides (ADR 0020). Nothing should call managedMarker directly to
+// decide whether a request is oiax's.
 //
 // Recognition is forward-compatible on purpose: a marker written by a newer
 // release (version v2 or higher) is still recognized as managed, so an older

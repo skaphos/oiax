@@ -109,7 +109,8 @@ the engine never sees credentials.
 ## `internal/forge/github`
 
 The implemented GitHub provider. It discovers managed requests by body
-metadata plus branch relationship, creates/updates/comments/closes pull
+metadata, branch relationship and author provenance (`authors.go`,
+[ADR 0020](adr/0020-managed-request-author-provenance.md)), creates/updates/comments/closes pull
 requests, manages labels and `oiax/` refs, adopts safe HTTP 422 duplicate
 creates, paginates and bounds merged-request discovery, and applies
 bounded retries where replay is safe.

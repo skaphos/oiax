@@ -79,6 +79,14 @@ parameters:
       Empty means the provider default (Issue, the Basic process type).
     type: string
     default: ''
+  - name: trustedAuthors
+    displayName: >-
+      Comma-separated extra identities whose pull requests may be
+      Oiax-managed (GitHub logins, or Azure DevOps identity ids), for
+      example a previous token identity during a migration. The identity
+      the token acts as is always trusted.
+    type: string
+    default: ''
   - name: forge
     displayName: >-
       Forge provider override (github or azuredevops). Empty means
@@ -157,5 +165,6 @@ steps:
       OIAX_CONFIG_REF: ${{ parameters.configRef }}
       OIAX_FORGE: ${{ parameters.forge }}
       OIAX_ADO_WORKITEM_TYPE: ${{ parameters.workItemType }}
+      OIAX_TRUSTED_AUTHORS: ${{ parameters.trustedAuthors }}
       GITHUB_TOKEN: ${{ parameters.githubToken }}
       AZURE_DEVOPS_TOKEN: ${{ parameters.azureDevOpsToken }}

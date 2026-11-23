@@ -95,7 +95,8 @@ long-lived branches, and never attempts automatic conflict resolution.
 ## Managed change requests
 
 Managed requests are identified by a machine-readable marker in the
-request body plus branch relationship — never by title:
+request body, the branch relationship it declares, and who opened the
+request — never by title:
 
 ```html
 <!--
@@ -111,6 +112,14 @@ oiax:
 
 Default labels: `oiax` plus `oiax/promotion` or `oiax/backflow`.
 Unmanaged requests between the same branches are never closed or edited.
+
+The marker and the branch names are chosen by whoever opens a request, so
+they are not sufficient on their own: a request is managed only when it
+was also opened by the identity Oiax's token acts as, or by one listed in
+`OIAX_TRUSTED_AUTHORS`
+([ADR 0020](adr/0020-managed-request-author-provenance.md)). A request
+that carries a marker but was opened by anyone else is left alone and
+named in a warning.
 
 Lifecycle: a promotion request's head *is* the live source branch, so
 new source commits join the open request naturally; Oiax updates the
@@ -350,6 +359,9 @@ workflow annotations for warnings/errors and a plan summary written to
   `pull_request_target` is not a default trigger.
 - Configuration is declarative data — Oiax never invokes commands it
   defines, and request templates evaluate nothing.
+- A pull request is treated as managed only when the forge records a
+  trusted Oiax identity as its author; a copied marker grants nothing
+  ([ADR 0020](adr/0020-managed-request-author-provenance.md)).
 - Branch names are passed to git as data (`git check-ref-format`
   validation, `--` separators), never interpolated into shell.
 - Backflow runs in an ephemeral detached worktree, never the caller's
