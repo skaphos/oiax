@@ -49,6 +49,23 @@ func (p *Provider) trustedCreator(ctx context.Context, pr adoPull) (bool, error)
 	return false, nil
 }
 
+// identityResolved reports whether the token's own identity is known. Until it
+// is, the trusted set is only the declared authors, and "not opened by a
+// trusted author" cannot be told apart from "opened by this token".
+func (p *Provider) identityResolved() bool {
+	p.authorsMu.Lock()
+	defer p.authorsMu.Unlock()
+	return p.authors != nil
+}
+
+// errProvenanceUnknown marks a request that has the shape of a managed one but
+// whose creator could not be judged because the token identity is unresolved.
+// It is an errNotManaged — the request is never touched — but a caller that
+// records progress past a request (notification lifecycle scans) must treat it
+// as not yet readable, or a transient lookup failure would permanently skip
+// one of Oiax's own requests.
+var errProvenanceUnknown = fmt.Errorf("%w: its creator could not be judged while the token identity is unresolved", errNotManaged)
+
 // defaultIdentityRetryInterval is how long a failed token-identity lookup is
 // left alone before it is tried again, when declared authors cover the gap.
 const defaultIdentityRetryInterval = 30 * time.Second

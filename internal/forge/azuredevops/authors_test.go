@@ -35,6 +35,9 @@ type authorAPI struct {
 	identityHit int
 	writes      []string
 	failStatus  int // status for a failed identity lookup; zero means 401
+	// anonymous makes connectionData succeed without an authenticated user, so
+	// the repository identity resolves while the token identity does not.
+	anonymous bool
 }
 
 func (a *authorAPI) handler(t *testing.T) http.Handler {
@@ -45,6 +48,11 @@ func (a *authorAPI) handler(t *testing.T) http.Handler {
 		switch {
 		case strings.HasSuffix(path, "/_apis/connectionData"):
 			a.identityHit++
+			if a.self == "" && a.anonymous {
+				// The endpoint answers, but names no identity.
+				writeJSON(t, w, http.StatusOK, map[string]any{"instanceId": "0f0f0f0f-0000-0000-0000-000000000001"})
+				return
+			}
 			if a.self == "" {
 				status := http.StatusUnauthorized
 				if a.failStatus != 0 {
@@ -358,5 +366,38 @@ func TestFailedLookupIsNotRepeatedPerRequest(t *testing.T) {
 	}
 	if api.identityHit != 1 {
 		t.Errorf("identity lookups = %d, want 1 within the retry interval", api.identityHit)
+	}
+}
+
+func TestLifecycleDoesNotSkipWhileIdentityUnresolved(t *testing.T) {
+	t.Parallel()
+	// Declared authors keep core discovery working while the token identity
+	// cannot be looked up, but a lifecycle scan records progress past every
+	// request it rules out. A request that may be this token's own must read
+	// as unavailable, not as unmanaged, until the identity resolves.
+	api := &authorAPI{anonymous: true, pulls: []map[string]any{promotionBy(9, selfID), promotionBy(8, previousID)}}
+	p, _ := strictProvider(t, api, previousID)
+	ctx := context.Background()
+
+	if _, err := p.GetLifecycleRequest(ctx, "9"); !errors.Is(err, notification.ErrLifecycleUnavailable) {
+		t.Errorf("while unresolved: GetLifecycleRequest(9) err = %v, want ErrLifecycleUnavailable", err)
+	}
+	// A declared author is a positive match and needs no lookup.
+	if req, err := p.GetLifecycleRequest(ctx, "8"); err != nil || req.Request.ID != "8" {
+		t.Errorf("while unresolved: GetLifecycleRequest(8) = %+v, %v; want admitted", req.Request, err)
+	}
+	// Mutations still refuse: unknown provenance is never permission.
+	if err := p.CloseRequest(ctx, "9", forge.Reason{Summary: "obsolete"}); err == nil {
+		t.Error("while unresolved: CloseRequest(9) succeeded")
+	}
+	if len(api.writes) != 0 {
+		t.Errorf("writes while provenance was unknown: %q", api.writes)
+	}
+
+	api.mu.Lock()
+	api.self = selfID
+	api.mu.Unlock()
+	if req, err := p.GetLifecycleRequest(ctx, "9"); err != nil || req.Request.ID != "9" {
+		t.Errorf("after recovery: GetLifecycleRequest(9) = %+v, %v; want admitted", req.Request, err)
 	}
 }

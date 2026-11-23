@@ -286,13 +286,7 @@ func (p *Provider) ListManagedRequests(ctx context.Context, filter forge.Request
 // identity (trustedCreator, ADR 0020). The identity lookup is only reached by
 // a request that already has the shape of a managed one.
 func (p *Provider) managed(ctx context.Context, pr adoPull, m mk.Marker) (mk.Marker, bool, error) {
-	if !mk.VersionPattern.MatchString(m.Version) {
-		return mk.Marker{}, false, nil
-	}
-	if pr.SourceRefName != refHead(m.Source) || pr.TargetRefName != refHead(m.Destination) {
-		return mk.Marker{}, false, nil
-	}
-	if pr.ForkSource != nil {
+	if !managedShape(pr, m) {
 		return mk.Marker{}, false, nil
 	}
 	ok, err := p.trustedCreator(ctx, pr)
@@ -300,6 +294,14 @@ func (p *Provider) managed(ctx context.Context, pr adoPull, m mk.Marker) (mk.Mar
 		return mk.Marker{}, false, err
 	}
 	return m, true, nil
+}
+
+// managedShape is the author-independent half of recognition: a well-formed
+// marker version, the declared branch relationship, and no fork source.
+func managedShape(pr adoPull, m mk.Marker) bool {
+	return mk.VersionPattern.MatchString(m.Version) &&
+		pr.SourceRefName == refHead(m.Source) && pr.TargetRefName == refHead(m.Destination) &&
+		pr.ForkSource == nil
 }
 
 // managedRequest fetches a single pull request and resolves its marker,
@@ -318,11 +320,15 @@ func (p *Provider) managedRequest(ctx context.Context, id int) (adoPull, mk.Mark
 			return pr, mk.Marker{}, errNotManaged
 		}
 	}
+	shaped := managedShape(pr, m)
 	m, ok, err = p.managed(ctx, pr, m)
 	if err != nil {
 		return pr, mk.Marker{}, err
 	}
 	if !ok {
+		if shaped && !p.anyAuthor && !p.identityResolved() {
+			return pr, mk.Marker{}, errProvenanceUnknown
+		}
 		return pr, mk.Marker{}, errNotManaged
 	}
 	return pr, m, nil

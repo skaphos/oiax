@@ -172,6 +172,12 @@ func (p *Provider) GetLifecycleRequest(ctx context.Context, id forge.RequestID) 
 	}
 	pr, m, err := p.managedRequest(ctx, number)
 	if err != nil {
+		// Checked before errNotManaged, which it wraps: with the token identity
+		// unresolved, "not created by a trusted identity" is not yet a verdict,
+		// and a scan must not record progress past the request.
+		if errors.Is(err, errProvenanceUnknown) {
+			return notification.LifecycleRequest{}, notification.ErrLifecycleUnavailable
+		}
 		if errors.Is(err, errNotManaged) {
 			return notification.LifecycleRequest{}, notification.ErrNotManaged
 		}

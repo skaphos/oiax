@@ -60,6 +60,29 @@ func (p *Provider) managed(ctx context.Context, pr ghPull) (marker, bool, error)
 	return marker{}, false, nil
 }
 
+// identityResolved reports whether the token's own identity is known. Until it
+// is, the trusted set is only the declared authors, and "not opened by a
+// trusted author" cannot be told apart from "opened by this token".
+func (p *Provider) identityResolved() bool {
+	p.authorsMu.Lock()
+	defer p.authorsMu.Unlock()
+	return p.authors != nil
+}
+
+// provenanceUnknown reports whether pr has the shape of a managed request but
+// its authorship could not be judged because the token identity is unresolved.
+// Core discovery treats such a request as unmanaged (it is never touched); a
+// caller that records progress past a request — notification lifecycle scans —
+// must instead treat it as not yet readable, or a transient lookup failure
+// would permanently skip one of oiax's own requests.
+func (p *Provider) provenanceUnknown(pr ghPull) bool {
+	if p.anyAuthor {
+		return false
+	}
+	_, shaped := managedMarker(pr)
+	return shaped && !p.identityResolved()
+}
+
 // defaultIdentityRetryInterval is how long a failed token-identity lookup is
 // left alone before it is tried again, when declared authors cover the gap.
 const defaultIdentityRetryInterval = 30 * time.Second

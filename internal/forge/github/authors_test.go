@@ -455,3 +455,36 @@ func TestFailedLookupIsNotRepeatedPerRequest(t *testing.T) {
 		t.Errorf("identity lookups = %d, want 1 within the retry interval", api.identityHit)
 	}
 }
+
+func TestLifecycleDoesNotSkipWhileIdentityUnresolved(t *testing.T) {
+	t.Parallel()
+	// Declared authors keep core discovery working while the token identity
+	// cannot be looked up, but a lifecycle scan records progress past every
+	// request it rules out. A request that may be this token's own must read
+	// as unavailable, not as unmanaged, until the identity resolves.
+	api := &authorAPI{pulls: []map[string]any{promotionBy(9, selfLogin), promotionBy(8, "old-app[bot]")}}
+	p, _ := strictProvider(t, api, "old-app[bot]")
+	ctx := context.Background()
+
+	if _, err := p.GetLifecycleRequest(ctx, "9"); !errors.Is(err, notification.ErrLifecycleUnavailable) {
+		t.Errorf("while unresolved: GetLifecycleRequest(9) err = %v, want ErrLifecycleUnavailable", err)
+	}
+	// A declared author is a positive match and needs no lookup.
+	if req, err := p.GetLifecycleRequest(ctx, "8"); err != nil || req.Request.ID != "8" {
+		t.Errorf("while unresolved: GetLifecycleRequest(8) = %+v, %v; want admitted", req.Request, err)
+	}
+	// Mutations still refuse: unknown provenance is never permission.
+	if err := p.CloseRequest(ctx, "9", forge.Reason{Summary: "obsolete"}); err == nil {
+		t.Error("while unresolved: CloseRequest(9) succeeded")
+	}
+	if len(api.writes) != 0 {
+		t.Errorf("writes while provenance was unknown: %q", api.writes)
+	}
+
+	api.mu.Lock()
+	api.viewer = selfLogin
+	api.mu.Unlock()
+	if req, err := p.GetLifecycleRequest(ctx, "9"); err != nil || req.Request.ID != "9" {
+		t.Errorf("after recovery: GetLifecycleRequest(9) = %+v, %v; want admitted", req.Request, err)
+	}
+}

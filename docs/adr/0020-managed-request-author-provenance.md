@@ -112,6 +112,15 @@ previous identity's requests have merged or closed.
 - Someone with write access can still edit the body of a request Oiax opened,
   including its `sourceHead`. That is the trust level the tool already assumes
   for writers; narrowing it would need option 3.
+- While the token identity is unresolved and declared authors are standing in,
+  a marker-bearing request from an undeclared author is "unknown", not
+  "unmanaged". Core discovery leaves it alone either way. Notification
+  lifecycle reads report it as unavailable rather than unmanaged, because a
+  scan records progress past every request it rules out and would otherwise
+  permanently skip one of Oiax's own requests over a transient lookup failure.
+  The cost: in a deployment where the lookup never succeeds, a request with a
+  copied marker holds that scan incomplete until it is closed or its author is
+  declared. A delayed notification is recoverable; a skipped one is not.
 - The GitHub provider now makes one GraphQL call per run. No GraphQL variables
   or interpolation are involved; the query is a constant.
 - Azure DevOps conflict artifacts (work items) are recognized by marker and
