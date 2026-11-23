@@ -66,6 +66,14 @@ tasks:
       - go test -timeout=10m -race -shuffle=on -covermode=atomic -coverprofile=coverage-textsafe.out ./internal/textsafe/...
       - go -C tools run ./checkcoverage -profile ../coverage-textsafe.out -prefix github.com/skaphos/oiax/v2/internal/textsafe -min 95
 
+  textsafe:fuzz:
+    desc: Bounded fuzz campaigns for every internal/textsafe target (spec 002)
+    cmds:
+      - go test ./internal/textsafe -run '^$' -fuzz '^FuzzSubject$' -fuzztime={{.FUZZTIME | default "30s"}} -parallel=2
+      - go test ./internal/textsafe -run '^$' -fuzz '^FuzzLogCommand$' -fuzztime={{.FUZZTIME | default "30s"}} -parallel=2
+      - go test ./internal/textsafe -run '^$' -fuzz '^FuzzPlainLink$' -fuzztime={{.FUZZTIME | default "30s"}} -parallel=2
+      - go test ./internal/textsafe -run '^$' -fuzz '^FuzzMarkdown$' -fuzztime={{.FUZZTIME | default "30s"}} -parallel=2
+
   notifications:fuzz:
     desc: Bounded parser fuzz campaigns (no live resources)
     cmds:
