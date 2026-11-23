@@ -128,12 +128,12 @@ Single Go module. New package `internal/textsafe/`; otherwise changes in `intern
 
 ### Tests for User Story 3 (MANDATORY) ⚠️
 
-- [ ] T044 [P] [US3] In `internal/cli/plan_reconcile_test.go`, write `TestReconcileConflictAzureSurfaces` (`TF_BUILD=True`, temp `AGENT_TEMPDIRECTORY`): one `##vso[task.logissue type=warning]` conflict warning ending with the address, one `##vso[task.uploadsummary]` for a file containing the conflict section, exit code 3; run once with a GitHub-forge fake (issue address) and once with an Azure-forge fake (work item address and noun), and assert the sections differ only in artifact noun and address (spec US3 AS2)
+- [X] T044 [P] [US3] In `internal/cli/plan_reconcile_test.go`, write `TestReconcileConflictAzureSurfaces` (`TF_BUILD=True`, temp `AGENT_TEMPDIRECTORY`): one `##vso[task.logissue type=warning]` conflict warning ending with the address, one `##vso[task.uploadsummary]` for a file containing the conflict section, exit code 3; run once with a GitHub-forge fake (issue address) and once with an Azure-forge fake (work item address and noun), and assert the sections differ only in artifact noun and address (spec US3 AS2)
 - [X] T045 [P] [US3] In `internal/cli/notification_summary_test.go`, add the regression test for the existing bug: with `AGENT_TEMPDIRECTORY` containing `%` and a newline, the notification summary's `##vso[task.uploadsummary]` path is escaped (`%AZP25`, `%0A`); it fails before T047
 
 ### Implementation for User Story 3
 
-- [ ] T046 [US3] Confirm `buildCoordinator` (T017) sets `ArtifactNoun` to `"work item"` for the Azure DevOps forge under Azure Pipelines, and `"issue"` for a GitHub forge under Azure Pipelines (`BUILD_REPOSITORY_PROVIDER=github`); fix the wiring in `internal/cli/wiring.go` if T044 shows otherwise
+- [X] T046 [US3] Confirm `buildCoordinator` (T017) sets `ArtifactNoun` to `"work item"` for the Azure DevOps forge under Azure Pipelines, and `"issue"` for a GitHub forge under Azure Pipelines (`BUILD_REPOSITORY_PROVIDER=github`); fix the wiring in `internal/cli/wiring.go` if T044 shows otherwise
 - [X] T047 [US3] In `internal/cli/notification_summary.go`, replace the hand-rolled temp-file and unescaped `##vso[task.uploadsummary]` with `summaryTarget` (spec FR-012, research R7)
 - [ ] T048 [US3] Run `go test -race -shuffle=on ./internal/cli/` and confirm T044 and T045 pass
 

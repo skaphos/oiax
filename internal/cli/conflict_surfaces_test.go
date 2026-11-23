@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -194,5 +195,80 @@ func TestDivergenceMessage(t *testing.T) {
 	}
 	if strings.Contains(divergenceMessage([]reconcile.DivergenceReport{known}, false), "secret subject") {
 		t.Fatal("exit-3 message contains a commit subject")
+	}
+}
+
+// azurePipelines sets Azure Pipelines detection with a fresh agent temp
+// directory and returns a reader for every summary file written there.
+func azurePipelines(t *testing.T) func() string {
+	t.Helper()
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("GITHUB_STEP_SUMMARY", "")
+	dir := t.TempDir()
+	t.Setenv("TF_BUILD", "True")
+	t.Setenv("AGENT_TEMPDIRECTORY", dir)
+	return func() string {
+		matches, _ := filepath.Glob(filepath.Join(dir, "oiax-conflicts-*.md"))
+		if len(matches) != 1 {
+			t.Fatalf("conflict summary files = %v, want one", matches)
+		}
+		return readFile(t, matches[0])
+	}
+}
+
+// Under Azure Pipelines the guidance is the same, with either forge: one
+// task.logissue warning ending with the address, one uploaded summary file
+// with the section, exit 3; the sections differ only in the artifact noun
+// and address (spec 002 US3; T044, T046).
+func TestReconcileConflictAzureSurfaces(t *testing.T) {
+	const workItemURL = "https://dev.azure.com/acme/My%20Platform/_workitems/edit/7"
+	sections := map[string]string{}
+	for _, tt := range []struct {
+		name, noun, url string
+	}{
+		{"github forge", "", fakeIssueURL},
+		{"azure devops forge", "work item", workItemURL},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			conflictRepo(t, exampleConfig, "main")
+			summary := azurePipelines(t)
+			useForge(t, &fakeForge{noun: tt.noun, conflictURL: tt.url})
+
+			out, code := runCode(t, "reconcile")
+			if code != 3 {
+				t.Fatalf("reconcile exit = %d, want 3\n%s", code, out)
+			}
+			var warnings, uploads int
+			for _, line := range strings.Split(out, "\n") {
+				if strings.HasPrefix(line, "##vso[task.logissue type=warning]") && strings.Contains(line, "halted on") {
+					warnings++
+					// The agent decodes command data (%AZP25 is '%').
+					line = strings.ReplaceAll(line, "%AZP25", "%")
+					if !strings.HasSuffix(line, ". Resolution steps: "+tt.url) {
+						t.Fatalf("warning = %q, want it to end with %s", line, tt.url)
+					}
+				}
+				if strings.HasPrefix(line, "##vso[task.uploadsummary]") && strings.Contains(line, "oiax-conflicts-") {
+					uploads++
+				}
+			}
+			if warnings != 1 || uploads != 1 {
+				t.Fatalf("warnings = %d, conflict uploads = %d; want 1 and 1\n%s", warnings, uploads, out)
+			}
+			sec := summary()
+			noun := tt.noun
+			if noun == "" {
+				noun = "issue"
+			}
+			if !strings.Contains(sec, "["+noun+" 7]("+tt.url+")") {
+				t.Fatalf("section lacks the %s link:\n%s", noun, sec)
+			}
+			// Each subtest builds its own repository, so mask the commit SHAs too.
+			sec = regexp.MustCompile(`[0-9a-f]{40}|[0-9a-f]{7}\b`).ReplaceAllString(sec, "<sha>")
+			sections[tt.name] = strings.ReplaceAll(strings.ReplaceAll(sec, tt.url, "<address>"), noun+" 7", "<noun> 7")
+		})
+	}
+	if a, b := sections["github forge"], sections["azure devops forge"]; a == "" || a != b {
+		t.Fatalf("sections differ beyond the noun and address:\n%s\n---\n%s", a, b)
 	}
 }
