@@ -86,15 +86,30 @@ func compileNotificationBinary() (dir, binary string, err error) {
 	if strings.Count(string(source), constructor) != 1 {
 		return dir, "", errors.New("notification constructor moved; review the fixture overlay boundary")
 	}
+	const clock = "Now:         func() time.Time { return time.Now().UTC() },"
+	if strings.Count(string(source), clock) != 1 {
+		return dir, "", errors.New("notification clock moved; review the fixture overlay boundary")
+	}
+	overridden := strings.Replace(string(source), constructor,
+		"return delivery.NewFixtureClient(destination.Type, destination.AllowPrivateNetwork)", 1)
+	overridden = strings.Replace(overridden, clock, "Now:         fixtureNotificationNow,", 1)
+	// The pre-POST creation-origin stamp reads the clock directly rather than
+	// through Now. It must be ordered against the cutoff that Now set earlier
+	// in the same run.
+	const originClock = "ObservedAt: time.Now().UTC(), LogicalSource: source"
+	if strings.Count(overridden, originClock) != 1 {
+		return dir, "", errors.New("notification origin clock moved; review the fixture overlay boundary")
+	}
+	overridden = strings.Replace(overridden, originClock, "ObservedAt: fixtureNotificationNow(), LogicalSource: source", 1)
 	override := filepath.Join(dir, "notification_runtime.go")
-	if err := os.WriteFile(override, []byte(strings.Replace(string(source), constructor,
-		"return delivery.NewFixtureClient(destination.Type, destination.AllowPrivateNetwork)", 1)), 0o600); err != nil {
+	if err := os.WriteFile(override, []byte(overridden), 0o600); err != nil {
 		return dir, "", err
 	}
 	overlay := map[string]map[string]string{"Replace": {
 		runtimePath: override,
 		filepath.Join(root, "internal/cli/notification_fixture.go"):                   filepath.Join(root, "internal/cli/testdata/notification-binary/forge.go"),
 		filepath.Join(root, "internal/notification/delivery/notification_fixture.go"): filepath.Join(root, "internal/cli/testdata/notification-binary/delivery.go"),
+		filepath.Join(root, "internal/reconcile/notification_fixture.go"):             filepath.Join(root, "internal/cli/testdata/notification-binary/clock.go"),
 	}}
 	data, err := json.Marshal(overlay)
 	if err != nil {
@@ -152,7 +167,13 @@ type notificationBinaryFixture struct {
 	// configRef overrides the pinned configuration commit every invocation is
 	// run against. Empty means oid — the commit the fixture graph was created
 	// at — which is what every test but the revision-recovery one wants.
-	configRef       string
+	configRef string
+	// clockFloor, when set, is the earliest time any later invocation's
+	// notification clock may read (see eventTime and launchFloor), as of the
+	// monotonic reading floorSetAt. Guarded by mu: the forge raises it when it
+	// stamps a creation.
+	clockFloor      time.Time
+	floorSetAt      time.Time
 	server          *httptest.Server
 	mu              sync.Mutex
 	seeds           []forgetest.LifecycleSeed
@@ -224,6 +245,9 @@ func (f *notificationBinaryFixture) run(want int, args ...string) (string, strin
 	if f.missingEndpoint {
 		cmd.Env = append(cmd.Env, "OIAX_FIXTURE_ENDPOINT=")
 	}
+	if floor := f.launchFloor(); !floor.IsZero() {
+		cmd.Env = append(cmd.Env, "OIAX_FIXTURE_CLOCK_FLOOR="+floor.Format(time.RFC3339Nano))
+	}
 	var out, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &stderr
 	err := cmd.Run()
@@ -265,20 +289,128 @@ func (f *notificationBinaryFixture) identity() notification.RepositoryIdentity {
 
 func (f *notificationBinaryFixture) ledger() *notification.LedgerV1 {
 	f.t.Helper()
-	ref := "refs/notes/oiax/notifications/v1/" + notification.GraphKey(f.identity(), "graph")
-	entries := strings.Fields(gittest.Run(f.t, f.remote, "ls-tree", "-r", ref))
-	if len(entries) != 4 {
-		f.t.Fatalf("unexpected notes tree: %v", entries)
-	}
-	data := gittest.Run(f.t, f.remote, "cat-file", "blob", entries[2])
+	l, data, err := f.readLedger()
 	if strings.Contains(data, "endpoint-canary") || strings.Contains(data, "fixture-forge-canary") || strings.Contains(data, "healthy-canary") {
 		f.t.Fatal("credential canary persisted in notes")
 	}
-	l, err := notificationstore.Decode(strings.NewReader(data))
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	return l
+}
+
+// readLedger decodes the remote ledger without failing the test, because
+// launchFloor peeks at it before every invocation, including in the modes that
+// corrupt or delete it on purpose.
+func (f *notificationBinaryFixture) readLedger() (*notification.LedgerV1, string, error) {
+	git := func(args ...string) (string, error) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir, cmd.Env = f.remote, gittest.Env()
+		out, err := cmd.Output()
+		return strings.TrimSpace(string(out)), err
+	}
+	ref := "refs/notes/oiax/notifications/v1/" + notification.GraphKey(f.identity(), "graph")
+	tree, err := git("ls-tree", "-r", ref)
+	if err != nil {
+		return nil, "", fmt.Errorf("read notes tree: %w", err)
+	}
+	entries := strings.Fields(tree)
+	if len(entries) != 4 {
+		return nil, "", fmt.Errorf("unexpected notes tree: %v", entries)
+	}
+	data, err := git("cat-file", "blob", entries[2])
+	if err != nil {
+		return nil, "", fmt.Errorf("read notes blob: %w", err)
+	}
+	l, err := notificationstore.Decode(strings.NewReader(data))
+	return l, data, err
+}
+
+// ledgerWatermark is the latest subscription cutoff or scan bound the ledger
+// records: the times a later invocation's clock must not read below.
+func ledgerWatermark(l *notification.LedgerV1) time.Time {
+	var latest time.Time
+	later := func(t time.Time) {
+		if t.After(latest) {
+			latest = t
+		}
+	}
+	for _, d := range l.Destinations {
+		for _, sub := range d.Subscriptions {
+			later(sub.Cutoff)
+		}
+	}
+	for _, scan := range l.Scans {
+		later(scan.From)
+		later(scan.Through)
+	}
+	return latest.UTC()
+}
+
+// currentFloorLocked is the floor carried forward to now on this process's
+// monotonic clock. Every reading a fixture binary took while floored is at most
+// its launch floor plus its own runtime, and that runtime is already behind
+// the elapsed time measured here. f.mu must be held.
+func (f *notificationBinaryFixture) currentFloorLocked() time.Time {
+	if f.clockFloor.IsZero() {
+		return time.Time{}
+	}
+	return f.clockFloor.Add(time.Since(f.floorSetAt))
+}
+
+// raiseFloorLocked moves the floor up to at, never down. f.mu must be held.
+func (f *notificationBinaryFixture) raiseFloorLocked(at time.Time) time.Time {
+	floor := f.currentFloorLocked()
+	if at.After(floor) {
+		floor = at
+	}
+	f.clockFloor, f.floorSetAt = floor, time.Now()
+	return floor
+}
+
+// launchFloor returns the floor for the next invocation, or zero when no test
+// has asked for one. Each fixture binary measures elapsed time from its own
+// start, so a single fixed floor would let a second run read earlier than the
+// first run's recorded scan bound while the wall clock is still behind. Observe
+// would then build an interval whose From is after its Through, and the store
+// rejects that. The floor therefore advances on this process's monotonic clock,
+// and it is raised past anything the ledger already records.
+func (f *notificationBinaryFixture) launchFloor() time.Time {
+	f.mu.Lock()
+	enabled := !f.clockFloor.IsZero()
+	f.mu.Unlock()
+	if !enabled {
+		return time.Time{}
+	}
+	var watermark time.Time
+	if l, _, err := f.readLedger(); err == nil {
+		watermark = ledgerWatermark(l).Add(time.Millisecond)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.raiseFloorLocked(watermark)
+}
+
+// eventTime returns the forge timestamp for an event the next invocation must
+// admit, and floors every later invocation's clock at it.
+//
+// The timestamp comes from this process's wall clock, but the fixture binary's
+// clock set the subscription cutoff and scan watermark it must not precede.
+// Both are the host's wall clock, so on a host whose wall clock gets stepped
+// backwards a plain time.Now() can land before them. The event is then dropped
+// as before-subscription-cutoff (#143). So the timestamp is never earlier than
+// the latest time the ledger records, and the floor keeps the next scan's upper
+// bound from falling behind it.
+func (f *notificationBinaryFixture) eventTime(l *notification.LedgerV1) time.Time {
+	at := time.Now().UTC()
+	if floor := ledgerWatermark(l).Add(time.Millisecond); at.Before(floor) {
+		at = floor
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// A floor already in force (a creation stamp, an earlier event) is never
+	// lowered.
+	return f.raiseFloorLocked(at)
 }
 
 func (f *notificationBinaryFixture) seed(id int, kind, state string, at time.Time, managed bool) forgetest.LifecycleSeed {
@@ -499,7 +631,16 @@ func (f *notificationBinaryFixture) create(w http.ResponseWriter, r *http.Reques
 	f.createdTargets = append(f.createdTargets, target)
 	s := f.seed(100+len(f.createdTargets), "promotion", "open", time.Now().UTC(), true)
 	s.Source, s.Destination = source, target
-	s.CreatedAt = time.Now().UTC().Truncate(time.Second) // exercise coarse API timestamps
+	// A real forge stamps creation after the runner's pre-POST observation.
+	// This one uses the test's clock, which a backward wall-clock step can put
+	// behind that observation (#143), so it never stamps earlier than the
+	// origin evidence in the body, and later invocations are floored there.
+	created := time.Now().UTC()
+	if origin, ok := mk.ParseNotificationOrigin(body); ok && created.Before(origin.ObservedAt) {
+		created = origin.ObservedAt.UTC()
+	}
+	f.raiseFloorLocked(created)
+	s.CreatedAt = created.Truncate(time.Second) // exercise coarse API timestamps
 	f.seeds = append(f.seeds, s)
 	f.bodies[s.ID] = body
 	pr := f.pull(s)
@@ -538,7 +679,7 @@ func TestNotificationMergeBinary(t *testing.T) {
 				if len(initial.Deliveries) != 0 || len(f.messages()) != 0 {
 					t.Fatal("activation sent historical merge")
 				}
-				at := time.Now().UTC()
+				at := f.eventTime(initial)
 				promotion := f.seed(42, "promotion", "merged", at, true)
 				backflow := f.seed(43, "backflow", "merged", at, true)
 				promotion.CreatedAt, backflow.CreatedAt = at, at // short-lived requests between runs
@@ -594,6 +735,90 @@ func TestNotificationMergeBinary(t *testing.T) {
 	}
 }
 
+// TestFixtureClockNeverDecreases runs the overlay clock's own unit tests
+// (testdata/notification-binary/clock_test.go) deterministically. The clock
+// lives in testdata and compiles only through an overlay, so this overlays
+// clock.go and its tests into internal/reconcile, the package the binary
+// fixture compiles them into, and runs just those tests. It covers the
+// forward-then-backward wall reading from review on #153, where a floor
+// without a high-water mark returned 103.5 s and then 101.1 s.
+func TestFixtureClockNeverDecreases(t *testing.T) {
+	t.Parallel()
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	overlay := map[string]map[string]string{"Replace": {
+		filepath.Join(root, "internal/reconcile/notification_fixture.go"):      filepath.Join(root, "internal/cli/testdata/notification-binary/clock.go"),
+		filepath.Join(root, "internal/reconcile/notification_fixture_test.go"): filepath.Join(root, "internal/cli/testdata/notification-binary/clock_test.go"),
+	}}
+	data, err := json.Marshal(overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlayPath := filepath.Join(dir, "overlay.json")
+	if err := os.WriteFile(overlayPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "test", "-overlay", overlayPath, "-count=1", "-run", "^TestFixtureClock", "./internal/reconcile/")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("fixture clock tests failed: %v\n%s", err, out)
+	}
+}
+
+// TestNotificationFixtureClockFloor pins the fixture clock floor's two
+// guarantees while the wall clock stays behind it (a floor an hour ahead). The
+// floor advances on the test's monotonic clock between launches, and it is
+// raised past every scan bound and cutoff the ledger already records. Without
+// the second, the forced-low floor below hands the second invocation a clock
+// ten minutes before the first one's scan watermark. Observe would then build
+// an interval with From after Through, which the store rejects, and scanning
+// would stall.
+func TestNotificationFixtureClockFloor(t *testing.T) {
+	t.Parallel()
+	binary := buildNotificationBinary(t)
+	f := newNotificationBinaryFixture(t, binary, "github", "webhook")
+
+	start := time.Now().UTC().Add(time.Hour)
+	f.mu.Lock()
+	f.raiseFloorLocked(start)
+	f.mu.Unlock()
+	first := f.launchFloor()
+	time.Sleep(20 * time.Millisecond)
+	if second := f.launchFloor(); second.Sub(first) < 20*time.Millisecond {
+		t.Fatalf("floor did not advance with elapsed time: %s then %s", first, second)
+	}
+
+	f.run(0, "reconcile")
+	before := f.ledger()
+	for kind, scan := range before.Scans {
+		if !scan.Through.After(start) {
+			t.Fatalf("%s scan ignored the floor: through %s, floor %s", kind, scan.Through, start)
+		}
+	}
+	if len(before.Scans) != 2 {
+		t.Fatalf("activation run recorded scans %v", before.Scans)
+	}
+
+	// Stand in for a floor that fell behind: an anchor that ran slow, or a
+	// floor set before a run that read further ahead than it.
+	f.mu.Lock()
+	f.clockFloor, f.floorSetAt = ledgerWatermark(before).Add(-10*time.Minute), time.Now()
+	f.mu.Unlock()
+	f.run(0, "reconcile")
+	after := f.ledger()
+	for kind, prev := range before.Scans {
+		next, ok := after.Scans[kind]
+		if !ok || !next.Complete || next.From.Before(prev.Through) || !next.Through.After(prev.Through) {
+			t.Fatalf("%s scan did not progress from %+v: %+v", kind, prev, next)
+		}
+	}
+}
+
 func notificationCorePlan(t *testing.T, document string) string {
 	t.Helper()
 	var value map[string]json.RawMessage
@@ -613,7 +838,7 @@ func checkNotificationCoreExit(t *testing.T, binary, provider string, coreExit i
 	f := newNotificationBinaryFixture(t, binary, provider, "webhook",
 		"      - {name: audit, type: webhook, endpointEnv: OIAX_FIXTURE_AUDIT}\n")
 	f.run(0, "reconcile")
-	f.setSeeds(f.seed(42, "promotion", "merged", time.Now().UTC(), true))
+	f.setSeeds(f.seed(42, "promotion", "merged", f.eventTime(f.ledger()), true))
 	f.mu.Lock()
 	f.failDelivery = true
 	if coreExit == 1 {

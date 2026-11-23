@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/skaphos/oiax/v2/internal/gittest"
 	"github.com/skaphos/oiax/v2/internal/notification"
@@ -25,9 +24,9 @@ func TestNotificationFailuresBinary(t *testing.T) {
 				}
 				f := newNotificationBinaryFixture(t, binary, provider, "webhook", extra...)
 				f.run(0, "reconcile")
-				f.setSeeds(f.seed(42, "promotion", "merged", time.Now().UTC(), true))
+				f.setSeeds(f.seed(42, "promotion", "merged", f.eventTime(f.ledger()), true))
 				if mode == "render-overflow" {
-					f.setSeeds(f.seed(43, "promotion", "merged", time.Now().UTC(), true))
+					f.setSeeds(f.seed(43, "promotion", "merged", f.eventTime(f.ledger()), true))
 				}
 				ref := "refs/notes/oiax/notifications/v1/" + notification.GraphKey(f.identity(), "graph")
 				actualRemote := f.remote
