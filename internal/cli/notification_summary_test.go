@@ -43,3 +43,28 @@ func TestNotificationSummaryLabelsGlobalAndDestinationProblems(t *testing.T) {
 		t.Fatal("joined error leaked into summary")
 	}
 }
+
+// Under Azure Pipelines the notification summary's upload path is escaped as
+// command data like every other summary (spec 002 FR-012, research R7): an
+// AGENT_TEMPDIRECTORY holding '%' or a newline cannot corrupt or split the
+// ##vso[task.uploadsummary] command (T045).
+func TestNotificationSummaryAzureUploadPathEscaped(t *testing.T) {
+	clearCIHost(t)
+	dir := filepath.Join(t.TempDir(), "agent%tmp\nsplit")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TF_BUILD", "True")
+	t.Setenv("AGENT_TEMPDIRECTORY", dir)
+	cmd := &cobra.Command{}
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	writeNotificationSummary(cmd, []reconcile.NotificationDiagnostic{reconcile.NotificationProblem(notification.ErrInvalidState)})
+	out := stderr.String()
+	if !strings.HasPrefix(out, "##vso[task.uploadsummary]") || strings.Count(out, "\n") != 1 {
+		t.Fatalf("stderr = %q, want one uploadsummary command line", out)
+	}
+	if !strings.Contains(out, "agent%AZP25tmp%0Asplit") {
+		t.Fatalf("upload path is not escaped as command data: %q", out)
+	}
+}

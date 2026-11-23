@@ -2,45 +2,36 @@ package cli
 
 import (
 	"fmt"
-	"os"
+	"io"
 
-	"github.com/skaphos/oiax/v2/internal/cienv"
 	"github.com/skaphos/oiax/v2/internal/reconcile"
 	"github.com/spf13/cobra"
 )
 
+// writeNotificationSummary appends the notification delivery diagnostics to
+// the CI job summary through the shared summaryTarget, so the Azure upload
+// path is escaped like every other summary (spec 002 FR-012, research R7).
 func writeNotificationSummary(cmd *cobra.Command, diagnostics []reconcile.NotificationDiagnostic) {
 	if len(diagnostics) == 0 {
 		return
 	}
-	path := os.Getenv("GITHUB_STEP_SUMMARY")
-	azure := path == "" && cienv.Detect() == cienv.AzurePipelines
-	if path == "" && !azure {
+	w, finish, ok := summaryTarget(cmd, "oiax-notifications-*.md")
+	if !ok {
 		return
 	}
-	var f *os.File
-	var err error
-	if azure {
-		f, err = os.CreateTemp(os.Getenv("AGENT_TEMPDIRECTORY"), "oiax-notifications-*.md")
-	} else {
-		f, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	}
-	if err != nil {
+	if err := finish(renderNotificationSummary(w, diagnostics)); err != nil {
 		fmt.Fprintln(cmd.ErrOrStderr(), "oiax: notification summary unavailable")
-		return
 	}
-	_, writeErr := fmt.Fprint(f, "\n## Notification delivery\n\n")
+}
+
+func renderNotificationSummary(w io.Writer, diagnostics []reconcile.NotificationDiagnostic) error {
+	if _, err := fmt.Fprint(w, "\n## Notification delivery\n\n"); err != nil {
+		return err
+	}
 	for _, d := range diagnostics {
-		if writeErr == nil {
-			_, writeErr = fmt.Fprintf(f, "- %s: %s. %s\n", d.Scope(), d.Reason, d.Action)
+		if _, err := fmt.Fprintf(w, "- %s: %s. %s\n", d.Scope(), d.Reason, d.Action); err != nil {
+			return err
 		}
 	}
-	closeErr := f.Close()
-	if writeErr != nil || closeErr != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), "oiax: notification summary unavailable")
-		return
-	}
-	if azure {
-		fmt.Fprintf(cmd.ErrOrStderr(), "##vso[task.uploadsummary]%s\n", f.Name())
-	}
+	return nil
 }
