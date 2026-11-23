@@ -280,7 +280,7 @@ func TestConflictArtifactCommitSubjectsCleaned(t *testing.T) {
 	checkout(t, r, "development")
 	commitOn(t, r.Dir, "app.txt", "dev-change\n", "dev edit")
 	checkout(t, r, "main")
-	commit("app.txt", "hotfix-change\n", "fix: ‮evil‬ "+strings.Repeat("x", 300))
+	commit("app.txt", "hotfix-change\n", "fix: \u202eevil\u202c "+strings.Repeat("x", 300))
 	short, _ := r.ShortSHA(context.Background(), "main")
 	a := engine.Action{
 		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
@@ -301,7 +301,7 @@ func TestConflictArtifactCommitSubjectsCleaned(t *testing.T) {
 		t.Fatalf("created = %d", len(f.conflictCreated))
 	}
 	body := f.conflictCreated[0].Body
-	if strings.ContainsAny(body, "‮‬") {
+	if strings.ContainsAny(body, "\u202e\u202c") {
 		t.Fatalf("artifact body keeps bidi controls: %q", body)
 	}
 	inner := strings.TrimSuffix(strings.TrimPrefix(body, "["), "]")

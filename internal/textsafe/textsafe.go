@@ -14,7 +14,7 @@ const (
 	// wordJoiner is U+2060 WORD JOINER: invisible, so text still reads
 	// correctly, while a host's byte-level match on a command or link
 	// sequence fails.
-	wordJoiner = '⁠'
+	wordJoiner = '\u2060'
 )
 
 // Subject cleans a raw untrusted value once, before any surface sees it:
