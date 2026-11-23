@@ -91,6 +91,7 @@ type Provider struct {
 	authorsMu       sync.Mutex
 	authors         map[string]struct{}
 	untrustedWarned map[int]struct{}
+	lookupWarned    bool
 	anyAuthor       bool
 
 	// Resilience tunables. Zero values use the production defaults; they exist

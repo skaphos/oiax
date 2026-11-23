@@ -316,3 +316,82 @@ func TestCreateWarnsWhenAuthorIsNotTrusted(t *testing.T) {
 		t.Errorf("warnings = %q, want one naming the author to declare", warnings)
 	}
 }
+
+func TestGraphQLURL(t *testing.T) {
+	t.Parallel()
+	for base, want := range map[string]string{
+		"":                                defaultBaseURL + "/graphql",
+		"https://ghe.example.com/api/v3":  "https://ghe.example.com/api/graphql",
+		"https://ghe.example.com/api/v3/": "https://ghe.example.com/api/graphql",
+		"http://127.0.0.1:1234":           "http://127.0.0.1:1234/graphql",
+	} {
+		if got := (&Provider{BaseURL: base}).graphqlURL(); got != want {
+			t.Errorf("graphqlURL() with BaseURL %q = %q, want %q", base, got, want)
+		}
+	}
+}
+
+func TestDeclaredAuthorsDoNotPinAFailedLookup(t *testing.T) {
+	t.Parallel()
+	// A declared previous identity lets discovery proceed while the token's
+	// own identity cannot be looked up — but that partial set must not be
+	// cached, or the current identity's requests stay unmanaged for the rest
+	// of the run even after the lookup recovers.
+	api := &authorAPI{pulls: []map[string]any{
+		promotionBy(8, "github-actions[bot]"),
+		promotionBy(9, selfLogin),
+	}}
+	p, warnings := strictProvider(t, api, "github-actions[bot]")
+	ctx := context.Background()
+
+	for range 2 {
+		got, err := p.ListManagedRequests(ctx, promotionFilter)
+		if err != nil || len(got) != 1 || got[0].ID != "8" {
+			t.Fatalf("while the lookup fails: ListManagedRequests = %+v, %v; want only #8", got, err)
+		}
+	}
+	lookupNotices := 0
+	for _, w := range *warnings {
+		if strings.Contains(w, "could not look up the token's own identity") {
+			lookupNotices++
+		}
+	}
+	if lookupNotices != 1 {
+		t.Errorf("lookup-failure notices = %d, want 1 across repeated calls; warnings: %q", lookupNotices, *warnings)
+	}
+
+	api.mu.Lock()
+	api.viewer = selfLogin
+	api.mu.Unlock()
+	got, err := p.ListManagedRequests(ctx, promotionFilter)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("after recovery: ListManagedRequests = %+v, %v; want #8 and #9", got, err)
+	}
+	// Mutation paths share the same set, so they recover too.
+	if err := p.CloseRequest(ctx, "9", forge.Reason{Summary: "obsolete"}); err != nil {
+		t.Errorf("after recovery: CloseRequest(#9) = %v, want success", err)
+	}
+	// Once resolved, the set is cached: no further lookups.
+	api.mu.Lock()
+	hits := api.identityHit
+	api.mu.Unlock()
+	if _, err := p.ListManagedRequests(ctx, promotionFilter); err != nil {
+		t.Fatalf("ListManagedRequests: %v", err)
+	}
+	if api.identityHit != hits {
+		t.Errorf("identity looked up again after it resolved (%d -> %d)", hits, api.identityHit)
+	}
+}
+
+func TestCreateWarnsWhenIdentityUnresolvable(t *testing.T) {
+	t.Parallel()
+	// First run: nothing carried a marker, so the identity is first needed
+	// after the request exists. A failed lookup must not pass silently.
+	api := &authorAPI{}
+	p, warnings := strictProvider(t, api)
+	p.warnForeignAuthor(context.Background(), ghPull{Number: 12, User: ghUser{Login: selfLogin}})
+	if len(*warnings) != 1 || !strings.Contains((*warnings)[0], "#12") ||
+		!strings.Contains((*warnings)[0], "OIAX_TRUSTED_AUTHORS="+selfLogin) {
+		t.Errorf("warnings = %q, want one naming #12 and the author to declare", *warnings)
+	}
+}

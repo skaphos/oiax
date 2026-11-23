@@ -247,3 +247,73 @@ func TestLifecycleRefusesUntrustedCreator(t *testing.T) {
 		t.Errorf("GetLifecycleRequest(9) = %+v, %v; want admitted", req.Request, err)
 	}
 }
+
+func TestDeclaredAuthorsDoNotPinAFailedLookup(t *testing.T) {
+	t.Parallel()
+	// A declared previous identity lets discovery proceed while the token's
+	// own identity cannot be looked up — but that partial set must not be
+	// cached, or the current identity's requests stay unmanaged for the rest
+	// of the run even after the lookup recovers.
+	api := &authorAPI{pulls: []map[string]any{
+		promotionBy(8, previousID),
+		promotionBy(9, selfID),
+	}}
+	p, warnings := strictProvider(t, api, previousID)
+	ctx := context.Background()
+
+	for range 2 {
+		got, err := p.ListManagedRequests(ctx, promotionFilter)
+		if err != nil || len(got) != 1 || got[0].ID != "8" {
+			t.Fatalf("while the lookup fails: ListManagedRequests = %+v, %v; want only 8", got, err)
+		}
+	}
+	lookupNotices := 0
+	for _, w := range *warnings {
+		if strings.Contains(w, "could not look up the token's own identity") {
+			lookupNotices++
+		}
+	}
+	if lookupNotices != 1 {
+		t.Errorf("lookup-failure notices = %d, want 1 across repeated calls; warnings: %q", lookupNotices, *warnings)
+	}
+
+	api.mu.Lock()
+	api.self = selfID
+	api.mu.Unlock()
+	got, err := p.ListManagedRequests(ctx, promotionFilter)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("after recovery: ListManagedRequests = %+v, %v; want 8 and 9", got, err)
+	}
+	// The single-request paths share the same set, so they recover too.
+	if req, err := p.GetLifecycleRequest(ctx, "9"); err != nil || req.Request.ID != "9" {
+		t.Errorf("after recovery: GetLifecycleRequest(9) = %+v, %v; want admitted", req.Request, err)
+	}
+}
+
+func TestCreateWarnsWhenIdentityUnresolvable(t *testing.T) {
+	t.Parallel()
+	// First run: nothing carried a marker, so the identity is first needed
+	// after the request exists. A failed lookup must not pass silently.
+	api := &authorAPI{}
+	p, warnings := strictProvider(t, api)
+	p.warnForeignAuthor(context.Background(), adoPull{PullRequestID: 42, CreatedBy: adoIdentityRef{ID: strings.ToUpper(selfID)}})
+	if len(*warnings) != 1 || !strings.Contains((*warnings)[0], "pull request 42") ||
+		!strings.Contains((*warnings)[0], "OIAX_TRUSTED_AUTHORS="+selfID) {
+		t.Errorf("warnings = %q, want one naming 42 and the identity to declare", *warnings)
+	}
+}
+
+func TestCreateWarnsWhenCreatorIsNotTrusted(t *testing.T) {
+	t.Parallel()
+	api := &authorAPI{self: selfID}
+	p, warnings := strictProvider(t, api)
+	p.warnForeignAuthor(context.Background(), adoPull{PullRequestID: 42, CreatedBy: adoIdentityRef{ID: outsiderID}})
+	if len(*warnings) != 1 || !strings.Contains((*warnings)[0], "OIAX_TRUSTED_AUTHORS="+outsiderID) {
+		t.Errorf("warnings = %q, want one naming the identity to declare", *warnings)
+	}
+	// The token's own identity is trusted: no warning.
+	p.warnForeignAuthor(context.Background(), adoPull{PullRequestID: 43, CreatedBy: adoIdentityRef{ID: selfID}})
+	if len(*warnings) != 1 {
+		t.Errorf("warned about a request created by the token identity: %q", *warnings)
+	}
+}

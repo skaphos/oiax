@@ -57,8 +57,10 @@ func (p *Provider) managed(ctx context.Context, pr ghPull) (marker, bool, error)
 // trustedAuthors returns the lower-cased logins whose pull requests may be
 // oiax's own: the token's identity plus Provider.TrustedAuthors. The set is
 // resolved on first need (a run that sees no marker-bearing pull request never
-// pays for the lookup) and cached only on success, so a transient failure or a
-// cancelled context does not poison the rest of the process.
+// pays for the lookup) and cached only once the token identity itself has
+// resolved, so a transient failure or a cancelled context does not poison the
+// rest of the process — including when declared authors let the call succeed
+// without it.
 func (p *Provider) trustedAuthors(ctx context.Context) (map[string]struct{}, error) {
 	p.authorsMu.Lock()
 	defer p.authorsMu.Unlock()
@@ -77,19 +79,22 @@ func (p *Provider) trustedAuthors(ctx context.Context) (map[string]struct{}, err
 		set[strings.ToLower(login)] = struct{}{}
 	}
 	self, err := p.viewerLogin(ctx)
-	switch {
-	case err == nil:
-		set[strings.ToLower(self)] = struct{}{}
-	case len(set) == 0:
-		return nil, fmt.Errorf("%w: %w", errNoIdentity, err)
-	default:
+	if err != nil {
+		if len(set) == 0 {
+			return nil, fmt.Errorf("%w: %w", errNoIdentity, err)
+		}
 		// The operator named the authors explicitly; that is sufficient on
-		// its own. Say so, because requests opened by this run's identity are
-		// only recognized if that identity is in the list.
-		if p.Warn != nil {
+		// its own for this call. Nothing is cached, so the next call retries
+		// the lookup and the token's own identity joins the set as soon as it
+		// resolves. Say so once: until then, requests opened by this run's
+		// identity are recognized only if that identity is in the list.
+		if p.Warn != nil && !p.lookupWarned {
+			p.lookupWarned = true
 			p.Warn("could not look up the token's own identity; recognizing managed requests by OIAX_TRUSTED_AUTHORS only")
 		}
+		return set, nil
 	}
+	set[strings.ToLower(self)] = struct{}{}
 	p.authors = set
 	return set, nil
 }
@@ -109,7 +114,7 @@ func (p *Provider) viewerLogin(ctx context.Context) (string, error) {
 	}
 	in := map[string]string{"query": "query { viewer { login } }"}
 	// A read-only query is safe to retry.
-	if _, err := p.send(ctx, http.MethodPost, p.url("/graphql"), in, &resp, true); err != nil {
+	if _, err := p.send(ctx, http.MethodPost, p.graphqlURL(), in, &resp, true); err != nil {
 		return "", fmt.Errorf("look up token identity: %w", err)
 	}
 	login := resp.Data.Viewer.Login
@@ -117,6 +122,19 @@ func (p *Provider) viewerLogin(ctx context.Context) (string, error) {
 		return "", errors.New("look up token identity: no usable login in response")
 	}
 	return login, nil
+}
+
+// graphqlURL is the GraphQL endpoint for the configured API root. It is not
+// simply the REST root plus /graphql: github.com serves REST at
+// https://api.github.com and GraphQL at https://api.github.com/graphql, but
+// GitHub Enterprise Server serves REST under /api/v3 and GraphQL at
+// /api/graphql — a sibling of the REST root, not a child of it.
+func (p *Provider) graphqlURL() string {
+	base := strings.TrimRight(p.baseURL(), "/")
+	if root, ok := strings.CutSuffix(base, "/api/v3"); ok {
+		return root + "/api/graphql"
+	}
+	return base + "/graphql"
 }
 
 // warnUntrusted reports, once per pull request, a request that carries a
@@ -163,6 +181,14 @@ func (p *Provider) warnForeignAuthor(ctx context.Context, created ghPull) {
 	}
 	trusted, err := p.trustedAuthors(ctx)
 	if err != nil {
+		// On a first run nothing carried a marker yet, so this is where the
+		// identity is first needed — after the request already exists. The
+		// create succeeded; what the operator must know is that later runs
+		// cannot recognize it until the lookup works or the author is declared.
+		p.Warn(fmt.Sprintf(
+			"created pull request #%d is authored by %s, but the token's own identity could not be looked up; "+
+				"later runs will not recognize it while that lookup fails. Set OIAX_TRUSTED_AUTHORS=%s to recognize it regardless.",
+			created.Number, created.User.Login, created.User.Login))
 		return
 	}
 	if _, ok := trusted[strings.ToLower(created.User.Login)]; ok {

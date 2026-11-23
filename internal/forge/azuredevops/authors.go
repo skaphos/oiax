@@ -50,8 +50,9 @@ func (p *Provider) trustedCreator(ctx context.Context, pr adoPull) (bool, error)
 
 // trustedAuthors returns the lower-cased identity ids whose pull requests may
 // be Oiax's own: the token's identity plus Provider.TrustedAuthors. Resolved on
-// first need and cached only on success, so a transient failure or a cancelled
-// context does not poison the rest of the process.
+// first need and cached only once the token identity itself has resolved, so a
+// transient failure or a cancelled context does not poison the rest of the
+// process — including when declared authors let the call succeed without it.
 func (p *Provider) trustedAuthors(ctx context.Context) (map[string]struct{}, error) {
 	p.authorsMu.Lock()
 	defer p.authorsMu.Unlock()
@@ -70,16 +71,22 @@ func (p *Provider) trustedAuthors(ctx context.Context) (map[string]struct{}, err
 		set[strings.ToLower(id)] = struct{}{}
 	}
 	self, err := p.authenticatedID(ctx)
-	switch {
-	case err == nil:
-		set[strings.ToLower(self)] = struct{}{}
-	case len(set) == 0:
-		return nil, fmt.Errorf("%w: %w", errNoIdentity, err)
-	default:
-		if p.Warn != nil {
+	if err != nil {
+		if len(set) == 0 {
+			return nil, fmt.Errorf("%w: %w", errNoIdentity, err)
+		}
+		// The operator named the authors explicitly; that is sufficient on
+		// its own for this call. Nothing is cached, so the next call retries
+		// the lookup and the token's own identity joins the set as soon as it
+		// resolves. Say so once: until then, requests opened by this run's
+		// identity are recognized only if that identity is in the list.
+		if p.Warn != nil && !p.lookupWarned {
+			p.lookupWarned = true
 			p.Warn("could not look up the token's own identity; recognizing managed requests by OIAX_TRUSTED_AUTHORS only")
 		}
+		return set, nil
 	}
+	set[strings.ToLower(self)] = struct{}{}
 	p.authors = set
 	return set, nil
 }
@@ -143,11 +150,19 @@ func (p *Provider) warnForeignAuthor(ctx context.Context, created adoPull) {
 	if p.anyAuthor || p.Warn == nil || !identityPattern.MatchString(created.CreatedBy.ID) {
 		return
 	}
+	id := strings.ToLower(created.CreatedBy.ID)
 	trusted, err := p.trustedAuthors(ctx)
 	if err != nil {
+		// On a first run nothing carried a marker yet, so this is where the
+		// identity is first needed — after the request already exists. The
+		// create succeeded; what the operator must know is that later runs
+		// cannot recognize it until the lookup works or the creator is declared.
+		p.Warn(fmt.Sprintf(
+			"created pull request %d is recorded as created by identity %s, but the token's own identity could not be looked up; "+
+				"later runs will not recognize it while that lookup fails. Set OIAX_TRUSTED_AUTHORS=%s to recognize it regardless.",
+			created.PullRequestID, id, id))
 		return
 	}
-	id := strings.ToLower(created.CreatedBy.ID)
 	if _, ok := trusted[id]; ok {
 		return
 	}
