@@ -34,14 +34,11 @@ Makes `s` render as visible, inert text **in any Markdown position**, including 
 | `(` `)` | `（` `）` U+FF08/FF09 | | `@` | `＠` U+FF20 |
 | `<` `>` | `‹` `›` U+2039/203A | | `&` | `＆` U+FF06 |
 | `#` | `＃` U+FF03 | | `:` in `://` | `꞉` U+A789 |
+| `=` | `＝` U+FF1D | | | |
 
-Plus, for a value that starts a line in the template: a leading `-` → `‐` (U+2010), `+` → `＋` (U+FF0B), and a leading digit run followed by `.` → the same digits with `．` (U+FF0E); and the first `.` of a word-initial `www.` → `․` (U+2024). Output contains no line break (input is single-line from `Subject`).
+Plus: a leading `-` → `‐` (U+2010), `+` → `＋` (U+FF0B), and a leading digit run followed by `.` → the same digits with `．` (U+FF0E), so a value printed at the start of a line cannot start a list; and the first `.` of a word-initial `www.` → `․` (U+2024). With `=` substituted and a leading `-` replaced, a value printed on a line of its own cannot form a Setext heading underline (`===`, `---`). Output contains no line break (input is single-line from `Subject`).
 
-Applied **only when the value is emitted** into the summary output (see [forge-and-templates.md](forge-and-templates.md) "Summary render context"). Applied to trusted branch names in the Oiax-owned section header. Not applied to the artifact render (OOS-004).
-
-## UnsafePlacements(rendered string, sentinel string) []string
-
-Given a summary-surface render in which each untrusted value was emitted as a unique `sentinel`, reports the placements that no value transform can make inert (spec FR-016): the sentinel inside a Markdown link destination `](…)`, a link reference definition `[…]: …`, an autolink `<…>`, or an HTML tag or attribute. Code spans and fences are **not** unsafe, because the substituted value cannot close them. An empty result means the configured template is safe to use on the summary surface; otherwise the coordinator renders the built-in body with the FR-016 note.
+Applied only by **Oiax-controlled text**: the built-in conflict body on the summary surface and the Oiax-owned section header (subject and branch names). A custom template that reads commit text is not used for the summary at all ([forge-and-templates.md](forge-and-templates.md) "Summary template gate"). Not applied to the artifact render (OOS-004).
 
 ## Properties (tested; fuzzed)
 
@@ -51,8 +48,7 @@ Given a summary-surface render in which each untrusted value was emitted as a un
 | `Subject(Subject(s)) == Subject(s)` | `Subject` |
 | Output contains no `##[`, `##vso[` (any case), or `::` | `LogCommand` |
 | Output contains no `://` and no word-initial `www.` | `PlainLink` |
-| Output contains none of `` ` * _ [ ] ( ) < > # \| ! ~ \ @ & `` and no `://` or word-initial `www.` | `Markdown` |
-| Output, placed in plain text, a table cell, or inside a code span by a GFM renderer, yields only literal text | `Markdown` (corpus test plus live acceptance on both hosts) |
-| Sentinel in `](…)`, `[…]: …`, `<…>`, or an HTML attribute is reported; in plain text or a code span it is not | `UnsafePlacements` |
+| Output contains none of `` ` * _ [ ] ( ) < > # \| ! ~ \ @ & = `` and no `://` or word-initial `www.` | `Markdown` |
+| Output, placed in plain text, a table cell, inside a code span, or on a line of its own after a text line by a GFM renderer, yields only literal text (no Setext heading) | `Markdown` (corpus test plus live acceptance on both hosts) |
 
 Adversarial corpus: `internal/textsafe/testdata/adversarial.txt`, at least 50 lines, including every vector in spec User Story 2.

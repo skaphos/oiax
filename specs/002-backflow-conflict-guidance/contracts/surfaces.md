@@ -44,10 +44,10 @@ See [When a replay conflicts](<guide>) in the backflow guide.
 ```
 
 - `<from>`, `<to>` are passed through `textsafe.Markdown` (trusted, but may contain `|`, `` ` ``, `*`, `_`, `<`, `@`).
-- `<subject>` is the cleaned value with Markdown containment applied on emission (`tmpl.Untrusted`); the template's conditionals see the cleaned value (FR-016).
+- `<subject>` is `textsafe.Markdown(textsafe.Subject(raw))`: the header is Oiax-controlled text (FR-016).
 - Unhostable (FR-008a): the statement says this section is the only guidance for the conflict, that it lasts only as long as the CI host retains the run, and links the operating guide's [Keep Issues enabled](../../../docs/guides/operating.md#keep-issues-enabled-github-backflow-only) section.
 - Render failure (FR-005): the guidance body is replaced by `The configured conflict text could not be rendered; see the run log.`
-- Unsafe placement (FR-016): when the configured template places commit text in a link destination, autolink, or HTML attribute, the guidance body is the built-in one, preceded by `The configured conflict text places commit text where it could form a link, so Oiax shows its built-in steps here.`
+- Template gate (FR-016): when the configured template reads commit text (`tmpl.Set.ConflictBodyReadsCommitText`), the guidance body is the built-in one, preceded by `The configured conflict text includes commit text, so Oiax shows its built-in steps here.`
 - Size budget (FR-005, R8): space for every reduced section (no guidance body) and the note is reserved first; full sections are upgraded in plan order while they fit. When any section is reduced, the summary ends with one `Some conflict guidance was shortened to fit the summary size limit.` When even the reduced sections and the note do not fit (including a zero budget), no section is written, and the warnings and exit-3 output treat the summary as not written (§1, §3).
 
 ## 3. Exit-3 output (stderr, printed by `Execute`)
@@ -56,13 +56,14 @@ See [When a replay conflicts](<guide>) in the backflow guide.
 converged with reported divergence on <N> <edge|edges>:
   <edge>: backflow conflict; resolution steps: <address>
   <edge>: backflow conflict; no durable conflict record (Issues are disabled); resolution steps are in this run's summary
-  <edge>: backflow conflict; conflict <noun> not recorded this run; resolution steps: <guide>
+  <edge>: backflow conflict; conflict <noun> not recorded this run, will be retried next run; resolution steps are in this run's summary
+  <edge>: backflow conflict; conflict <noun> not recorded this run, will be retried next run; resolution steps: <guide>
   <edge>: reported divergence
 ```
 
 - `<edge|edges>` is `edge` when N is 1 and `edges` otherwise ("on 1 edge:", "on 2 edges:").
 - Lines follow plan action order; one per edge (FR-009, FR-011).
-- "are in this run's summary" appears only if the summary sections were written (FR-010); otherwise the guide address is used.
+- "are in this run's summary" appears only if the summary sections were written (FR-010); otherwise the guide address is used. A known artifact always uses its address. The not-recorded lines always carry the next-run retry statement (FR-008b).
 - No untrusted text appears (FR-010): no subjects, no plan reasons.
 - When there are no reports (should not happen with exit 3), the single line `converged with reported divergence` is printed, as today.
 
@@ -72,6 +73,6 @@ converged with reported divergence on <N> <edge|edges>:
 | --- | --- | --- |
 | GitHub Actions | `::warning::` | append to `$GITHUB_STEP_SUMMARY` |
 | Azure Pipelines | `##vso[task.logissue type=warning]` | temp Markdown file in `$AGENT_TEMPDIRECTORY`, attached with `##vso[task.uploadsummary]<escaped path>` |
-| none (local) | plain stderr line only | none (pointers use `<guide>`) |
+| none (local) | plain stderr line only | none: a known artifact keeps its address as the pointer; only no-artifact cases (unhostable, not recorded) use `<guide>` (FR-001, §1) |
 
 Content is identical across GitHub Actions + GitHub, Azure Pipelines + GitHub, and Azure Pipelines + Azure Repos, apart from the artifact noun, the address, and GitHub-only FR-008a wording.

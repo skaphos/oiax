@@ -30,6 +30,7 @@ One entry per edge that contributed to exit 3, appended to `Result.Divergences` 
 | `ArtifactNoun` | string | `issue` or `work item`, from the forge kind (used in summary and warning text). |
 | `SummaryBody` | string | The guidance body rendered for the summary surface (R4, R5), or empty. |
 | `RenderFailed` | bool | True when the summary-surface render failed (spec FR-005). |
+| `BuiltinFallback` | bool | True when the configured template reads commit text, so `SummaryBody` is the built-in body (spec FR-016). |
 
 ### ArtifactStatus
 
@@ -58,16 +59,11 @@ Adds `URL string`: the artifact's forge web page, built by the provider from its
 
 Adds `Surface string`: `"artifact"` or `"summary"` (R4). Additive under ADR 0011.
 
-`tmpl.Conflict.Subject` and `tmpl.Commit.Subject` change type to `any`, holding the **cleaned value** `textsafe.Subject(raw)` on both surfaces (spec FR-013, FR-016):
+`tmpl.Conflict.Subject` and `tmpl.Commit.Subject` stay `string` and hold `textsafe.Subject(raw)` (spec FR-013). For the **built-in** body on the summary surface they hold `textsafe.Markdown(textsafe.Subject(raw))`; that is safe because the built-in body only prints the subject and never branches on it.
 
-- artifact surface: a plain `string`;
-- summary surface: `tmpl.Untrusted` (named string type; `String()` returns `textsafe.Markdown` of the value), so comparisons see the cleaned value and printing emits contained text ([contracts/forge-and-templates.md](contracts/forge-and-templates.md)).
+## tmpl.Set (`internal/tmpl`, changed)
 
-`text/template` indirects interface values, so templates use the fields exactly as before. The `trunc` and `shortSHA` funcs accept both forms and return the same form they were given.
-
-## tmpl.Untrusted (`internal/tmpl`, new)
-
-`type Untrusted string` with `String() string { return textsafe.Markdown(string(u)) }`. Used only in the summary render context.
+Adds `ConflictBodyReadsCommitText() bool`, computed once at `Resolve` from the conflict body's parse tree ([contracts/forge-and-templates.md](contracts/forge-and-templates.md) "Summary template gate"). False for the built-in template. When true, the summary uses the built-in body (spec FR-016).
 
 ## Contained text (`internal/textsafe`, new)
 

@@ -40,22 +40,33 @@ type ConflictArtifact struct {
   {{- end}}
   ```
 
-### Summary render context (spec FR-016: contain on emission, not before decisions)
+### Summary template gate (spec FR-016)
 
-- `.Conflict.Subject` and every `.Commits[].Subject` hold the **cleaned value** `textsafe.Subject(raw)` on both surfaces, so conditionals and functions behave identically. For example, `{{if eq .Conflict.Subject "fix: x.y"}}` takes the same branch for the artifact and the summary.
-- On the summary surface those fields carry the cleaned value as `tmpl.Untrusted`, a named string type:
+Containing commit text inside an arbitrary custom template is not airtight (`printf "%#v"` bypasses a `String()` wrapper; a conditional can emit a link only for the real value; `trunc` can strip a probe sentinel). So the summary uses a custom conflict template **only if it never reads commit text**, decided once from the parse tree:
 
-  ```go
-  // Untrusted is a cleaned untrusted value. Templates compare and transform
-  // the underlying string; printing it emits textsafe.Markdown of it.
-  type Untrusted string
+```go
+// ReadsCommitText reports whether the conflict body template can read an
+// untrusted value: .Conflict.Subject, .Commits[].Subject, or a whole value
+// that contains them.
+func (s *Set) ConflictBodyReadsCommitText() bool
+```
 
-  func (u Untrusted) String() string { return textsafe.Markdown(string(u)) }
-  ```
+The walk over `text/template/parse` nodes reports **true** (conservatively) when the template:
 
-  - `text/template`'s `eq`, `ne`, `lt` and the other comparisons use the reflect string value, which is the cleaned value, not `String()`.
-  - Printing (`{{.Conflict.Subject}}`, `printf "%s"`) goes through `fmt`, which calls `String()`, so the emitted value is contained.
-  - The template funcs that take strings (`trunc`, `shortSHA`) accept `Untrusted` and return `Untrusted`, so a transformed value is still contained when printed.
-- On the artifact surface the fields are plain strings holding the cleaned value (spec FR-013; no Markdown containment, OOS-004).
-- **Unsafe placements**: before using a resolved custom template on the summary surface, the coordinator renders it once with each untrusted field set to a unique sentinel and runs `textsafe.UnsafePlacements`. If any placement is reported, the summary section uses the built-in body plus the note `The configured conflict text places commit text where it could form a link, so Oiax shows its built-in steps here.` Nothing changes at load: previously accepted templates still load (Constitution XII), and the artifact still uses the configured template.
+- references a field chain ending in `Subject` anywhere, including inside `range .Commits` (where `.Subject` is the element's subject);
+- uses `.Conflict`, `.Commits`, an element of `.Commits` (dot inside `range .Commits`), `.` at the top level, or `$` as a **whole value**, meaning printed or passed as an argument to any function or comparison, rather than only as the root of a field chain to an allowed field;
+- defines or invokes templates (`define`/`template`/`block`), which the walk does not follow.
+
+Allowed reads include `.Conflict.SHA`, `.Conflict.Applied`, `.Conflict.Whole`, `.Conflict.SquashCommits`, `.Commits[].SHA`, `.Commits[].ShortSHA`, `len .Commits`, `range .Commits` (iteration itself), and every other `Context` field. Any node kind the walk does not recognize counts as reading commit text.
+
+Rendering:
+
+| Template | Artifact | Summary guidance body |
+| --- | --- | --- |
+| built-in (unconfigured) | built-in, `.Surface = "artifact"`, `.Conflict.Subject = textsafe.Subject(raw)` | built-in, `.Surface = "summary"`, `.Conflict.Subject` and `.Commits[].Subject` = `textsafe.Markdown(textsafe.Subject(raw))` (the built-in body only prints the subject, never branches on it) |
+| custom, does **not** read commit text | custom, `.Surface = "artifact"` | custom, `.Surface = "summary"` (subject fields never read; identical decisions by construction) |
+| custom, **reads** commit text | custom, `.Surface = "artifact"` | **built-in**, rendered as in the first row, preceded by the note `The configured conflict text includes commit text, so Oiax shows its built-in steps here.` |
+
+- Nothing changes at load: previously accepted templates still load (Constitution XII), and the artifact always uses the configured template.
+- `Conflict.Subject` and `Commit.Subject` stay `string`; no new template type.
 - `TestDefaultConflictBody` is updated for the new closing text.

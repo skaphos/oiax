@@ -98,7 +98,7 @@ docs/reference/templates.md, configuration.md (exit codes), docs/architecture.md
 
 1. **Record (reconcile)**: `recordBackflowConflict` keeps the `forge.ConflictArtifact` it creates or finds (including the canonical one after consolidation) and returns an `ArtifactStatus`. `applyBackflow` builds a `ConflictGuidance` (contained subject, strategy, counts, status, address, summary-surface body) and appends a `KindConflict` report. The pre-artifact `Warn` is removed. The `ActionReportDivergence` arm appends a `KindOther` report.
 2. **Address (forge)**: providers fill `ConflictArtifact.URL` (R3).
-3. **Render (tmpl)**: the artifact render passes `Surface: "artifact"` and `Subject(raw)`. The summary render passes `Surface: "summary"` and `Markdown(Subject(raw))` (R4, R5).
+3. **Render (tmpl)**: the artifact render passes `Surface: "artifact"` and `Subject(raw)`. For the summary, a custom template that reads commit text (`Set.ConflictBodyReadsCommitText`, decided from the parse tree at load) is replaced by the built-in body plus a note; the built-in body gets `Surface: "summary"` and `Markdown(Subject(raw))`, which is safe because it only prints the subject. A custom template that never reads commit text renders as written with `Surface: "summary"` (R4, R5, FR-016).
 4. **Publish (cli)**, after `Apply` returns (with or without error), in this order:
    1. write conflict sections to the summary target, if any (R7, R8); remember whether they were written;
    2. emit one conflict warning per report through the logger (contract §1), choosing the summary or guide pointer by step 1's outcome (FR-010);
@@ -110,7 +110,7 @@ docs/reference/templates.md, configuration.md (exit codes), docs/architecture.md
 | Risk | Mitigation |
 | --- | --- |
 | Moving the warning later breaks tests or log-scrapers that expect it mid-apply | Text format unchanged; tests updated; documented in the backflow guide. Log text is not a contract. |
-| Markdown escaping renders differently on Azure DevOps vs GitHub | Escaping uses only CommonMark backslash escapes and two entities; corpus tests plus one live render per host (quickstart §5). |
+| Contained text renders differently on Azure DevOps vs GitHub | `Markdown` uses look-alike substitution (no backslash escapes or entities, which renderers treat differently and which fail inside code spans); only Oiax-controlled text prints commit text, and custom templates that read it fall back to the built-in body; corpus tests plus one live render per host (quickstart §5). |
 | Custom templates that ignore `.Surface` show artifact-only wording in the summary | Accepted by the spec (FR-003); the templates reference documents `.Surface` with an example. |
 | Binary scenario hits the clock flake (#143) | Land after #153. |
 
