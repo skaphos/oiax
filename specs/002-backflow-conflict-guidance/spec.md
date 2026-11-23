@@ -16,6 +16,13 @@
 
 - Q: Where does the job-summary section's guidance body come from (FR-003): (A) the same resolved `spec.templates.backflowConflict` slot the artifact uses, (B) always the built-in playbook, or (C) the built-in steps plus the artifact link? → A: **A**, the same resolved slot, so a customized artifact and the summary cannot drift (#107's acceptance). SC-003 applies as written.
 
+### Consistency review 2026-11-22
+
+- The built-in conflict body itself contains artifact-only sentences ("Oiax manages this issue. It closes automatically once the conflict clears … Do not edit the metadata block below."), so FR-003 (same slot) and FR-004 (no artifact-only claims in the section) can only both hold if the template knows which surface it renders for. That variable is now required (FR-004), not a plan decision.
+- One template renders for both surfaces, so Markdown inertness (FR-016) must be applied to the values handed to the summary render, not to its output. The artifact render is unchanged (FR-016, OOS-004).
+- The unescaped Azure summary upload path in the notification summary is fixed in this feature, as a bug fix with a regression test (FR-012).
+- Left to the plan's research: the Azure Pipelines summary size limit (FR-005) and whether the Azure Boards address uses the project name or ID (FR-006).
+
 ## Current Behavior *(re-verified against `main` at `d774e90`)*
 
 - On a replay conflict, `reconcile` logs `backflow <source> -> <target> halted on … conflict at <sha> "<subject>" …; no request created` **before** it records the artifact. Under CI that line also becomes a `::warning::` or `##vso[task.logissue type=warning]` command.
@@ -95,7 +102,7 @@ A team runs Oiax in Azure Pipelines. The forge is either Azure Repos (artifact: 
 **Acceptance Scenarios**:
 
 1. **Given** Azure Repos, **When** a replay conflicts, **Then** the run issue ends with `Resolution steps: https://dev.azure.com/<organization>/<project>/_workitems/edit/<id>` and the Extensions-tab summary has the edge's section.
-2. **Given** equivalent state on either forge or host, **When** the outputs are compared, **Then** the sections differ only in the artifact address and the host's command form.
+2. **Given** equivalent state on either forge or host, **When** the outputs are compared, **Then** the sections differ only in the artifact type, its address, and forge-specific FR-008 wording; the warnings additionally differ in the host's command form.
 
 ---
 
@@ -145,12 +152,14 @@ Several backflow sources can conflict into the same target in one run.
 
 ### Functional Requirements
 
+**Contained text** (used throughout): an untrusted value (today, the failing commit's subject) after it is capped at 200 runes (FR-013), stripped of control and bidi-formatting characters, and made inert for the surface it appears on: escaped for host logging commands (FR-014), defanged against linkification in plain text (FR-015), and Markdown-inert in the summary (FR-016).
+
 **Warning and summary**
 
-- **FR-001**: For each edge whose cherry-pick or merge replay conflicts, reconcile MUST emit exactly one warning per run. The warning MUST be emitted after that edge's artifact step finishes or is skipped, and MUST keep today's leading text ([ADR 0004](../../docs/adr/0004-backflow-execution.md), ADR 0008 A1). It MUST end with:
+- **FR-001**: For each edge whose cherry-pick or merge replay conflicts, reconcile MUST emit exactly one conflict warning per run. The capability warnings that FR-008 keeps are separate and are not counted. The conflict warning MUST be emitted after that edge's artifact step finishes or is skipped, and MUST keep today's leading text format ([ADR 0004](../../docs/adr/0004-backflow-execution.md), ADR 0008 A1), with the subject as contained text. It MUST end with:
   - `Resolution steps: <address>` when the artifact is known;
   - otherwise, the FR-008 statement plus where the steps are: this run's summary if one is being published, or the backflow guide address if not.
-- **FR-002**: Under a detected CI host with a summary destination, reconcile MUST publish one section per conflicting edge after apply. The sections MUST be appended after the plan summary, which stays unchanged. Each section MUST contain:
+- **FR-002**: Under a detected CI host with a summary destination, reconcile MUST publish one section per conflicting edge after apply, including when apply later ends with exit 1 (for each conflict recorded before the abort). The sections MUST be appended after the plan summary, which stays unchanged. Each section MUST contain:
   1. the edge, and that no request was created;
   2. the failing commit's full SHA, its contained subject, and the applied count (cherry-pick) or whole-set note (merge);
   3. the artifact link, or the FR-008 statement;
@@ -164,8 +173,8 @@ Several backflow sources can conflict into the same target in one run.
   - the `Oiax-Backflow: skip` alternative;
   - the squash note.
 
-  It MUST NOT make artifact-only claims ("this issue closes automatically", "metadata block below"), nor imply that an artifact exists when none does. A trusted template variable that tells the template which surface it is rendering for is a plan decision. If added, it is additive under ADR 0011.
-- **FR-005**: If the guidance body cannot be rendered, the section MUST still carry FR-002 items 1–3 and 5, plus a note that the configured text failed to render. One run's sections MUST fit the host's summary size limit. When they would not, later sections MUST be reduced to items 1–3 and 5, with a truncation note. Exit 3 and the artifact's best-effort posture are unchanged.
+  It MUST NOT make artifact-only claims ("this issue closes automatically", "metadata block below"), nor imply that an artifact exists when none does. Because the built-in body contains those claims today and FR-003 renders the section from the same slot, the render context MUST carry a trusted variable naming the surface being rendered (working name `.Surface`, values `artifact` and `summary`). It is additive under ADR 0011 and documented in the templates reference. The built-in template MUST confine its artifact-only sentences to the artifact surface, and SHOULD use a forge-neutral noun for the artifact, since the same text serves Azure Boards work items. Custom templates MAY use the variable; a custom template that does not is rendered as written on both surfaces (FR-003).
+- **FR-005**: If the guidance body cannot be rendered, the section MUST still carry FR-002 items 1–3 and 5, plus a note that the configured text failed to render. One run's sections MUST fit the host's summary size limit (GitHub: 1 MiB per step; the Azure Pipelines limit is established in the plan's research, and the smaller of the two applies when it is unknown). When they would not, later sections MUST be reduced to items 1–3 and 5, with a truncation note. Exit 3 and the artifact's best-effort posture are unchanged.
 
 **Artifact address**
 
@@ -173,7 +182,7 @@ Several backflow sources can conflict into the same target in one run.
   - GitHub: `https://github.com/<owner>/<repo>/issues/<number>`
   - Azure Boards: `https://dev.azure.com/<organization>/<project>/_workitems/edit/<id>`
 
-  It MUST be built from the repository identity Oiax already resolved and the artifact identifier, with segments percent-escaped. It MUST never be taken from artifact text or other free text.
+  It MUST be built from the repository identity Oiax already resolved and the artifact identifier, with segments percent-escaped. It MUST never be taken from artifact text or other free text. Whether the Azure Boards address uses the project name or project ID is settled by the plan's research, from what the Azure provider's resolved identity holds.
 - **FR-007**: The address MUST be identical on every path where the run knows the artifact: created, adopted, advanced, advance failed, left alone, or canonical after consolidation. An unknown artifact MUST never get a shown or guessed address.
 
 **No artifact (#69)**
@@ -205,7 +214,7 @@ Several backflow sources can conflict into the same target in one run.
 - **FR-011**: Warnings, sections, and exit-3 lines MUST follow plan action order (Constitution III), with one per edge and no merging. Equivalent state MUST produce identical output.
 - **FR-012**: The CI host selects the command form and the summary destination. The forge selects the artifact type and address:
   - **GitHub Actions**: workflow-command warnings, appended to the step-summary file.
-  - **Azure Pipelines**: `##vso[task.logissue type=warning]`, plus a Markdown file in the agent temp directory attached by `##vso[task.uploadsummary]`. The path MUST be escaped the way the plan summary escapes it (the notification-summary upload currently does not escape it).
+  - **Azure Pipelines**: `##vso[task.logissue type=warning]`, plus a Markdown file in the agent temp directory attached by `##vso[task.uploadsummary]`. The path MUST be escaped the way the plan summary escapes it. The notification-summary upload currently does not escape its path; this feature MUST fix that too, sharing one escaping helper across all three uploads, with a regression test that fails without the fix.
 
   Content MUST be the same for GitHub Actions with GitHub, Azure Pipelines with GitHub, and Azure Pipelines with Azure Repos. Outside CI there are no annotations or summary, but the plain warning and the exit-3 output still carry the pointer.
 
@@ -218,7 +227,7 @@ Several backflow sources can conflict into the same target in one run.
 
   Message data MUST use host escaping. GitHub: `%`→`%25`, CR→`%0D`, LF→`%0A`. Azure: `%`→`%AZP25`, CR→`%0D`, LF→`%0A`.
 - **FR-015**: In plain-text warnings, untrusted text MUST NOT carry a sequence a host could linkify, such as a URL scheme or a leading `www.`. The only links MUST be the addresses Oiax derives.
-- **FR-016**: In the summary, untrusted values MUST render as visible, inert text wherever the header or the template places them. They MUST NOT produce any of the following: a link, autolink, or image with an absolute target taken from the value; raw HTML; a mention; a heading, list, or blockquote; a table-cell break; emphasis that spills over; a code span or fence break-out; a line break. This MUST hold on both hosts' summary renderers. Escaping or look-alike substitution is acceptable.
+- **FR-016**: In the summary, untrusted values MUST render as visible, inert text wherever the header or the template places them. Because one template renders for both surfaces (FR-003), inertness MUST be applied to the untrusted values handed to the summary render, not to its rendered output, since rendered output cannot tell template-authored Markdown from values. The artifact render keeps receiving the values unescaped (OOS-004). They MUST NOT produce any of the following: a link, autolink, or image with an absolute target taken from the value; raw HTML; a mention; a heading, list, or blockquote; a table-cell break; emphasis that spills over; a code span or fence break-out; a line break. This MUST hold on both hosts' summary renderers. Escaping or look-alike substitution is acceptable.
 
 **Unchanged**
 
@@ -246,9 +255,9 @@ Several backflow sources can conflict into the same target in one run.
 
 ### Measurable Outcomes
 
-- **SC-001**: The matrix covers both hosts, each supported forge, and four artifact states: created, re-found, unhostable, and failed. In 100% of matrix runs, the warnings and summary show the edge, the failing commit, and either a working artifact link or an explicit no-artifact statement, without the raw log.
-- **SC-002**: At least three people new to Oiax backflow conflicts each find the steps from the failed run page in under two minutes, without the raw log or the issue tracker, and correctly say that the fix goes on a branch of their own.
-- **SC-003**: In 100% of template fixtures (built-in and customized), section guidance and artifact body differ only in contained untrusted spans, the Oiax-owned header and footer, and the artifact-only closing text. 
+- **SC-001**: The matrix covers both hosts, each supported forge, and every artifact path: created, adopted, advanced, advance failed, left alone, canonical after consolidation (FR-007), unhostable, and failed to record or confirm (FR-008). In 100% of matrix runs, the warnings and summary show the edge, the failing commit, and either a working artifact link or an explicit no-artifact statement, without the raw log.
+- **SC-002** *(live acceptance, not a CI gate)*: At least three people new to Oiax backflow conflicts each find the steps from the failed run page in under two minutes, without the raw log or the issue tracker, and correctly say that the fix goes on a branch of their own.
+- **SC-003**: In 100% of template fixtures, section guidance and artifact body differ only in contained untrusted spans, the Oiax-owned header and footer, and text the template places behind the surface variable (FR-004). This holds for the built-in template and for customized templates that use the surface variable; a customized template that does not use it renders identically apart from contained spans.
 - **SC-004**: Across at least 50 adversarial subjects (including every User Story 2 vector) on both hosts, there are zero injected commands, set variables, forged warnings, links, images, raw HTML, mentions, or broken summary structures.
 - **SC-005**: On both forges, 100% of existing exit-code, plan-document, and artifact-lifecycle acceptance cases are unchanged.
 - **SC-006**: For N = 1, 2, and 3 conflicting edges, there are exactly N sections, N warnings, and N named conflict edges, in the same order across 20 repeated runs.
@@ -258,7 +267,7 @@ Several backflow sources can conflict into the same target in one run.
 
 - **Plan-step assumption**: surfacing the address likely changes the provider-neutral artifact view (identifier, edge, recorded head) or the `forge.Forge` interface. Both providers MUST still pass the shared conformance suite (`internal/forge/forgetest`, conflict-artifact lifecycle), extended to assert the address. Per-edge outcomes also need a path from apply to the CLI outside the plan document.
 - Building addresses from repository identity follows precedent: both providers already build notification request links that way.
-- No ADR is expected (issue #107). A surface variable for FR-004, if added, is additive under ADR 0011 ("fields may be added within v1").
+- No ADR is expected (issue #107). The FR-004 surface variable is additive under ADR 0011 ("fields may be added within v1").
 - ADR 0008 and [ADR 0009](../../docs/adr/0009-azure-devops-forge-provider.md) are accepted (#124) and describe implemented behavior. This spec contradicts neither.
 - Whether hosts make URLs in plain-text warnings clickable is unverified. Live acceptance confirms it, and the warning carries the full address either way.
 - Linux is the supported automation platform ([ADR 0016](../../docs/adr/0016-linux-automation-support.md)). GitHub's 1 MiB per-step summary limit bounds FR-005.
