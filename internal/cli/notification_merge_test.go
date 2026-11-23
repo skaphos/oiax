@@ -161,9 +161,11 @@ type notificationBinaryFixture struct {
 	// at — which is what every test but the revision-recovery one wants.
 	configRef string
 	// clockFloor, when set, is the earliest time any later invocation's
-	// notification clock may read (see eventTime). Guarded by mu: the forge
-	// raises it when it stamps a creation.
+	// notification clock may read (see eventTime and launchFloor), as of the
+	// monotonic reading floorSetAt. Guarded by mu: the forge raises it when it
+	// stamps a creation.
 	clockFloor      time.Time
+	floorSetAt      time.Time
 	server          *httptest.Server
 	mu              sync.Mutex
 	seeds           []forgetest.LifecycleSeed
@@ -235,10 +237,7 @@ func (f *notificationBinaryFixture) run(want int, args ...string) (string, strin
 	if f.missingEndpoint {
 		cmd.Env = append(cmd.Env, "OIAX_FIXTURE_ENDPOINT=")
 	}
-	f.mu.Lock()
-	floor := f.clockFloor
-	f.mu.Unlock()
-	if !floor.IsZero() {
+	if floor := f.launchFloor(); !floor.IsZero() {
 		cmd.Env = append(cmd.Env, "OIAX_FIXTURE_CLOCK_FLOOR="+floor.Format(time.RFC3339Nano))
 	}
 	var out, stderr bytes.Buffer
@@ -282,20 +281,106 @@ func (f *notificationBinaryFixture) identity() notification.RepositoryIdentity {
 
 func (f *notificationBinaryFixture) ledger() *notification.LedgerV1 {
 	f.t.Helper()
-	ref := "refs/notes/oiax/notifications/v1/" + notification.GraphKey(f.identity(), "graph")
-	entries := strings.Fields(gittest.Run(f.t, f.remote, "ls-tree", "-r", ref))
-	if len(entries) != 4 {
-		f.t.Fatalf("unexpected notes tree: %v", entries)
-	}
-	data := gittest.Run(f.t, f.remote, "cat-file", "blob", entries[2])
+	l, data, err := f.readLedger()
 	if strings.Contains(data, "endpoint-canary") || strings.Contains(data, "fixture-forge-canary") || strings.Contains(data, "healthy-canary") {
 		f.t.Fatal("credential canary persisted in notes")
 	}
-	l, err := notificationstore.Decode(strings.NewReader(data))
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	return l
+}
+
+// readLedger decodes the remote ledger without failing the test, because
+// launchFloor peeks at it before every invocation, including in the modes that
+// corrupt or delete it on purpose.
+func (f *notificationBinaryFixture) readLedger() (*notification.LedgerV1, string, error) {
+	git := func(args ...string) (string, error) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir, cmd.Env = f.remote, gittest.Env()
+		out, err := cmd.Output()
+		return strings.TrimSpace(string(out)), err
+	}
+	ref := "refs/notes/oiax/notifications/v1/" + notification.GraphKey(f.identity(), "graph")
+	tree, err := git("ls-tree", "-r", ref)
+	if err != nil {
+		return nil, "", fmt.Errorf("read notes tree: %w", err)
+	}
+	entries := strings.Fields(tree)
+	if len(entries) != 4 {
+		return nil, "", fmt.Errorf("unexpected notes tree: %v", entries)
+	}
+	data, err := git("cat-file", "blob", entries[2])
+	if err != nil {
+		return nil, "", fmt.Errorf("read notes blob: %w", err)
+	}
+	l, err := notificationstore.Decode(strings.NewReader(data))
+	return l, data, err
+}
+
+// ledgerWatermark is the latest subscription cutoff or scan bound the ledger
+// records: the times a later invocation's clock must not read below.
+func ledgerWatermark(l *notification.LedgerV1) time.Time {
+	var latest time.Time
+	later := func(t time.Time) {
+		if t.After(latest) {
+			latest = t
+		}
+	}
+	for _, d := range l.Destinations {
+		for _, sub := range d.Subscriptions {
+			later(sub.Cutoff)
+		}
+	}
+	for _, scan := range l.Scans {
+		later(scan.From)
+		later(scan.Through)
+	}
+	return latest.UTC()
+}
+
+// currentFloorLocked is the floor carried forward to now on this process's
+// monotonic clock. Every reading a fixture binary took while floored is at most
+// its launch floor plus its own runtime, and that runtime is already behind
+// the elapsed time measured here. f.mu must be held.
+func (f *notificationBinaryFixture) currentFloorLocked() time.Time {
+	if f.clockFloor.IsZero() {
+		return time.Time{}
+	}
+	return f.clockFloor.Add(time.Since(f.floorSetAt))
+}
+
+// raiseFloorLocked moves the floor up to at, never down. f.mu must be held.
+func (f *notificationBinaryFixture) raiseFloorLocked(at time.Time) time.Time {
+	floor := f.currentFloorLocked()
+	if at.After(floor) {
+		floor = at
+	}
+	f.clockFloor, f.floorSetAt = floor, time.Now()
+	return floor
+}
+
+// launchFloor returns the floor for the next invocation, or zero when no test
+// has asked for one. Each fixture binary measures elapsed time from its own
+// start, so a single fixed floor would let a second run read earlier than the
+// first run's recorded scan bound while the wall clock is still behind. Observe
+// would then build an interval whose From is after its Through, and the store
+// rejects that. The floor therefore advances on this process's monotonic clock,
+// and it is raised past anything the ledger already records.
+func (f *notificationBinaryFixture) launchFloor() time.Time {
+	f.mu.Lock()
+	enabled := !f.clockFloor.IsZero()
+	f.mu.Unlock()
+	if !enabled {
+		return time.Time{}
+	}
+	var watermark time.Time
+	if l, _, err := f.readLedger(); err == nil {
+		watermark = ledgerWatermark(l).Add(time.Millisecond)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.raiseFloorLocked(watermark)
 }
 
 // eventTime returns the forge timestamp for an event the next invocation must
@@ -309,31 +394,15 @@ func (f *notificationBinaryFixture) ledger() *notification.LedgerV1 {
 // the latest time the ledger records, and the floor keeps the next scan's upper
 // bound from falling behind it.
 func (f *notificationBinaryFixture) eventTime(l *notification.LedgerV1) time.Time {
-	var latest time.Time
-	for _, d := range l.Destinations {
-		for _, sub := range d.Subscriptions {
-			if sub.Cutoff.After(latest) {
-				latest = sub.Cutoff
-			}
-		}
-	}
-	for _, scan := range l.Scans {
-		if scan.Through.After(latest) {
-			latest = scan.Through
-		}
-	}
 	at := time.Now().UTC()
-	if floor := latest.UTC().Add(time.Millisecond); at.Before(floor) {
+	if floor := ledgerWatermark(l).Add(time.Millisecond); at.Before(floor) {
 		at = floor
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if at.Before(f.clockFloor) {
-		// A floor the forge already set (a creation stamp) is never lowered.
-		at = f.clockFloor
-	}
-	f.clockFloor = at
-	return at
+	// A floor already in force (a creation stamp, an earlier event) is never
+	// lowered.
+	return f.raiseFloorLocked(at)
 }
 
 func (f *notificationBinaryFixture) seed(id int, kind, state string, at time.Time, managed bool) forgetest.LifecycleSeed {
@@ -562,9 +631,7 @@ func (f *notificationBinaryFixture) create(w http.ResponseWriter, r *http.Reques
 	if origin, ok := mk.ParseNotificationOrigin(body); ok && created.Before(origin.ObservedAt) {
 		created = origin.ObservedAt.UTC()
 	}
-	if created.After(f.clockFloor) {
-		f.clockFloor = created
-	}
+	f.raiseFloorLocked(created)
 	s.CreatedAt = created.Truncate(time.Second) // exercise coarse API timestamps
 	f.seeds = append(f.seeds, s)
 	f.bodies[s.ID] = body
@@ -656,6 +723,55 @@ func TestNotificationMergeBinary(t *testing.T) {
 				t.Parallel()
 				checkNotificationCoreExit(t, binary, provider, coreExit)
 			})
+		}
+	}
+}
+
+// TestNotificationFixtureClockFloor pins the fixture clock floor's two
+// guarantees while the wall clock stays behind it (a floor an hour ahead). The
+// floor advances on the test's monotonic clock between launches, and it is
+// raised past every scan bound and cutoff the ledger already records. Without
+// the second, the forced-low floor below hands the second invocation a clock
+// ten minutes before the first one's scan watermark. Observe would then build
+// an interval with From after Through, which the store rejects, and scanning
+// would stall.
+func TestNotificationFixtureClockFloor(t *testing.T) {
+	t.Parallel()
+	binary := buildNotificationBinary(t)
+	f := newNotificationBinaryFixture(t, binary, "github", "webhook")
+
+	start := time.Now().UTC().Add(time.Hour)
+	f.mu.Lock()
+	f.raiseFloorLocked(start)
+	f.mu.Unlock()
+	first := f.launchFloor()
+	time.Sleep(20 * time.Millisecond)
+	if second := f.launchFloor(); second.Sub(first) < 20*time.Millisecond {
+		t.Fatalf("floor did not advance with elapsed time: %s then %s", first, second)
+	}
+
+	f.run(0, "reconcile")
+	before := f.ledger()
+	for kind, scan := range before.Scans {
+		if !scan.Through.After(start) {
+			t.Fatalf("%s scan ignored the floor: through %s, floor %s", kind, scan.Through, start)
+		}
+	}
+	if len(before.Scans) != 2 {
+		t.Fatalf("activation run recorded scans %v", before.Scans)
+	}
+
+	// Stand in for a floor that fell behind: an anchor that ran slow, or a
+	// floor set before a run that read further ahead than it.
+	f.mu.Lock()
+	f.clockFloor, f.floorSetAt = ledgerWatermark(before).Add(-10*time.Minute), time.Now()
+	f.mu.Unlock()
+	f.run(0, "reconcile")
+	after := f.ledger()
+	for kind, prev := range before.Scans {
+		next, ok := after.Scans[kind]
+		if !ok || !next.Complete || next.From.Before(prev.Through) || !next.Through.After(prev.Through) {
+			t.Fatalf("%s scan did not progress from %+v: %+v", kind, prev, next)
 		}
 	}
 }
