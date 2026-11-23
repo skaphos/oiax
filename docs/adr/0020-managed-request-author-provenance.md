@@ -119,8 +119,14 @@ previous identity's requests have merged or closed.
   scan records progress past every request it rules out and would otherwise
   permanently skip one of Oiax's own requests over a transient lookup failure.
   The cost: in a deployment where the lookup never succeeds, a request with a
-  copied marker holds that scan incomplete until it is closed or its author is
-  declared. A delayed notification is recoverable; a skipped one is not.
+  copied marker holds that scan incomplete. Closing the request does not
+  release it — creation scans read requests in every state, and a closed
+  request's provenance is just as unknown. The scan completes once the token
+  identity resolves (the request is then plainly unmanaged) or the marker is
+  removed from the request's body. Declaring the request's author also
+  completes it, but only by making that request managed, so it is a remedy
+  for a forgotten previous identity and never for a request someone else
+  wrote. A delayed notification is recoverable; a skipped one is not.
 - The GitHub provider now makes one GraphQL call per run. No GraphQL variables
   or interpolation are involved; the query is a constant.
 - Azure DevOps conflict artifacts (work items) are recognized by marker and
