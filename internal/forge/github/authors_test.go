@@ -395,3 +395,41 @@ func TestCreateWarnsWhenIdentityUnresolvable(t *testing.T) {
 		t.Errorf("warnings = %q, want one naming #12 and the author to declare", *warnings)
 	}
 }
+
+func TestLoginPattern(t *testing.T) {
+	t.Parallel()
+	for login, want := range map[string]bool{
+		"octocat":             true,
+		"my-app[bot]":         true,
+		"github-actions[bot]": true,
+		"octocat_acme":        true, // Enterprise Managed User: handle_shortcode
+		"My-App[BOT]":         true, // logins are case-insensitive, suffix included
+		"":                    false,
+		"-leading":            false,
+		"has space":           false,
+		"x[bot]y":             false,
+		"x[admin]":            false,
+		"a\n##vso[task.x]":    false,
+		"<!--":                false,
+	} {
+		if got := loginPattern.MatchString(login); got != want {
+			t.Errorf("loginPattern.MatchString(%q) = %v, want %v", login, got, want)
+		}
+	}
+}
+
+func TestManagedUserLoginIsRecognized(t *testing.T) {
+	t.Parallel()
+	// The token acts as an Enterprise Managed User, and a previous identity
+	// is declared with a differently-cased bot suffix.
+	api := &authorAPI{viewer: "octocat_acme", pulls: []map[string]any{
+		promotionBy(9, "Octocat_ACME"),
+		promotionBy(8, "old-app[bot]"),
+		promotionBy(66, outsiderLogin),
+	}}
+	p, _ := strictProvider(t, api, "Old-App[Bot]")
+	got, err := p.ListManagedRequests(context.Background(), promotionFilter)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("ListManagedRequests = %+v, %v; want #9 and #8", got, err)
+	}
+}

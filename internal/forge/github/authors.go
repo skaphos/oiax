@@ -22,9 +22,14 @@ import (
 // explicitly declared trusted (a previous token identity, during a migration).
 
 // loginPattern bounds what is accepted as a login from configuration and
-// echoed into a warning: GitHub's own alphabet plus the "[bot]" suffix App and
-// Actions identities carry.
-var loginPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,99}(\[bot\])?$`)
+// echoed into a warning. It is GitHub's alphabet as GitHub actually issues it:
+// alphanumerics and hyphens, the underscore that joins an Enterprise Managed
+// User's handle to its enterprise shortcode (octocat_acme), and the "[bot]"
+// suffix App and Actions identities carry. Logins are case-insensitive, the
+// suffix included. The pattern stays closed — no whitespace, control
+// characters or brackets beyond that suffix — because a matching value is
+// printed in warnings.
+var loginPattern = regexp.MustCompile(`(?i)^[a-z0-9][a-z0-9_-]{0,99}(\[bot\])?$`)
 
 // errNoIdentity means neither the token's own login nor an operator-declared
 // author is available, so no request can be attributed to oiax.
