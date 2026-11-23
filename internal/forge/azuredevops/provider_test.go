@@ -40,6 +40,9 @@ func newProvider(t *testing.T, srv *httptest.Server) *Provider {
 		BaseURL:      srv.URL,
 		HTTP:         srv.Client(),
 		retryBackoff: time.Microsecond,
+		// Fixtures here carry no creator; author provenance has its own tests
+		// (authors_test.go), which leave this off.
+		anyAuthor: true,
 	}
 }
 

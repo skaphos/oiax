@@ -79,7 +79,7 @@ func TestNotificationSnapshotConformance(t *testing.T) {
 			}
 		}))
 		t.Cleanup(server.Close)
-		p := &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client()}
+		p := &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 		req, err := p.GetLifecycleRequest(context.Background(), "42")
 		if err != nil {
 			t.Fatal(err)

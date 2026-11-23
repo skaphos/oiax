@@ -48,7 +48,9 @@ var newForge = func(ctx context.Context, logger *slog.Logger) (forge.Forge, erro
 			// The Azure Boards work-item type durable conflict artifacts are
 			// created as. Empty falls back to the provider default ("Issue");
 			// Agile/Scrum/CMMI projects set OIAX_ADO_WORKITEM_TYPE.
-			WorkItemType: os.Getenv("OIAX_ADO_WORKITEM_TYPE"),
+			WorkItemType:   os.Getenv("OIAX_ADO_WORKITEM_TYPE"),
+			TrustedAuthors: trustedAuthors(),
+			Warn:           func(msg string) { logger.Warn(msg) },
 		}, nil
 	}
 	owner, repo, err := resolveRepo(ctx)
@@ -59,11 +61,28 @@ var newForge = func(ctx context.Context, logger *slog.Logger) (forge.Forge, erro
 		Owner: owner,
 		Repo:  repo,
 		Token: os.Getenv("GITHUB_TOKEN"),
+		// Requests are recognized as managed only when opened by the token's
+		// own identity; OIAX_TRUSTED_AUTHORS declares further ones (ADR 0020).
+		TrustedAuthors: trustedAuthors(),
 		// Route the provider's degradation warning through the logger so it
 		// is both logged and (under CI) annotated. The token is never
 		// part of the warning.
 		Warn: func(msg string) { logger.Warn(msg) },
 	}, nil
+}
+
+// trustedAuthors reads OIAX_TRUSTED_AUTHORS: a comma-separated list of
+// additional identities whose pull requests may be Oiax's own — GitHub logins
+// (my-app[bot]) or Azure DevOps identity ids (GUIDs). The identity the token
+// itself acts as is always trusted and need not be listed; this exists so
+// requests opened under a previous token identity stay managed across a
+// migration. The provider validates each entry's shape.
+func trustedAuthors() []string {
+	v := os.Getenv("OIAX_TRUSTED_AUTHORS")
+	if v == "" {
+		return nil
+	}
+	return strings.Split(v, ",")
 }
 
 // resolveForgeKind selects the forge provider. An explicit OIAX_FORGE

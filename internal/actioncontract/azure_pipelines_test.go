@@ -86,7 +86,7 @@ func TestPublishedAzurePipelinesTemplateContract(t *testing.T) {
 	// Both forge tokens are optional (empty default): a GitHub-hosted
 	// consumer passes githubToken, an Azure Repos consumer passes
 	// azureDevOpsToken; forge selection in the binary is automatic.
-	for _, name := range []string{"githubToken", "azureDevOpsToken", "workItemType", "forge"} {
+	for _, name := range []string{"githubToken", "azureDevOpsToken", "workItemType", "trustedAuthors", "forge"} {
 		p, ok := params[name]
 		if !ok {
 			t.Errorf("%s parameter is missing", name)
@@ -148,6 +148,7 @@ func TestPublishedAzurePipelinesTemplateContract(t *testing.T) {
 		"GITHUB_TOKEN":           "parameters.githubToken",
 		"AZURE_DEVOPS_TOKEN":     "parameters.azureDevOpsToken",
 		"OIAX_ADO_WORKITEM_TYPE": "parameters.workItemType",
+		"OIAX_TRUSTED_AUTHORS":   "parameters.trustedAuthors",
 		"OIAX_FORGE":             "parameters.forge",
 	} {
 		if got := envs["Run oiax"][env]; !strings.Contains(got, param) {

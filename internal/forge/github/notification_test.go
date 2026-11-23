@@ -80,7 +80,7 @@ func TestNotificationLifecycleConformance(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(pr)
 		}))
 		t.Cleanup(server.Close)
-		return &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+		return &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 	})
 }
 
@@ -128,7 +128,7 @@ func TestNotificationLifecyclePaginationOverlapsAndDeduplicatesMovement(t *testi
 		}
 	}))
 	t.Cleanup(server.Close)
-	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 	query := forge.LifecycleQuery{Graph: "graph", Kind: "request-created", From: now.Add(-500 * 24 * time.Hour), Through: now, Limit: 100}
 	first, err := p.ListLifecyclePage(context.Background(), query)
 	if err != nil || first.Progress.Complete || first.Progress.Cursor != "2" || len(first.Requests) != 100 {
@@ -205,7 +205,7 @@ func TestNotificationLifecycleScanBudgetExcludesHistoryFromDetailReads(t *testin
 				}
 			}))
 			t.Cleanup(server.Close)
-			p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+			p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 			query := forge.LifecycleQuery{Graph: "graph", Kind: kind, From: now.Add(-time.Hour), Through: now, Limit: perPage}
 			found, pages, scans := map[string]bool{}, 0, 0
 			for {
@@ -279,7 +279,7 @@ func TestNotificationLifecycleMergedScanTrustsListedMergeState(t *testing.T) {
 		}
 	}))
 	t.Cleanup(server.Close)
-	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 	page, err := p.ListLifecyclePage(context.Background(), forge.LifecycleQuery{Graph: "graph", Kind: v1.NotificationRequestMerged, From: now.Add(-time.Hour), Through: now, Limit: 100})
 	if err != nil || !page.Progress.Complete {
 		t.Fatalf("merged scan = (%+v, %v)", page.Progress, err)
@@ -317,7 +317,7 @@ func TestNotificationLifecycleDetailFailureRetainsPartialProgress(t *testing.T) 
 				}
 			}))
 			t.Cleanup(server.Close)
-			p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+			p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 			page, err := p.ListLifecyclePage(context.Background(), forge.LifecycleQuery{Graph: "graph", Kind: "request-created", Through: now, Limit: 100})
 			if !errors.Is(err, notification.ErrDiscoveryIncomplete) || page.Progress.Complete || page.Progress.Cursor != "1" || len(page.Requests) != 1 || page.Requests[0].Request.ID != "1" {
 				t.Fatalf("detail failure = (%+v, %+v, %v)", page.Requests, page.Progress, err)
@@ -333,7 +333,7 @@ func TestNotificationLifecycleRejectsCrossOriginContinuation(t *testing.T) {
 		_ = json.NewEncoder(w).Encode([]ghPull{})
 	}))
 	t.Cleanup(server.Close)
-	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+	p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 	page, err := p.ListLifecyclePage(context.Background(), forge.LifecycleQuery{Graph: "graph", Kind: "request-created", Through: time.Now(), Limit: 100})
 	if !errors.Is(err, notification.ErrDiscoveryIncomplete) || page.Progress.Complete || page.Progress.Cursor != "1" {
 		t.Fatalf("cross-origin continuation = (%+v, %v)", page.Progress, err)
@@ -374,7 +374,7 @@ func TestNotificationLifecycleHonorsPageLimit(t *testing.T) {
 				}
 			}))
 			t.Cleanup(server.Close)
-			p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client()}
+			p := &Provider{Owner: "example", Repo: "repo", BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 			query := forge.LifecycleQuery{Graph: "graph", Through: now, Limit: 2}
 			first, err := p.ListLifecyclePage(context.Background(), query)
 			if oversized {

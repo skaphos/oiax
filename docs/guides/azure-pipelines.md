@@ -181,6 +181,7 @@ subscribes to GitHub webhooks through the connection. Two notes:
 | `githubToken` | *(empty)* | GitHub token for forge API calls and pushing `oiax/` branches. Required when the repository is GitHub-hosted. |
 | `azureDevOpsToken` | *(empty)* | Azure DevOps token — a PAT or `$(System.AccessToken)`. Required when the repository lives in [Azure Repos](#azure-repos). |
 | `workItemType` | *(empty)* | Azure Boards work-item type for [conflict artifacts](#azure-repos). Empty means the provider default (`Issue`). |
+| `trustedAuthors` | *(empty)* | Comma-separated extra identities whose pull requests may be Oiax-managed: GitHub logins, or Azure DevOps identity ids (GUIDs). The token's own identity is always trusted; list a **previous** identity here when you change tokens — see [Changing the token identity](tokens.md#changing-the-token-identity). |
 | `forge` | *(empty)* | Forge override (`github` or `azuredevops`). Empty means automatic detection. |
 
 ## `fetchDepth: 0` is not optional

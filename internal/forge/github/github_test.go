@@ -38,6 +38,9 @@ func newProvider(t *testing.T, srv *httptest.Server) *Provider {
 		// Shrink backoff so retry paths run instantly under test; a
 		// server-provided Retry-After of 0 still exercises the honoring path.
 		retryBackoff: time.Microsecond,
+		// Fixtures here carry no author; author provenance has its own tests
+		// (authors_test.go), which leave this off.
+		anyAuthor: true,
 	}
 }
 

@@ -38,6 +38,13 @@ inputs:
       pull-request open require approval by a write user.
     required: false
     default: ${{ github.token }}
+  trusted-authors:
+    description: >-
+      Comma-separated extra GitHub logins whose pull requests may be
+      Oiax-managed (for example a previous token identity during a
+      migration). The identity the token acts as is always trusted.
+    required: false
+    default: ""
   version:
     description: >-
       Exact Oiax release version to download (for example v2.0.0).
@@ -120,6 +127,7 @@ runs:
         OIAX_MODE: ${{ inputs.mode }}
         OIAX_CONFIG: ${{ inputs.config }}
         OIAX_CONFIG_REF: ${{ inputs.config-ref }}
+        OIAX_TRUSTED_AUTHORS: ${{ inputs.trusted-authors }}
         GITHUB_TOKEN: ${{ inputs.token }}
       run: |
         set -euo pipefail

@@ -208,6 +208,32 @@ capability (see the
 [roadmap](../architecture.md#roadmap)). The installation-token approach
 above needs nothing further from Oiax.
 
+## Changing the token identity
+
+Oiax recognizes a pull request as one of its own only when it was opened by
+the identity its token acts as. That is what stops someone else's pull
+request, with a copied marker, from being adopted, edited, or closed
+([ADR 0020](../adr/0020-managed-request-author-provenance.md)).
+
+The consequence: when you change tokens — most often from `GITHUB_TOKEN`
+(`github-actions[bot]`) to an App token (`your-app[bot]`) — requests the old
+identity opened are no longer recognized. The run warns, naming the request
+and its author, and then fails when the forge rejects a second request for
+the same branch pair.
+
+Declare the previous identity until its requests have merged or closed:
+
+```yaml
+- uses: skaphos/oiax@v2
+  with:
+    token: ${{ steps.app-token.outputs.token }}
+    trusted-authors: github-actions[bot]
+```
+
+For CLI runs, set `OIAX_TRUSTED_AUTHORS` (comma-separated). On Azure DevOps
+the entries are identity ids (GUIDs) rather than names; the warning prints
+the id to use. The current token's identity never needs listing.
+
 ## Next steps
 
 - [Deploy Oiax as a GitHub Action](github-action.md) — the full workflow.

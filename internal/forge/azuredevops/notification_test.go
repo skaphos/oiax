@@ -103,7 +103,7 @@ func TestNotificationLifecycleConformance(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(pr)
 		}))
 		t.Cleanup(server.Close)
-		return &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client()}
+		return &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 	})
 }
 
@@ -140,7 +140,7 @@ func TestNotificationLifecyclePartitionsFrozenIntervals(t *testing.T) {
 		}
 	}))
 	t.Cleanup(server.Close)
-	p := &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client()}
+	p := &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 	query := forge.LifecycleQuery{Graph: "graph", Kind: "request-created", From: from, Through: through, Limit: 2}
 	first, err := p.ListLifecyclePage(context.Background(), query)
 	if err != nil || first.Progress.Complete || first.Progress.Cursor == "" || first.Pages != 1 || len(first.Requests) != 0 {
@@ -169,7 +169,7 @@ func TestNotificationLifecycleRejectsUnprovableIntervals(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(adoPullList{Value: listed, Count: len(listed)})
 	}))
 	t.Cleanup(server.Close)
-	p := &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client()}
+	p := &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 	page, err := p.ListLifecyclePage(context.Background(), forge.LifecycleQuery{Graph: "graph", Kind: "request-created", From: from, Through: from.Add(time.Millisecond), Limit: 100})
 	if !errors.Is(err, notification.ErrDiscoveryIncomplete) || page.Progress.Complete || page.Progress.Cursor == "" || page.Pages != 1 {
 		t.Fatalf("dense interval = (%+v, %v)", page.Progress, err)
@@ -186,7 +186,7 @@ func TestNotificationLifecycleMovementAndDetailFailuresStayIncomplete(t *testing
 			_ = json.NewEncoder(w).Encode(adoPullList{Value: []adoPull{{PullRequestID: reads}}, Count: 1})
 		}))
 		t.Cleanup(server.Close)
-		p := &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client()}
+		p := &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 		page, err := p.ListLifecyclePage(context.Background(), forge.LifecycleQuery{Graph: "graph", Kind: "request-created", Through: now, Limit: 100})
 		if !errors.Is(err, notification.ErrDiscoveryIncomplete) || page.Progress.Complete || page.Progress.Cursor == "" || page.Pages != 2 {
 			t.Fatalf("moving enumeration = (%+v, %v)", page.Progress, err)
@@ -214,7 +214,7 @@ func TestNotificationLifecycleMovementAndDetailFailuresStayIncomplete(t *testing
 				}
 			}))
 			t.Cleanup(server.Close)
-			p := &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client()}
+			p := &Provider{Repo: Repo{Organization: "org", Project: "project", Name: "repo"}, BaseURL: server.URL, HTTP: server.Client(), anyAuthor: true}
 			page, err := p.ListLifecyclePage(context.Background(), forge.LifecycleQuery{Graph: "graph", Kind: "request-created", Through: now, Limit: 100})
 			if !errors.Is(err, notification.ErrDiscoveryIncomplete) || page.Progress.Complete || page.Progress.Cursor == "" || len(page.Requests) != 1 || page.Requests[0].Request.ID != "1" {
 				t.Fatalf("detail failure = (%+v, %+v, %v)", page.Requests, page.Progress, err)

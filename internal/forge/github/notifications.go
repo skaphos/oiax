@@ -192,7 +192,13 @@ func (p *Provider) GetLifecycleRequest(ctx context.Context, id forge.RequestID) 
 		}
 		return notification.LifecycleRequest{}, notification.ErrLifecycleUnavailable
 	}
-	m, ok := managedMarker(pr)
+	m, ok, err := p.managed(ctx, pr)
+	if err != nil {
+		return notification.LifecycleRequest{}, notification.ErrLifecycleUnavailable
+	}
+	if !ok && p.provenanceUnknown(pr) {
+		return notification.LifecycleRequest{}, notification.ErrLifecycleUnavailable
+	}
 	if !ok || pr.Head.Repo.FullName == "" || (m.Type != "promotion" && m.Type != "backflow") {
 		return notification.LifecycleRequest{}, notification.ErrNotManaged
 	}
