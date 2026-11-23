@@ -47,7 +47,7 @@ When a backflow replay conflicts, `reconcile` exits 3 and the only visible point
 | XI | No merge/approve/deploy/settings mutation; unmanaged requests untouched; force-push confined; notes rules; branch names validated | **PASS**: no new forge writes or pushes (FR-017). |
 | XII | Changes to exit codes, JSON plan format, request metadata, config `apiVersion`, or `pkg/api` carry an ADR | **PASS, no ADR**: none of these change. `forge.ConflictArtifact.URL` and `reconcile.Result.Divergences` are internal. `.Surface` is an additive template-context field, which ADR 0011 already permits within v1. The exit-3 message's first line keeps today's text. |
 
-**Engineering gates**: every bug fix ships a regression test (the notification-summary path escaping, R7; the log-command gap, R6); tests run `-race -shuffle=on`; the new untrusted-text functions are fuzzed (R5); `docs/` updates land in the same change (FR-018). Coverage floor: `internal/textsafe` lands at ≥ 95% statement coverage, and touched packages must not drop below their current floor.
+**Engineering gates**: every bug fix ships a regression test (the notification-summary path escaping, R7; the log-command gap, R6); tests run `-race -shuffle=on`; the new untrusted-text functions are fuzzed (R5), with a bounded campaign task (`textsafe:fuzz`) like the notification parsers'; `docs/` updates land in the same change (FR-018). **Coverage floor as a hard gate in this change**: `tools/checkcoverage` gains `-prefix` and `-min` flags (defaults keep today's `internal/notification` / 85% behavior), a `textsafe:coverage` Taskfile task enforces **≥ 95%** for `internal/textsafe`, and CI runs it. Touched packages must not drop below their current floor.
 
 ## Project Structure
 
@@ -85,6 +85,9 @@ internal/cli/summary.go             # NEW: summaryTarget + shared Azure command-
 internal/cli/notification_summary.go# use summaryTarget (fixes unescaped upload path)
 internal/cli/wiring.go              # writeStepSummary uses summaryTarget
 internal/cli/reconcile.go           # after Apply: write sections → emit conflict warnings → build exit-3 message
+tools/checkcoverage/main.go         # -prefix / -min flags (coverage floor gate for internal/textsafe)
+Taskfile.yml                        # textsafe:coverage, textsafe:fuzz
+.github/workflows/ci.yml            # run textsafe:coverage
 docs/guides/backflow.md, github-action.md, azure-pipelines.md, operating.md
 docs/reference/templates.md, configuration.md (exit codes), docs/architecture.md
 ```

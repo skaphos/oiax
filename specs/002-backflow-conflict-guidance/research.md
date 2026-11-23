@@ -65,7 +65,11 @@ One package, `internal/textsafe`, owns the transformations so every surface uses
 
 ## R8. Summary size limit (spec C3)
 
-- **Decision**: budget the conflict sections at **1 MiB minus the bytes already written to the summary this run**, on both hosts. When the next full section would exceed the budget, write the reduced section (FR-002 items 1–3 and 5) with a truncation note, and keep reducing.
+- **Decision**: budget the conflict sections at 1 MiB, applied per host:
+  - **GitHub Actions**: one step-summary file is shared by the plan summary, the notification summary, and the conflict sections, and the limit applies to the whole file. The budget is **1 MiB minus the file's current size**, taken with `os.Stat` on `$GITHUB_STEP_SUMMARY` just before writing.
+  - **Azure Pipelines**: every `task.uploadsummary` attaches a separate file. The conflict sections get **their own 1 MiB**.
+
+  When the next full section would exceed the budget, write the reduced section (FR-002 items 1–3 and 5) and keep reducing, with one truncation note at the end.
 - **Rationale**: GitHub documents a 1 MiB per-step job-summary limit. Azure Pipelines does not document a size limit for `task.uploadsummary` attachments, so the spec's rule applies: use the smaller known limit when one is unknown. Conflict sections are small (a few KiB each), so truncation is only reachable with many conflicting edges or very large custom templates.
 - **Alternatives rejected**: no budget (a large custom template times several edges could exceed GitHub's limit, and GitHub then drops the whole step summary).
 

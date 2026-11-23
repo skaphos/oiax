@@ -13,7 +13,8 @@ How to prove the feature works. Implementation details are in `tasks.md` (genera
 
 ```sh
 go test -race -shuffle=on ./internal/textsafe/ ./internal/tmpl/ ./internal/reconcile/ ./internal/forge/... ./internal/cli/
-go test -run XXX -fuzz FuzzMarkdown -fuzztime 60s ./internal/textsafe/   # repeat for FuzzSubject, FuzzLogCommand
+go -C tools tool task textsafe:coverage   # hard gate: internal/textsafe >= 95%
+go -C tools tool task textsafe:fuzz       # bounded fuzz campaign for every textsafe target
 go -C tools tool task lint
 go -C tools tool task verify-generated
 ```
@@ -43,7 +44,7 @@ Expected:
 3. Expect:
    - stderr has one `::warning::backflow main -> development halted on cherry-pick conflict … Resolution steps: https://github.com/<owner>/<repo>/issues/<n>` (or, with a fake forge, the corresponding statement);
    - `$GITHUB_STEP_SUMMARY` has the plan summary, then one `### Backflow conflict: main → development` section;
-   - stderr ends with `converged with reported divergence on 1 edge(s):` and the edge line;
+   - stderr ends with `converged with reported divergence on 1 edge:` and the edge line;
    - `exit=3`.
 
 Repeat with `GITHUB_STEP_SUMMARY` unset to check that no surface mentions a summary and the pointers use the guide address (FR-010).

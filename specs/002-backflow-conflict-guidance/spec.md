@@ -117,7 +117,7 @@ Sometimes the repository cannot hold the artifact, or Oiax failed to record it t
 **Acceptance Scenarios**:
 
 1. **Given** Issues are disabled, **When** a replay conflicts, **Then**:
-   - the warning says no durable artifact can be kept because Issues are disabled, and that the steps are in this run's summary;
+   - the warning says no durable conflict record can be kept because Issues are disabled, and that the steps are in this run's summary;
    - the section says it is the only guidance for this conflict, lasts only as long as the CI host keeps the run, and explains how to enable Issues;
    - the exit-3 output points to the summary;
    - the existing #69 warnings are unchanged.
@@ -204,8 +204,10 @@ Several backflow sources can conflict into the same target in one run.
   ```text
   converged with reported divergence on 2 edges:
     main -> development: backflow conflict; resolution steps: https://github.com/<owner>/<repo>/issues/177
-    hotfix -> development: backflow conflict; no durable conflict artifact (Issues are disabled); resolution steps are in this run's summary
+    hotfix -> development: backflow conflict; no durable conflict record (Issues are disabled); resolution steps are in this run's summary
   ```
+
+  User-facing text calls the artifact a **conflict record** on every surface, because the same words serve GitHub issues and Azure Boards work items; "artifact" remains this specification's term for it. Counts use proper plurals ("1 edge", "2 edges").
 
 - **FR-010**: No surface may point to the summary unless the sections were actually written. The exit-3 output MUST NOT contain untrusted text.
 

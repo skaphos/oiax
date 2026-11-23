@@ -51,13 +51,14 @@ See [When a replay conflicts](<guide>) in the backflow guide.
 ## 3. Exit-3 output (stderr, printed by `Execute`)
 
 ```text
-converged with reported divergence on <N> edge(s):
+converged with reported divergence on <N> <edge|edges>:
   <edge>: backflow conflict; resolution steps: <address>
   <edge>: backflow conflict; no durable conflict record (Issues are disabled); resolution steps are in this run's summary
   <edge>: backflow conflict; conflict <noun> not recorded this run; resolution steps: <guide>
   <edge>: reported divergence
 ```
 
+- `<edge|edges>` is `edge` when N is 1 and `edges` otherwise ("on 1 edge:", "on 2 edges:").
 - Lines follow plan action order; one per edge (FR-009, FR-011).
 - "are in this run's summary" appears only if the summary sections were written (FR-010); otherwise the guide address is used.
 - No untrusted text appears (FR-010): no subjects, no plan reasons.
