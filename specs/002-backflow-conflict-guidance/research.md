@@ -79,9 +79,10 @@ One package, `internal/textsafe`, owns the transformations so every surface uses
   - **Azure Pipelines**: every `task.uploadsummary` attaches a separate file. The conflict sections get **their own 1 MiB**.
 
   Allocation, so the written sections can never exceed the budget (review on #126):
-  1. Compute every section's reduced form (FR-002 items 1–3 and 5) and the truncation note, and **reserve** their total size.
-  2. If the reserve alone exceeds the budget (including a budget of zero, when the GitHub summary is already at its limit), write **no** conflict section. The summary counts as not written for FR-010, so the warnings and exit-3 output use the artifact address or the guide.
-  3. Otherwise, in plan order, upgrade each section to its full form while the upgrade still fits in what is left after the reserve; once one does not fit, the rest stay reduced and the note is written once at the end. When every section fits in full, no note is written.
+  1. Compute every section's full form. If their total is **at most** the budget, write them all with no note and stop.
+  2. Otherwise compute every section's reduced form (FR-002 items 1–3 and 5) plus the truncation note, and **reserve** their total size.
+  3. If the reserve alone exceeds the budget (including a budget of zero, when the GitHub summary is already at its limit), write **no** conflict section. The summary counts as not written for FR-010, so the warnings and exit-3 output use the artifact address or the guide.
+  4. Otherwise, in plan order, upgrade each section to its full form while the upgrade still fits in what is left after the reserve; once one does not fit, the rest stay reduced and the note is written once at the end.
 - **Rationale**: GitHub documents a 1 MiB per-step job-summary limit. Azure Pipelines does not document a size limit for `task.uploadsummary` attachments, so the spec's rule applies: use the smaller known limit when one is unknown. Conflict sections are small (a few KiB each), so truncation is only reachable with many conflicting edges or very large custom templates.
 - **Alternatives rejected**: no budget (a large custom template times several edges could exceed GitHub's limit, and GitHub then drops the whole step summary).
 
