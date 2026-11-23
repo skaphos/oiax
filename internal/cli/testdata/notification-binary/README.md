@@ -11,9 +11,14 @@ The fixture clock is the wall clock, but it never reads earlier than a floor plu
 the process's own monotonic elapsed time. The floor is the process's own start,
 or `OIAX_FIXTURE_CLOCK_FLOOR` when that is later. A test that seeds a forge event
 with its own clock sets that floor, and the test fixture carries the floor
-forward before every launch, past whatever the ledger records. Together they keep
-cutoffs, scan watermarks, origin evidence and seeded events ordered on a host
-whose wall clock is stepped backwards (#143), inside one run and across runs.
+forward before every launch, past whatever the ledger records. Within a process
+the clock also never returns less than its previous reading plus the monotonic
+time since, so a wall clock that jumps ahead and then steps back cannot make two
+readings decrease. Together they keep cutoffs, scan watermarks, origin evidence
+and seeded events ordered on a host whose wall clock is stepped backwards (#143),
+inside one run and across runs. `clock_test.go` holds the clock's deterministic
+unit tests; `TestFixtureClockNeverDecreases` overlays both files into
+`internal/reconcile` and runs them.
 
 The forge factory supplies the real GitHub/Azure providers with a local HTTPS
 API, a fixture-only CA, and a bare Git remote. The notification client uses its

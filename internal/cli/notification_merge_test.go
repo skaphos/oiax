@@ -735,6 +735,41 @@ func TestNotificationMergeBinary(t *testing.T) {
 	}
 }
 
+// TestFixtureClockNeverDecreases runs the overlay clock's own unit tests
+// (testdata/notification-binary/clock_test.go) deterministically. The clock
+// lives in testdata and compiles only through an overlay, so this overlays
+// clock.go and its tests into internal/reconcile, the package the binary
+// fixture compiles them into, and runs just those tests. It covers the
+// forward-then-backward wall reading from review on #153, where a floor
+// without a high-water mark returned 103.5 s and then 101.1 s.
+func TestFixtureClockNeverDecreases(t *testing.T) {
+	t.Parallel()
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	overlay := map[string]map[string]string{"Replace": {
+		filepath.Join(root, "internal/reconcile/notification_fixture.go"):      filepath.Join(root, "internal/cli/testdata/notification-binary/clock.go"),
+		filepath.Join(root, "internal/reconcile/notification_fixture_test.go"): filepath.Join(root, "internal/cli/testdata/notification-binary/clock_test.go"),
+	}}
+	data, err := json.Marshal(overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlayPath := filepath.Join(dir, "overlay.json")
+	if err := os.WriteFile(overlayPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "test", "-overlay", overlayPath, "-count=1", "-run", "^TestFixtureClock", "./internal/reconcile/")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("fixture clock tests failed: %v\n%s", err, out)
+	}
+}
+
 // TestNotificationFixtureClockFloor pins the fixture clock floor's two
 // guarantees while the wall clock stays behind it (a floor an hour ahead). The
 // floor advances on the test's monotonic clock between launches, and it is

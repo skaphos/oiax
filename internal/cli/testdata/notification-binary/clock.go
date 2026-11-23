@@ -6,6 +6,7 @@ package reconcile
 
 import (
 	"os"
+	"sync"
 	"time"
 )
 
@@ -29,13 +30,39 @@ var fixtureClockStart = time.Now()
 // never goes backwards, and the floor restores it. It does not move a clock
 // that only goes forward.
 func fixtureNotificationNow() time.Time {
-	now := time.Now().UTC()
 	floor := fixtureClockStart.Round(0)
 	if env, err := time.Parse(time.RFC3339Nano, os.Getenv("OIAX_FIXTURE_CLOCK_FLOOR")); err == nil && env.After(floor) {
 		floor = env
 	}
-	if floored := floor.Add(time.Since(fixtureClockStart)).UTC(); now.Before(floored) {
-		return floored
+	return fixtureClockNext(time.Now().UTC(), time.Since(fixtureClockStart), floor)
+}
+
+var (
+	fixtureClockMu       sync.Mutex
+	fixtureClockLast     time.Time     // last value returned
+	fixtureClockLastMono time.Duration // monotonic elapsed when it was returned
+)
+
+// fixtureClockNext returns the latest of: the wall reading, the floor plus the
+// monotonic time since process start, and the previous result plus the
+// monotonic time since that result. The last term is a high-water mark: a
+// wall clock that first jumps ahead of the floor and then steps back would
+// otherwise make readings decrease (103.5 s, then 101.1 s), and two such reads
+// could set an activation cutoff after the origin stamp that follows it.
+// Calls are serialized so concurrent readers see a single non-decreasing
+// sequence.
+func fixtureClockNext(wall time.Time, elapsed time.Duration, floor time.Time) time.Time {
+	fixtureClockMu.Lock()
+	defer fixtureClockMu.Unlock()
+	out := wall
+	if f := floor.Add(elapsed); out.Before(f) {
+		out = f
 	}
-	return now
+	if !fixtureClockLast.IsZero() {
+		if hw := fixtureClockLast.Add(elapsed - fixtureClockLastMono); out.Before(hw) {
+			out = hw
+		}
+	}
+	fixtureClockLast, fixtureClockLastMono = out, elapsed
+	return out.UTC()
 }
