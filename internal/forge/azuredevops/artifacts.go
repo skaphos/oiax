@@ -190,6 +190,9 @@ func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.Confli
 	}, nil
 }
 
+// ArtifactNoun names the durable conflict artifact in operator-facing text.
+func (p *Provider) ArtifactNoun() string { return "work item" }
+
 // workItemURL is the web page of work item id, built from the configured
 // organization and project name (the pull-request-link precedent in
 // notifications.go), never from forge-returned text.

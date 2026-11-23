@@ -86,18 +86,21 @@ func escapeAnnotation(s string) string {
 	return s
 }
 
-// escapeAzureAnnotation encodes the message ("data") section of an Azure
-// Pipelines logging command the way the agent's decoder expects: '%'
-// becomes the agent-specific %AZP25 token, CR and LF percent-encode. As
-// with GitHub, an unescaped newline would let a crafted message inject a
-// further ##vso command line. '%' is escaped first so the encodings it
-// introduces are not re-escaped.
-func escapeAzureAnnotation(s string) string {
+// EscapeAzureCommandData encodes the data section of an Azure Pipelines
+// logging command (an annotation message, an uploadsummary path) the way
+// the agent's decoder expects: '%' becomes the agent-specific %AZP25 token,
+// CR and LF percent-encode. As with GitHub, an unescaped newline would let
+// a crafted value inject a further ##vso command line. '%' is escaped first
+// so the encodings it introduces are not re-escaped.
+func EscapeAzureCommandData(s string) string {
 	s = strings.ReplaceAll(s, "%", "%AZP25")
 	s = strings.ReplaceAll(s, "\r", "%0D")
 	s = strings.ReplaceAll(s, "\n", "%0A")
 	return s
 }
+
+// escapeAzureAnnotation encodes an Azure annotation message.
+func escapeAzureAnnotation(s string) string { return EscapeAzureCommandData(s) }
 
 // WithAttrs and WithGroup re-wrap so the annotation behavior survives
 // derived loggers (the embedded handler's methods would otherwise return

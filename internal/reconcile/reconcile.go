@@ -79,6 +79,10 @@ type Coordinator struct {
 	// conflict artifacts (SKA-54). A nil Templates uses the built-in
 	// defaults, mirroring Log's nil-safety.
 	Templates *tmpl.Set
+	// ArtifactNoun names the conflict artifact in operator-facing text:
+	// "issue" for GitHub, "work item" for Azure DevOps. Empty means "issue"
+	// (test fakes).
+	ArtifactNoun string
 	// Optional notification inputs remain separate from engine.Graph. Effects
 	// are wired only by the notification coordinator, never by branch planning.
 	NotificationPolicy      *v1.NotificationPolicy
@@ -100,6 +104,9 @@ type Result struct {
 	// Divergence is true when the plan reported any divergence requiring
 	// human attention (drives reconcile's exit code 3).
 	Divergence bool
+	// Divergences reports each edge that contributed to Divergence, in plan
+	// action order (spec 002). Invariant: Divergence == (len(Divergences) > 0).
+	Divergences []DivergenceReport
 	// Conflicts counts the durable backflow-conflict artifacts CREATED this
 	// run (SKA-601) — an apply-summary count only, never surfaced in the plan
 	// JSON. Adopt/advance/consolidate/close do not increment it.

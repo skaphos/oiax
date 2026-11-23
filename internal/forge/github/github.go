@@ -645,6 +645,9 @@ func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.Confli
 	}, nil
 }
 
+// ArtifactNoun names the durable conflict artifact in operator-facing text.
+func (p *Provider) ArtifactNoun() string { return "issue" }
+
 // issueWebURL is the web page of issue number n, built from the configured
 // owner and repository (the request-link precedent in notifications.go),
 // never from forge-returned text.

@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 )
 
-const wj = "⁠"
+const wj = "\u2060"
 
 func TestSubject(t *testing.T) {
 	long := strings.Repeat("a", 500)
@@ -20,7 +20,7 @@ func TestSubject(t *testing.T) {
 		{"unicode line separator ends the line", "fix: a b", "fix: a"},
 		{"controls removed", "a\x00b\x1bc\x7fd", "abcd"},
 		{"tab removed", "a\tb", "ab"},
-		{"bidi removed", "a‮b⁦c", "abc"},
+		{"bidi removed", "a\u202Eb\u2066c", "abc"},
 		{"word joiner removed", "#" + wj + "#[x]", "##[x]"},
 		{"invalid utf-8 replaced", "a\xffb", "a�b"},
 		{"exactly 200 runes kept", strings.Repeat("é", 200), strings.Repeat("é", 200)},
