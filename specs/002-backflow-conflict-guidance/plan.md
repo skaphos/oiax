@@ -100,7 +100,7 @@ docs/reference/templates.md, configuration.md (exit codes), docs/architecture.md
 2. **Address (forge)**: providers fill `ConflictArtifact.URL` (R3).
 3. **Render (tmpl)**: the artifact render passes `Surface: "artifact"` and `Subject(raw)`. For the summary, a custom template that reads commit text (`Set.ConflictBodyReadsCommitText`, decided from the parse tree at load) is replaced by the built-in body plus a note; the built-in body gets `Surface: "summary"` and `Markdown(Subject(raw))`, which is safe because it only prints the subject. A custom template that never reads commit text renders as written with `Surface: "summary"` (R4, R5, FR-016).
 4. **Publish (cli)**, after `Apply` returns (with or without error), in this order:
-   1. write conflict sections to the summary target, if any (R7, R8); remember whether they were written;
+   1. after the notification diagnostics and `writeNotificationSummary` (so the conflict sections are the last summary write and the R8 budget holds), write conflict sections to the summary target, if any (R7, R8); remember whether they were written;
    2. emit one conflict warning per report through the logger (contract §1), choosing the summary or guide pointer by step 1's outcome (FR-010);
    3. if `applyErr != nil`, return it (exit 1, no exit-3 output); else if `res.Divergence`, return `exitCodeError{3, msg}` with the exit-3 message (contract §3).
 5. **Neutralize (logging)**: the annotation handler applies `textsafe.LogCommand` to every warning message before both outputs (R6).

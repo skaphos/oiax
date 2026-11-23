@@ -153,7 +153,7 @@ Several backflow sources can conflict into the same target in one run.
 - **Conflict template fails to render**: the artifact is not written (existing posture). The section is still published per FR-005.
 - **Apply later aborts with exit 1**: warnings that were already emitted stay, and sections for recorded conflicts are still published. Exit 1 is unchanged, and there is no exit-3 output.
 - **Squash-rollup failing commit**: the built-in squash note appears in the section as it does in the artifact.
-- **Branch names**: they are trusted, validated configuration, but can contain `|`, `` ` ``, `*`, `_`, `<`, or `@`. They must not break section structure; plan-table cell escaping is the precedent.
+- **Branch names**: they are trusted, validated configuration, but Git allows `|`, `` ` ``, `*`, `_`, `<`, `>`, `$`, `&`, or `@` in them. They must not break section structure anywhere Oiax prints them in the summary, including the built-in guidance body: prose and inline code use contained text, while the executable commands keep the literal ref, shell-quoted when it contains shell metacharacters. A custom template that prints branch names is the repository owner's own text over the owner's own configuration, so Oiax does not gate it.
 
 ## Requirements *(mandatory)*
 

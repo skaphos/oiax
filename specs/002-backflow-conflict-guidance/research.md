@@ -75,7 +75,7 @@ One package, `internal/textsafe`, owns the transformations so every surface uses
 ## R8. Summary size limit (spec C3)
 
 - **Decision**: budget the conflict sections at 1 MiB, applied per host:
-  - **GitHub Actions**: one step-summary file is shared by the plan summary, the notification summary, and the conflict sections, and the limit applies to the whole file. The budget is **1 MiB minus the file's current size**, taken with `os.Stat` on `$GITHUB_STEP_SUMMARY` just before writing.
+  - **GitHub Actions**: one step-summary file is shared by the plan summary, the notification summary, and the conflict sections, and the limit applies to the whole file. The budget is **1 MiB minus the file's current size**, taken with `os.Stat` on `$GITHUB_STEP_SUMMARY` just before writing. That is only safe if the conflict sections are the **last write**, so they are written after `writeNotificationSummary` (review on #126); nothing in the run appends to the summary after them.
   - **Azure Pipelines**: every `task.uploadsummary` attaches a separate file. The conflict sections get **their own 1 MiB**.
 
   Allocation, so the written sections can never exceed the budget (review on #126):

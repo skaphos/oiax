@@ -69,4 +69,8 @@ Rendering:
 
 - Nothing changes at load: previously accepted templates still load (Constitution XII), and the artifact always uses the configured template.
 - `Conflict.Subject` and `Commit.Subject` stay `string`; no new template type.
+- **Branch names in the built-in body** (spec "Branch names"): two new template funcs, available to every template:
+  - `text`: identity on the artifact surface, `textsafe.Markdown` on the summary surface (bound per render). The built-in body uses `{{text .From}}`, `{{text .To}}`, and `{{text .SourceHeadShort}}` in prose and inline code spans.
+  - `shellArg`: returns the ref unchanged when it contains only `[A-Za-z0-9._/@+=:,-]`, otherwise wraps it in single quotes (an embedded `'` becomes `'\''`). The built-in body uses it for every ref in the fenced `sh` commands. Inside the fence the literal ref is inert: no line starts with a backtick run, so it cannot close the fence.
+  - For ordinary branch names (`development`, `release/1.2`) both funcs return their input, so existing artifact text is unchanged.
 - `TestDefaultConflictBody` is updated for the new closing text.
