@@ -59,15 +59,20 @@ func (res *Result) addReport(r DivergenceReport) {
 	res.Divergences = append(res.Divergences, r)
 }
 
-// repointConflictArtifacts points each known conflict report at its edge's
-// canonical artifact when consolidation closed the one the report named.
+// repointConflictArtifacts points each conflict report at its edge's
+// canonical artifact: a known report follows the canonical when
+// consolidation closed the one it named, and a not-recorded report becomes
+// known when a later list found the edge's artifact (an earlier list or
+// create failed this run). An unhostable report is left alone: the forge
+// said it cannot host artifacts, so an artifact found anyway is stale.
 func (res *Result) repointConflictArtifacts(canon map[[2]string]forge.ConflictArtifact) {
 	for _, r := range res.Divergences {
 		g := r.Conflict
-		if g == nil || g.Artifact != ArtifactKnown {
+		if g == nil || (g.Artifact != ArtifactKnown && g.Artifact != ArtifactNotRecorded) {
 			continue
 		}
 		if art, ok := canon[[2]string{r.From, r.To}]; ok && string(art.ID) != g.ArtifactID {
+			g.Artifact = ArtifactKnown
 			g.ArtifactID = string(art.ID)
 			g.ArtifactURL = art.URL
 		}

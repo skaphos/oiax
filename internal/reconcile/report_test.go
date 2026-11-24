@@ -371,3 +371,68 @@ func TestDivergenceReportsFollowPlanOrder(t *testing.T) {
 		}
 	}
 }
+
+// A later edge's consolidation closes the record an earlier edge's report
+// named, and a later action then fails, so the end-of-Apply sweep never
+// runs: the earlier report must already follow the canonical (review on
+// #160).
+func TestConflictReportRepointedBeforeALaterFailure(t *testing.T) {
+	ctx := context.Background()
+	r, commit := gitHarness(t)
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "dev-change\n", "dev edit")
+	checkout(t, r, "test")
+	commitOn(t, r.Dir, "app.txt", "test-hotfix\n", "test hotfix")
+	checkout(t, r, "main")
+	commit("app.txt", "main-hotfix\n", "main hotfix")
+	mainHead, _ := r.Head(ctx, "main")
+
+	g := testGraph()
+	g.Backflow.Sources = []string{"main", "test"}
+	action := func(from string) engine.Action {
+		short, _ := r.ShortSHA(ctx, from)
+		return engine.Action{Type: engine.ActionCreateBackflowRequest, From: from, To: "development",
+			Unpromoted: 1, Branch: engine.BackflowBranchName(from, "development", short)}
+	}
+	f := &fakeForge{nextConflictNum: 7}
+	f.afterCreate = func(f *fakeForge) {
+		// main's record (8) is created; a concurrent run's lower-numbered
+		// record for the same edge appears before test's record path lists.
+		f.afterCreate = nil
+		f.seedConflict("3", "main", "development", mainHead)
+	}
+	c := &Coordinator{Git: r, Forge: f, Graph: g}
+	res, err := c.Apply(ctx, engine.Plan{Actions: []engine.Action{
+		action("main"),
+		action("test"),
+		{Type: engine.ActionUpdateManagedRequest, From: "development", To: "test"}, // no request: fails
+	}})
+	if err == nil {
+		t.Fatal("want the later action to fail")
+	}
+	var main *ConflictGuidance
+	for _, d := range res.Divergences {
+		if d.From == "main" {
+			main = d.Conflict
+		}
+	}
+	if main == nil {
+		t.Fatalf("no main report: %+v", res.Divergences)
+	}
+	wantKnown(t, main, "3")
+}
+
+// The record path's list failed, but the end-of-Apply sweep found the edge's
+// record: the report becomes known with its address (review on #160).
+func TestConflictReportKnownWhenTheSweepFindsTheRecord(t *testing.T) {
+	r, _, a := conflictHarness(t)
+	head, _ := r.Head(context.Background(), "main")
+	f := &fakeForge{listConflictsFailures: 1}
+	f.seedConflict("5", "main", "development", head)
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph()}
+	res, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantKnown(t, onlyConflict(t, res), "5")
+}

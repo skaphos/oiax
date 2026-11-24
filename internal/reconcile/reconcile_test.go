@@ -73,10 +73,12 @@ type fakeForge struct {
 	conflictUpdated []forge.ConflictArtifactSpec
 	conflictClosed  []forge.ConflictArtifactID
 
-	listConflictsErr  error
-	createConflictErr error
-	updateConflictErr error
-	closeConflictErr  error
+	listConflictsErr error
+	// listConflictsFailures fails that many lists before succeeding.
+	listConflictsFailures int
+	createConflictErr     error
+	updateConflictErr     error
+	closeConflictErr      error
 	// afterCreate runs after a successful create, to model a concurrent run
 	// (spec 002: re-point at the canonical after consolidation).
 	afterCreate func(f *fakeForge)
@@ -186,6 +188,10 @@ func (f *fakeForge) seedConflict(id, source, target, sourceHead string) {
 func (f *fakeForge) ListConflictArtifacts(_ context.Context, _ string) ([]forge.ConflictArtifact, error) {
 	if f.listConflictsErr != nil {
 		return nil, f.listConflictsErr
+	}
+	if f.listConflictsFailures > 0 {
+		f.listConflictsFailures--
+		return nil, errors.New("transient list failure")
 	}
 	out := make([]forge.ConflictArtifact, len(f.conflicts))
 	copy(out, f.conflicts)

@@ -1846,7 +1846,11 @@ func (c *Coordinator) recordBackflowConflict(
 	}
 
 	// (7) Consolidate duplicates on the read path and pick the canonical.
+	// Consolidation can close an artifact an EARLIER edge's report names (a
+	// concurrent run created a lower-numbered one); re-point those reports
+	// now, since a later failing action skips the end-of-Apply sweep.
 	canon := c.canonicalConflictArtifacts(ctx, arts)
+	res.repointConflictArtifacts(canon)
 	existing, ok := canon[edge]
 	if ok {
 		known(existing)

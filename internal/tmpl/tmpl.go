@@ -469,9 +469,11 @@ func (s *Set) sampleRender() error {
 		if _, err := renderBody(p.body, c); err != nil {
 			return err
 		}
-		if typ == "conflict" {
+		if typ == "conflict" && !s.conflictReadsCommitText {
 			// The conflict body also renders on the summary surface, so a
-			// body that fails only there is rejected at load too.
+			// body that fails only there is rejected at load too. A body
+			// that reads commit text never renders there (the built-in body
+			// stands in), so its summary branch is not validated.
 			c.Surface = SurfaceSummary
 			if _, err := renderSummaryBody(p.body, c); err != nil {
 				return err

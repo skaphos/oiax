@@ -225,3 +225,22 @@ func TestShellArg(t *testing.T) {
 		}
 	}
 }
+
+// A configured body that reads commit text never renders on the summary
+// surface, so a summary-only failure in it does not block loading (review
+// on #160).
+func TestResolveSkipsSummaryRenderForGatedBody(t *testing.T) {
+	s, err := Resolve(&v1.PromotionGraph{Spec: v1.PromotionGraphSpec{
+		Templates: conflictTemplates(`{{if eq .Surface "artifact"}}{{.Conflict.Subject}}{{else}}{{index "ab" 5}}{{end}}`),
+	}}, nil)
+	if err != nil {
+		t.Fatalf("Resolve rejected a gated body for its unused summary branch: %v", err)
+	}
+	c := conflictCtx("main", "development", "fix: x", false)
+	if _, body, err := s.BackflowConflict(c); err != nil || body != "fix: x" {
+		t.Fatalf("artifact = %q, %v", body, err)
+	}
+	if _, builtin, err := s.BackflowConflictSummary(c); err != nil || !builtin {
+		t.Fatalf("summary builtin = %v, %v; want the built-in body", builtin, err)
+	}
+}
