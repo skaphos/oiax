@@ -1795,8 +1795,20 @@ func (c *Coordinator) recordBackflowConflict(
 	// the rendered human text, never in a marker identity field. Commit
 	// subjects are cleaned for both surfaces (tmpl.NewCommit only caps them).
 	tc := c.backflowContext(a, st, "conflict")
+	// Clean each commit subject from its RAW value, matched by SHA:
+	// tmpl.NewCommit has already capped the context's copy, and capping
+	// before removing invisible characters could leave only the "…"
+	// (review on #160).
+	raw := make(map[string]string, len(st.ToReturn))
+	for _, cm := range st.ToReturn {
+		raw[cm.SHA] = cm.Subject
+	}
 	for i := range tc.Commits {
-		tc.Commits[i].Subject = textsafe.Subject(tc.Commits[i].Subject)
+		if s, ok := raw[tc.Commits[i].SHA]; ok {
+			tc.Commits[i].Subject = textsafe.Subject(s)
+		} else {
+			tc.Commits[i].Subject = textsafe.Subject(tc.Commits[i].Subject)
+		}
 	}
 	tc.Conflict = &tmpl.Conflict{
 		SHA: sha, Subject: cleanSubject, Applied: applied, Whole: whole,

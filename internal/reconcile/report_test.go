@@ -436,3 +436,33 @@ func TestConflictReportKnownWhenTheSweepFindsTheRecord(t *testing.T) {
 	}
 	wantKnown(t, onlyConflict(t, res), "5")
 }
+
+// Cleaning precedes truncation for commit subjects too: a subject that
+// starts with 200 invisible bidi controls keeps its visible text (review on
+// #160).
+func TestConflictArtifactCommitSubjectCleanedBeforeCap(t *testing.T) {
+	r, commit := gitHarness(t)
+	checkout(t, r, "development")
+	commitOn(t, r.Dir, "app.txt", "dev-change\n", "dev edit")
+	checkout(t, r, "main")
+	commit("app.txt", "hotfix-change\n", strings.Repeat(string(rune(0x202e)), 200)+"fix: return the missing configuration")
+	short, _ := r.ShortSHA(context.Background(), "main")
+	a := engine.Action{
+		Type: engine.ActionCreateBackflowRequest, From: "main", To: "development",
+		Unpromoted: 1, Branch: engine.BackflowBranchName("main", "development", short),
+	}
+	set, err := tmpl.Resolve(&v1.PromotionGraph{Spec: v1.PromotionGraphSpec{Templates: &v1.Templates{
+		BackflowConflict: &v1.RequestTemplate{Body: `{{range .Commits}}[{{.Subject}}]{{end}}`},
+	}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeForge{}
+	c := &Coordinator{Git: r, Forge: f, Graph: testGraph(), Templates: set}
+	if _, err := c.Apply(context.Background(), engine.Plan{Actions: []engine.Action{a}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.conflictCreated) != 1 || f.conflictCreated[0].Body != "[fix: return the missing configuration]" {
+		t.Fatalf("artifact body = %q, want the visible subject", f.conflictCreated)
+	}
+}
