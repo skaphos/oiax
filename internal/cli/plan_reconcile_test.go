@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -26,7 +27,29 @@ type fakeForge struct {
 	closed  []forge.RequestID
 	pushed  []forge.BranchPush
 	deleted []string
+
+	// createRequestErr fails CreateRequest for the edges it names
+	// ("from->to"), to abort apply after an earlier action.
+	createRequestErr map[string]error
+
+	// Conflict artifacts (spec 002). The zero value hosts artifacts and
+	// creates them as GitHub issue 7.
+	artifactsUnsupported bool
+	conflicts            []forge.ConflictArtifact
+	listConflictsErr     error
+	createConflictErr    error
+	conflictCreated      []forge.ConflictArtifactSpec
+	// noun, when set, is the forge's ArtifactNoun (an Azure DevOps fake
+	// sets "work item"); conflictURL overrides the created address.
+	noun        string
+	conflictURL string
 }
+
+// fakeIssueURL is the address the fake gives a created conflict artifact.
+const fakeIssueURL = "https://github.com/acme/widgets/issues/7"
+
+// ArtifactNoun lets a test fake declare the forge's artifact noun.
+func (f *fakeForge) ArtifactNoun() string { return f.noun }
 
 func (f *fakeForge) ListManagedRequests(_ context.Context, filter forge.RequestFilter) ([]engine.ChangeRequest, error) {
 	if filter.State == forge.RequestStateMerged {
@@ -36,6 +59,9 @@ func (f *fakeForge) ListManagedRequests(_ context.Context, filter forge.RequestF
 }
 
 func (f *fakeForge) CreateRequest(_ context.Context, req forge.CreateRequest) (forge.CreateOutcome, error) {
+	if err := f.createRequestErr[req.Source+"->"+req.Target]; err != nil {
+		return forge.CreateOutcome{}, err
+	}
 	f.created = append(f.created, req)
 	return forge.CreateOutcome{Request: engine.ChangeRequest{ID: "1", Type: req.Type, Source: req.Source, Target: req.Target, SourceHead: req.SourceHead}, Disposition: forge.RequestCreated, Origin: req.Origin}, nil
 }
@@ -68,7 +94,7 @@ func (f *fakeForge) RepoDeletesSourceOnMerge(context.Context) (bool, error) {
 }
 
 func (f *fakeForge) SupportsConflictArtifacts(context.Context) (bool, error) {
-	return true, nil
+	return !f.artifactsUnsupported, nil
 }
 
 func (f *fakeForge) DeleteBranch(_ context.Context, name string) error {
@@ -76,13 +102,28 @@ func (f *fakeForge) DeleteBranch(_ context.Context, name string) error {
 	return nil
 }
 
-// Conflict-artifact stubs sufficient to satisfy forge.Forge.
+// Conflict artifacts: a small in-memory store.
 func (f *fakeForge) ListConflictArtifacts(_ context.Context, _ string) ([]forge.ConflictArtifact, error) {
-	return nil, nil
+	if f.listConflictsErr != nil {
+		return nil, f.listConflictsErr
+	}
+	return append([]forge.ConflictArtifact(nil), f.conflicts...), nil
 }
 
-func (f *fakeForge) CreateConflictArtifact(_ context.Context, _ forge.ConflictArtifactSpec) (forge.ConflictArtifact, error) {
-	return forge.ConflictArtifact{}, nil
+func (f *fakeForge) CreateConflictArtifact(_ context.Context, spec forge.ConflictArtifactSpec) (forge.ConflictArtifact, error) {
+	f.conflictCreated = append(f.conflictCreated, spec)
+	if f.createConflictErr != nil {
+		return forge.ConflictArtifact{}, f.createConflictErr
+	}
+	// Issue 7 first, then 8, 9, ... so several conflicts get distinct records.
+	id := strconv.Itoa(7 + len(f.conflicts))
+	u := f.conflictURL
+	if u == "" {
+		u = strings.TrimSuffix(fakeIssueURL, "7") + id
+	}
+	art := forge.ConflictArtifact{ID: forge.ConflictArtifactID(id), Source: spec.Source, Target: spec.Target, SourceHead: spec.SourceHead, URL: u}
+	f.conflicts = append(f.conflicts, art)
+	return art, nil
 }
 
 func (f *fakeForge) UpdateConflictArtifact(_ context.Context, _ forge.ConflictArtifactID, _ forge.ConflictArtifactSpec) error {

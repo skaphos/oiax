@@ -22,6 +22,13 @@ import (
 // not yet built (see the roadmap in docs/architecture.md).
 var ErrNotImplemented = errors.New("not implemented")
 
+// ErrConflictArtifactsUnsupported marks a conflict-artifact write the forge
+// refused because the repository cannot host artifacts at all (GitHub with
+// Issues disabled answers 410 Gone). It is permanent until the repository's
+// settings change, unlike a transient failure; callers test it with
+// errors.Is.
+var ErrConflictArtifactsUnsupported = errors.New("the repository cannot host conflict artifacts")
+
 // RequestID identifies a change request within a provider.
 type RequestID string
 
@@ -103,6 +110,11 @@ type ConflictArtifact struct {
 	Source     string
 	Target     string
 	SourceHead string
+	// URL is the artifact's forge web page. Providers build it from the
+	// repository identity they were configured with and the artifact ID,
+	// never from text the forge returned, so it is safe to print as a
+	// link on any surface.
+	URL string
 }
 
 // BranchPush pushes a branch in the oiax/ namespace. Force pushing is

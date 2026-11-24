@@ -32,6 +32,7 @@ import (
 	"text/template"
 
 	mk "github.com/skaphos/oiax/v2/internal/forge/marker"
+	"github.com/skaphos/oiax/v2/internal/textsafe"
 	v1 "github.com/skaphos/oiax/v2/pkg/api/v1"
 )
 
@@ -121,7 +122,17 @@ type Context struct {
 	// Conflict carries the failing-commit information on the
 	// backflow-conflict surface; nil elsewhere.
 	Conflict *Conflict
+	// Surface is where the text is rendered: SurfaceArtifact for managed
+	// requests, merge messages, and the conflict artifact; SurfaceSummary
+	// for the conflict section of the CI job summary (conflict body only).
+	Surface string
 }
+
+// The values of Context.Surface.
+const (
+	SurfaceArtifact = "artifact"
+	SurfaceSummary  = "summary"
+)
 
 // NewCommit builds a template Commit from a raw sha and subject, applying
 // the documented abbreviation and the untrusted-subject length cap.
@@ -151,8 +162,8 @@ const (
 		"This request is managed by Oiax. Do not edit the metadata block below."
 
 	defaultConflictTitle = "oiax: backflow conflict {{.From}} -> {{.To}}"
-	defaultConflictBody  = "Oiax could not return the downstream-only commits from `{{.From}}` to `{{.To}}`: the " +
-		"backflow replay conflicts on the `{{.From}}` -> `{{.To}}` edge (source `{{.SourceHeadShort}}`).\n\n" +
+	defaultConflictBody  = "Oiax could not return the downstream-only commits from `{{text .From}}` to `{{text .To}}`: the " +
+		"backflow replay conflicts on the `{{text .From}}` -> `{{text .To}}` edge (source `{{text .SourceHeadShort}}`).\n\n" +
 		"**Failing commit:** `{{.Conflict.SHA}}` — {{.Conflict.Subject}}\n\n" +
 		"{{if .Conflict.Whole}}The merge strategy attempted the whole downstream source set in a " +
 		"single `--no-ff` merge; the merge conflicts, so nothing is returned." +
@@ -160,16 +171,16 @@ const (
 		"conflicted; the replay is aborted and nothing is returned.{{end}}" +
 		"{{if ge .Conflict.SquashCommits 2}}\n\nThe failing commit combines {{.Conflict.SquashCommits}} " +
 		"cherry-picked commits, so it looks like a **squash merge**. A squashed commit cannot be returned one " +
-		"commit at a time — the parts already on `{{.To}}` conflict with the parts that are not — so this " +
+		"commit at a time — the parts already on `{{text .To}}` conflict with the parts that are not — so this " +
 		"conflict will not clear on its own. Cherry-pick or promote the still-missing change by hand, or mark " +
-		"the commit `Oiax-Backflow: skip` if its content already reached `{{.To}}` another way. Squash merges " +
+		"the commit `Oiax-Backflow: skip` if its content already reached `{{text .To}}` another way. Squash merges " +
 		"on a promotion-path branch defeat backflow; prefer rebase or merge-commit merges there.{{end}}\n\n" +
 		"### What to do\n\n" +
-		"Replay the failing change onto `{{.To}}` by hand, on a branch of your own " +
+		"Replay the failing change onto `{{text .To}}` by hand, on a branch of your own " +
 		"(not the Oiax-owned `oiax/backflow/…` return branch, which Oiax force-pushes):\n\n" +
 		"```sh\n" +
-		"git fetch origin {{.From}} {{.To}}\n" +
-		"git switch -c backflow-fix/{{shortSHA .Conflict.SHA}} origin/{{.To}}\n" +
+		"git fetch origin {{shellArg .From}} {{shellArg .To}}\n" +
+		"git switch -c backflow-fix/{{shortSHA .Conflict.SHA}} origin/{{shellArg .To}}\n" +
 		"{{if .Conflict.Whole}}git merge --no-ff {{.Conflict.SHA}}\n" +
 		"# resolve the conflicts, then:\n" +
 		"git commit --no-edit\n" +
@@ -178,19 +189,19 @@ const (
 		"git cherry-pick --continue\n" +
 		"{{end}}git push -u origin backflow-fix/{{shortSHA .Conflict.SHA}}\n" +
 		"```\n\n" +
-		"{{if .Conflict.Whole}}Open a request from that branch into `{{.To}}` and land it " +
+		"{{if .Conflict.Whole}}Open a request from that branch into `{{text .To}}` and land it " +
 		"as a **merge commit** (not a squash or rebase): the edge settles by ancestry, so " +
-		"the head of `{{.From}}` must become reachable from `{{.To}}`." +
-		"{{else}}Open a request from that branch into `{{.To}}`, keeping the " +
+		"the head of `{{text .From}}` must become reachable from `{{text .To}}`." +
+		"{{else}}Open a request from that branch into `{{text .To}}`, keeping the " +
 		"`(cherry picked from commit …)` provenance line intact — it is how Oiax " +
 		"recognizes the commit as returned. Commits still unreturned after this one are " +
 		"picked up by the next reconcile.{{end}}\n\n" +
 		"Alternatively, mark the commit `Oiax-Backflow: skip` if it should never return. " +
 		"See the [backflow guide](https://github.com/skaphos/oiax/blob/main/docs/guides/backflow.md#when-a-replay-conflicts) " +
-		"for the full playbook.\n\n" +
-		"Oiax manages this issue. It closes automatically once the conflict clears " +
+		"for the full playbook." +
+		"{{if eq .Surface \"artifact\"}}\n\nOiax manages this conflict record. It closes automatically once the conflict clears " +
 		"(the replay succeeds, the edge converges, or the commit becomes " +
-		"returned/skipped). Do not edit the metadata block below."
+		"returned/skipped). Do not edit the metadata block below.{{end}}"
 )
 
 // funcMap is the curated function set templates may call, beyond
@@ -217,7 +228,36 @@ func funcMap() template.FuncMap {
 			}
 			return s
 		},
+		// text prints a value as prose. It is the identity on the artifact
+		// surface; summary renders rebind it to textsafe.Markdown, so a
+		// branch name cannot add Markdown structure to the job summary.
+		"text": func(s string) string { return s },
+		// shellArg quotes a value for a POSIX shell command line: unchanged
+		// when it holds only characters a shell treats literally, otherwise
+		// single-quoted. Git allows '$', '`', '&', '<' and more in refs.
+		"shellArg": shellArg,
 	}
+}
+
+// summaryFuncs are the overrides bound for a summary-surface render.
+func summaryFuncs() template.FuncMap {
+	return template.FuncMap{"text": textsafe.Markdown}
+}
+
+// shellArg returns s unchanged when it is non-empty and every byte is in
+// [A-Za-z0-9._/@+=:,-]; otherwise s in single quotes, with each embedded
+// single quote written as '\”.
+func shellArg(s string) string {
+	safe := s != ""
+	for i := 0; i < len(s) && safe; i++ {
+		c := s[i]
+		safe = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			strings.IndexByte("._/@+=:,-", c) >= 0
+	}
+	if safe {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // pair is one surface's compiled title and body.
@@ -239,6 +279,10 @@ type Set struct {
 	conflict pair
 	// mergeMsg is nil when unconfigured: git's default merge message.
 	mergeMsg *template.Template
+	// conflictReadsCommitText is true when the configured conflict body can
+	// read commit text (spec 002 FR-016): the CI summary then uses the
+	// built-in body. Always false for the built-in body.
+	conflictReadsCommitText bool
 }
 
 // defaultSet compiles the built-in templates once. template.Must is safe:
@@ -323,6 +367,9 @@ func Resolve(cfg *v1.PromotionGraph, read FileReader) (*Set, error) {
 		s.perEdge[[2]string{p.From, p.To}] = ep
 	}
 
+	if s.conflict.body != d.conflict.body {
+		s.conflictReadsCommitText = readsCommitText(s.conflict.body)
+	}
 	if err := s.sampleRender(); err != nil {
 		return nil, err
 	}
@@ -411,6 +458,7 @@ func (s *Set) sampleRender() error {
 		c := sample
 		c.Type = typ
 		c.Conflict = conflict
+		c.Surface = SurfaceArtifact
 		if typ != "promotion" {
 			c.Strategy = "cherry-pick"
 			c.Mechanism = "cherry-pick"
@@ -420,6 +468,16 @@ func (s *Set) sampleRender() error {
 		}
 		if _, err := renderBody(p.body, c); err != nil {
 			return err
+		}
+		if typ == "conflict" && !s.conflictReadsCommitText {
+			// The conflict body also renders on the summary surface, so a
+			// body that fails only there is rejected at load too. A body
+			// that reads commit text never renders there (the built-in body
+			// stands in), so its summary branch is not validated.
+			c.Surface = SurfaceSummary
+			if _, err := renderSummaryBody(p.body, c); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -444,6 +502,7 @@ func (s *Set) sampleRender() error {
 	if s.mergeMsg != nil {
 		c := sample
 		c.Type = "backflow"
+		c.Surface = SurfaceArtifact
 		c.Strategy = "merge"
 		c.Mechanism = "merge commit"
 		if _, err := renderMergeMessage(s.mergeMsg, c); err != nil {
@@ -460,6 +519,7 @@ func (s *Set) Promotion(from, to string, c Context) (title, body string, err err
 	if ep, ok := s.perEdge[[2]string{from, to}]; ok {
 		p = ep
 	}
+	c.Surface = SurfaceArtifact
 	return renderPair(p, c)
 }
 
@@ -476,13 +536,58 @@ func (s *Set) PromotionCustomized(from, to string) bool {
 
 // Backflow renders the title and body of a managed backflow request.
 func (s *Set) Backflow(c Context) (title, body string, err error) {
+	c.Surface = SurfaceArtifact
 	return renderPair(s.backflow, c)
 }
 
 // BackflowConflict renders the title and body of the durable
 // backflow-conflict artifact. c.Conflict must be set.
 func (s *Set) BackflowConflict(c Context) (title, body string, err error) {
+	c.Surface = SurfaceArtifact
 	return renderPair(s.conflict, c)
+}
+
+// ConflictBodyReadsCommitText reports whether the configured conflict body
+// can read commit text, so the CI summary must use the built-in body
+// instead (spec 002 FR-016). False for the built-in body.
+func (s *Set) ConflictBodyReadsCommitText() bool {
+	return s.conflictReadsCommitText
+}
+
+// BackflowConflictSummary renders the conflict guidance body for the CI
+// job summary (Surface "summary"). c.Conflict must be set, and subjects
+// must already be cleaned with textsafe.Subject.
+//
+// A configured body that never reads commit text renders as written. The
+// built-in body, or the built-in body standing in for a configured body
+// that reads commit text (builtin is then true), renders with every
+// subject passed through textsafe.Markdown; that is safe because the
+// built-in body only prints subjects. Branch names reach the summary
+// through the "text" func, bound to textsafe.Markdown for this render.
+func (s *Set) BackflowConflictSummary(c Context) (body string, builtin bool, err error) {
+	c.Surface = SurfaceSummary
+	t := s.conflict.body
+	def := Default().conflict.body
+	if t != def && !s.conflictReadsCommitText {
+		body, err = renderSummaryBody(t, c)
+		return body, false, err
+	}
+	builtin = t != def
+	if c.Conflict != nil {
+		cc := *c.Conflict
+		cc.Subject = textsafe.Markdown(cc.Subject)
+		c.Conflict = &cc
+	}
+	if len(c.Commits) > 0 {
+		cs := make([]Commit, len(c.Commits))
+		for i, cm := range c.Commits {
+			cm.Subject = textsafe.Markdown(cm.Subject)
+			cs[i] = cm
+		}
+		c.Commits = cs
+	}
+	body, err = renderSummaryBody(def, c)
+	return body, builtin, err
 }
 
 // MergeMessage renders the --no-ff merge-commit message for the merge
@@ -492,6 +597,7 @@ func (s *Set) MergeMessage(c Context) (msg string, ok bool, err error) {
 	if s.mergeMsg == nil {
 		return "", false, nil
 	}
+	c.Surface = SurfaceArtifact
 	msg, err = renderMergeMessage(s.mergeMsg, c)
 	if err != nil {
 		return "", false, err
@@ -561,6 +667,16 @@ func renderBody(t *template.Template, c Context) (string, error) {
 		return "", fmt.Errorf("render %s: rendered body is %d bytes (max %d)", t.Name(), len(out), maxBodyBytes)
 	}
 	return out, nil
+}
+
+// renderSummaryBody renders a body on the summary surface: the template is
+// cloned with the summary func overrides bound, then checked like any body.
+func renderSummaryBody(t *template.Template, c Context) (string, error) {
+	st, err := t.Clone()
+	if err != nil {
+		return "", fmt.Errorf("render %s: %w", t.Name(), err)
+	}
+	return renderBody(st.Funcs(summaryFuncs()), c)
 }
 
 // renderMergeMessage renders the merge-commit message: non-empty after

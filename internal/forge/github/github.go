@@ -559,6 +559,7 @@ func (p *Provider) ListConflictArtifacts(ctx context.Context, graph string) ([]f
 			Source:     m.Source,
 			Target:     m.Destination,
 			SourceHead: m.SourceHead,
+			URL:        p.issueWebURL(iss.Number),
 		})
 	}
 	return out, nil
@@ -615,7 +616,8 @@ func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.Confli
 		if errors.As(err, &ae) && ae.StatusCode == http.StatusGone {
 			return forge.ConflictArtifact{}, fmt.Errorf(
 				"create conflict artifact: %w (Issues appear to be disabled for this repository; "+
-					"enable them in Settings -> General -> Features so Oiax can record backflow conflicts)", err)
+					"enable them in Settings -> General -> Features so Oiax can record backflow conflicts): %w",
+				err, forge.ErrConflictArtifactsUnsupported)
 		}
 		return forge.ConflictArtifact{}, fmt.Errorf("create conflict artifact: %w", err)
 	}
@@ -640,7 +642,19 @@ func (p *Provider) CreateConflictArtifact(ctx context.Context, spec forge.Confli
 		Source:     spec.Source,
 		Target:     spec.Target,
 		SourceHead: spec.SourceHead,
+		URL:        p.issueWebURL(created.Number),
 	}, nil
+}
+
+// ArtifactNoun names the durable conflict artifact in operator-facing text.
+func (p *Provider) ArtifactNoun() string { return "issue" }
+
+// issueWebURL is the web page of issue number n, built from the configured
+// owner and repository (the request-link precedent in notifications.go),
+// never from forge-returned text.
+func (p *Provider) issueWebURL(n int) string {
+	return "https://" + gitRemoteHost + "/" + url.PathEscape(p.Owner) + "/" + url.PathEscape(p.Repo) +
+		"/issues/" + strconv.Itoa(n)
 }
 
 // UpdateConflictArtifact refreshes an existing conflict artifact in place:

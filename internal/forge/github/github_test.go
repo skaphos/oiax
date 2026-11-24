@@ -2290,7 +2290,8 @@ func TestCreateConflictArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateConflictArtifact: %v", err)
 	}
-	want := forge.ConflictArtifact{ID: "7", Source: "main", Target: "development", SourceHead: "abc123"}
+	want := forge.ConflictArtifact{ID: "7", Source: "main", Target: "development", SourceHead: "abc123",
+		URL: "https://github.com/acme/widgets/issues/7"}
 	if got != want {
 		t.Errorf("created = %+v, want %+v", got, want)
 	}

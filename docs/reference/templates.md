@@ -85,6 +85,7 @@ observed branch controls them) — see [Untrusted variables](#untrusted-variable
 | `.Strategy` | string | trusted | (empty) | `cherry-pick` or `merge` | `cherry-pick` or `merge` | `merge` |
 | `.Mechanism` | string | trusted | (empty) | `cherry-pick` or `merge commit` | `cherry-pick` or `merge commit` | `merge commit` |
 | `.Conflict` | object | see below | nil | nil | set | nil |
+| `.Surface` | string | trusted | `artifact` | `artifact` | `artifact` or `summary` | `artifact` |
 
 ¹ On the promotion surface, `.Commits` and `.SourceHeadShort` are
 populated only when the edge's promotion text is customized — assembling
@@ -111,6 +112,43 @@ total, so a template can note truncation with
 | `.Conflict.Subject` | string | **UNTRUSTED** | its subject line |
 | `.Conflict.Applied` | int | trusted | commits applied cleanly before the conflict (cherry-pick only) |
 | `.Conflict.Whole` | bool | trusted | `true` for the merge strategy (whole set attempted), `false` for cherry-pick |
+| `.Conflict.SquashCommits` | int | trusted | how many commits the failing commit rolls up (from its cherry-pick provenance lines); 2 or more means it looks like a squash merge, 0 otherwise |
+
+On the conflict surface, `.Conflict.Subject` and every `.Commits[].Subject`
+are cleaned before any template sees them: only the first line is kept,
+control and bidi (format) characters are removed, and the value is capped
+at **200 runes in total**, including a trailing `…` when it was shortened.
+
+### `.Surface`: the conflict artifact and the run summary
+
+The `backflowConflict` body renders twice: once for the durable conflict
+record (`.Surface` is `artifact`) and once for the **Backflow conflict**
+section of the failing run's CI summary (`.Surface` is `summary`). Text
+that only makes sense on the record, such as "do not edit the metadata
+block below", belongs behind the surface variable:
+
+```gotemplate
+Resolve the conflict on a branch of your own.
+{{- if eq .Surface "artifact"}}
+
+Oiax manages this conflict record and closes it once the conflict clears.
+{{- end}}
+```
+
+Every other surface renders with `.Surface` set to `artifact`.
+
+**A conflict body that reads commit text is not used in the summary.**
+Oiax cannot contain untrusted text inside a template it does not control,
+so when the configured `backflowConflict` body reads `.Conflict.Subject`,
+any `.Commits[].Subject`, or passes a whole `.Conflict`, `.Commits` entry,
+`.`, or `$` to a function or prints it, the run summary shows Oiax's
+built-in steps instead, with a note. The configured body still renders the
+conflict record unchanged, and nothing is rejected at load. A summary-safe
+body may read every other variable, including `.Conflict.SHA`,
+`.Conflict.Applied`, `.Conflict.Whole`, `.Conflict.SquashCommits`,
+`.Commits[].SHA`, `.Commits[].ShortSHA`, `len .Commits`, and `.Surface`.
+Defining or calling named templates (`define`, `template`, `block`) also
+counts as reading commit text.
 
 There is deliberately **no clock variable** (`RunTime` or similar):
 bodies render once at creation and never again, so a timestamp would
@@ -125,6 +163,8 @@ Beyond `text/template`'s builtins (`printf`, `len`, `index`, `range`,
 | --- | --- | --- |
 | `trunc` | `{{trunc 72 .Subject}}` | cap a string at n runes |
 | `shortSHA` | `{{shortSHA .SourceHead}}` | abbreviate an object id to 7 hex digits |
+| `text` | `` `{{text .To}}` `` | print a value as prose: unchanged on the `artifact` surface; on the `summary` surface, Markdown-active characters are replaced with look-alikes so a branch name cannot add Markdown structure |
+| `shellArg` | `git fetch origin {{shellArg .From}}` | quote a value for a POSIX shell command line: unchanged when it has only `A-Z a-z 0-9 . _ / @ + = : , -`, otherwise single-quoted (Git allows `$`, `` ` ``, `&`, `<` and more in branch names) |
 
 Nothing volatile is available (no time, no environment, no exec):
 rendered output must be a deterministic function of the context.

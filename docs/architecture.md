@@ -351,6 +351,20 @@ Structured logging (`OIAX_LOG_FORMAT=text|json`); in GitHub Actions,
 workflow annotations for warnings/errors and a plan summary written to
 `$GITHUB_STEP_SUMMARY`. Credential values never appear in output.
 
+A backflow conflict is published after apply, once the conflict record's
+fate is known: `internal/reconcile` returns one `DivergenceReport` per
+diverging edge (the record's status and address, and the guidance body
+rendered for the summary surface), and the CLI writes the conflict
+sections as the last summary write, within the host's 1 MiB budget, then
+emits one warning per conflicting edge and the per-edge exit-3 message.
+Untrusted commit text reaches those surfaces only through
+`internal/textsafe` (clean once, then contain per surface), and a
+configured conflict template that reads commit text is kept out of the
+summary by a parse-tree check. Under a detected CI host every log line,
+annotation or not, has host command sequences (`::`, `##vso[`, `##[`)
+broken before it is written, so untrusted text in a message or attribute
+cannot inject a CI command.
+
 ## Security posture
 
 - Configuration is read from a pinned ref

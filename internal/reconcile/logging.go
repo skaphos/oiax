@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+
+	"github.com/skaphos/oiax/v2/internal/textsafe"
 )
 
 // AnnotationStyle selects the CI host dialect annotations are written in.
@@ -53,11 +55,47 @@ type annotationHandler struct {
 	out   io.Writer
 }
 
+// Handle neutralizes host command openers in the record before either
+// output (spec 002 research R6): the message and every string-valued
+// attribute pass through textsafe.LogCommand, so neither the annotation nor
+// the plain log line can carry "::", "##vso[", or "##[" from untrusted text
+// (a commit subject, a forge API error). Both hosts scan every captured
+// line, so this applies at every level, not only to annotations.
 func (h *annotationHandler) Handle(ctx context.Context, r slog.Record) error {
-	if r.Level >= slog.LevelWarn {
-		fmt.Fprint(h.out, formatAnnotation(h.style, r.Level, r.Message))
+	clean := slog.NewRecord(r.Time, r.Level, textsafe.LogCommand(r.Message), r.PC)
+	r.Attrs(func(a slog.Attr) bool {
+		clean.AddAttrs(neutralizeAttr(a))
+		return true
+	})
+	if clean.Level >= slog.LevelWarn {
+		fmt.Fprint(h.out, formatAnnotation(h.style, clean.Level, clean.Message))
 	}
-	return h.Handler.Handle(ctx, r)
+	return h.Handler.Handle(ctx, clean)
+}
+
+// neutralizeAttr applies textsafe.LogCommand to an attribute's text: string
+// values, groups recursively, and any other value whose printed form would
+// change (an error, a Stringer). A value that needs no change keeps its
+// kind, so structured output is unchanged for ordinary attributes.
+func neutralizeAttr(a slog.Attr) slog.Attr {
+	v := a.Value.Resolve()
+	switch v.Kind() {
+	case slog.KindString:
+		return slog.String(a.Key, textsafe.LogCommand(v.String()))
+	case slog.KindGroup:
+		group := v.Group()
+		out := make([]slog.Attr, len(group))
+		for i, g := range group {
+			out[i] = neutralizeAttr(g)
+		}
+		return slog.Attr{Key: a.Key, Value: slog.GroupValue(out...)}
+	case slog.KindAny:
+		printed := fmt.Sprint(v.Any())
+		if safe := textsafe.LogCommand(printed); safe != printed {
+			return slog.String(a.Key, safe)
+		}
+	}
+	return slog.Attr{Key: a.Key, Value: v}
 }
 
 // formatAnnotation renders one annotation line in the host's dialect. The
@@ -86,24 +124,31 @@ func escapeAnnotation(s string) string {
 	return s
 }
 
-// escapeAzureAnnotation encodes the message ("data") section of an Azure
-// Pipelines logging command the way the agent's decoder expects: '%'
-// becomes the agent-specific %AZP25 token, CR and LF percent-encode. As
-// with GitHub, an unescaped newline would let a crafted message inject a
-// further ##vso command line. '%' is escaped first so the encodings it
-// introduces are not re-escaped.
-func escapeAzureAnnotation(s string) string {
+// EscapeAzureCommandData encodes the data section of an Azure Pipelines
+// logging command (an annotation message, an uploadsummary path) the way
+// the agent's decoder expects: '%' becomes the agent-specific %AZP25 token,
+// CR and LF percent-encode. As with GitHub, an unescaped newline would let
+// a crafted value inject a further ##vso command line. '%' is escaped first
+// so the encodings it introduces are not re-escaped.
+func EscapeAzureCommandData(s string) string {
 	s = strings.ReplaceAll(s, "%", "%AZP25")
 	s = strings.ReplaceAll(s, "\r", "%0D")
 	s = strings.ReplaceAll(s, "\n", "%0A")
 	return s
 }
 
+// escapeAzureAnnotation encodes an Azure annotation message.
+func escapeAzureAnnotation(s string) string { return EscapeAzureCommandData(s) }
+
 // WithAttrs and WithGroup re-wrap so the annotation behavior survives
 // derived loggers (the embedded handler's methods would otherwise return
 // the undecorated base).
 func (h *annotationHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &annotationHandler{Handler: h.Handler.WithAttrs(attrs), style: h.style, out: h.out}
+	clean := make([]slog.Attr, len(attrs))
+	for i, a := range attrs {
+		clean[i] = neutralizeAttr(a)
+	}
+	return &annotationHandler{Handler: h.Handler.WithAttrs(clean), style: h.style, out: h.out}
 }
 
 func (h *annotationHandler) WithGroup(name string) slog.Handler {

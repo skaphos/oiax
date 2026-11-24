@@ -176,11 +176,13 @@ survive in the merge you already made.
 
 ### Keep Issues enabled (GitHub, backflow only)
 
-Durable backflow-conflict artifacts are GitHub **issues**. A repository
+Durable backflow-conflict records are GitHub **issues**. A repository
 with the Issues feature switched off cannot host them: a backflow
 conflict still halts with exit 3, but the durable record that points
-operators at the failing commit cannot be created — the details survive
-only in the run log. Oiax reads `has_issues` on every plan when backflow
+operators at the failing commit cannot be created. The conflict warning
+then says "No durable conflict record can be kept (Issues are disabled)",
+and the steps survive only in that run's summary section and log, for as
+long as the CI host keeps the run. Oiax reads `has_issues` on every plan when backflow
 is enabled and warns while the feature is off:
 
 ```text
@@ -233,7 +235,19 @@ This needs a human. Your options:
 - **It is a real divergence** — reconcile the branches yourself (promote
   or cherry-pick the missing content the way your process dictates).
 
-For a backflow conflict specifically, see
+`reconcile`'s exit-3 message names each diverging edge on its own line,
+in plan order, so a failed run says what needs attention without opening
+the log:
+
+```text
+converged with reported divergence on 2 edges:
+  production -> development: backflow conflict; resolution steps: https://github.com/acme/widgets/issues/12
+  test -> qa: reported divergence
+```
+
+For a backflow conflict specifically, the run's summary also carries a
+section with the steps, and the conflict warning ends with the same
+pointer; see
 [Backflow — when a replay conflicts](backflow.md#when-a-replay-conflicts).
 
 ## Exit codes and CI gating
@@ -252,7 +266,9 @@ Exit codes are a stable contract, following `terraform plan
 state — 2 means "safe to reconcile, it will converge to 0," 3 means
 "needs a human." A CI gate can rely on that. The one case `plan` cannot
 foresee is a backflow that only conflicts at cherry-pick time: it shows as
-2 but `reconcile` exits 3. Full details in the
+2 but `reconcile` exits 3. The exit-3 message's first line still begins
+`converged with reported divergence`; the per-edge lines that follow are
+for people, not a format to parse. Full details in the
 [configuration reference](../reference/configuration.md#exit-codes).
 
 ## Recovery: idempotency, not rollback

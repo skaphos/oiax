@@ -229,12 +229,39 @@ See [ADR 0004](../adr/0004-backflow-execution.md) for the full rationale.
 If replaying a downstream commit genuinely conflicts with the target,
 Oiax **stops**: it aborts the cherry-pick, pushes nothing, and creates no
 request. It never attempts automatic conflict resolution. This surfaces
-as a **reported divergence** (`reconcile` exits 3) with a diagnostic that
-names the failing commit and how many applied cleanly before it:
+as a **reported divergence** (`reconcile` exits 3), and the failing run
+itself tells you where the resolution steps are, in three places:
 
-```
-backflow production-stage-1 -> development halted on cherry-pick conflict at 4f2a91c "hotfix: clamp retry budget" after 2 applied cleanly; no request created
-```
+- **A warning** (a CI annotation, and a line in the log) that names the
+  failing commit and how many applied cleanly before it, then points at
+  the steps. Oiax emits it after apply, once it knows whether the
+  conflict record exists:
+
+  ```
+  backflow production-stage-1 -> development halted on cherry-pick conflict at 4f2a91c "hotfix: clamp retry budget" after 2 applied cleanly; no request created. Resolution steps: https://github.com/acme/widgets/issues/12
+  ```
+
+- **A section in the run's summary** (the GitHub Actions job summary, or
+  the Azure Pipelines run's Extensions tab), titled
+  `Backflow conflict: <source> → <target>`, with the failing commit, the
+  link to the conflict record, and the full replay steps. It is written
+  after the plan summary, also when apply later fails with exit 1.
+- **The exit-3 message**, which names every diverging edge with its own
+  pointer:
+
+  ```
+  converged with reported divergence on 1 edge:
+    production-stage-1 -> development: backflow conflict; resolution steps: https://github.com/acme/widgets/issues/12
+  ```
+
+The pointer is the conflict record's address whenever Oiax knows it. When
+there is no record (see below), the warning and the exit-3 line say so and
+point at this run's summary, or, when no summary was written (a local run,
+or a summary past the host's size limit), at this section of the guide.
+Commit subjects are untrusted text: Oiax prints them on these surfaces as
+literal text, so a crafted subject cannot add a CI command, a link, or
+Markdown structure. These formats are documented behavior, not a
+compatibility contract; do not parse them.
 
 Resolve it the way you resolve any conflicting change: promote or
 cherry-pick the fix into the target by hand, or, if the commit should not
@@ -281,10 +308,10 @@ Land that request as a **merge commit** (not a squash or rebase): the
 merge-strategy edge settles by ancestry, so the source head must become
 reachable from the target.
 
-Because that diagnostic scrolls away on a busy repository, `reconcile`
-also opens a **durable conflict artifact** — a forge issue labeled `oiax`
-and `oiax/conflict` — alongside the exit-3 divergence (it never changes
-the exit code). The issue carries the failing commit's SHA and subject,
+Because a run's log and summary expire with the run, `reconcile`
+also opens a **durable conflict record** — a forge issue labeled `oiax`
+and `oiax/conflict` on GitHub, a work item on Azure Boards — alongside the
+exit-3 divergence (it never changes the exit code). The issue carries the failing commit's SHA and subject,
 how many commits applied cleanly, and this playbook. It is keyed to the
 backflow edge by a body marker (never the title), so overlapping and
 repeated runs converge on **one** issue per edge rather than spamming a
@@ -304,11 +331,18 @@ lives only in Git and the forge):
   close by hand rather than auto-closed — the same conservative posture
   as an orphaned backflow request.
 
-On GitHub the artifact is an issue, so the repository must have the
+On GitHub the record is an issue, so the repository must have the
 **Issues** feature enabled. When it is off, the conflict still halts
-with exit 3 but no durable record can be created; Oiax warns on every
-plan while backflow is enabled and Issues are off. See
+with exit 3 but no durable record can be created: the warning says
+"No durable conflict record can be kept (Issues are disabled)", and the
+run's summary section is the only guidance, kept only as long as the CI
+host keeps the run. Oiax warns on every plan while backflow is enabled and
+Issues are off. See
 [Keep Issues enabled](operating.md#keep-issues-enabled-github-backflow-only).
+
+When the record could not be written or confirmed this run (a forge error
+while listing or creating it), the warning says so and that the next run
+retries; the summary still carries the steps.
 
 This is the one outcome `plan` cannot foresee: a backflow whose commits
 only conflict at cherry-pick time shows in `plan` as an ordinary

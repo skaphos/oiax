@@ -60,6 +60,20 @@ tasks:
       - go -C tools run ./checkcoverage -profile ../coverage-notifications.out
       - go test -timeout=10m -race -shuffle=on ./internal/forge/github ./internal/forge/azuredevops ./internal/forge/marker ./internal/reconcile ./internal/cli -run Notification
 
+  textsafe:coverage:
+    desc: Race/shuffle internal/textsafe and enforce its 95% coverage floor (spec 002)
+    cmds:
+      - go test -timeout=10m -race -shuffle=on -covermode=atomic -coverprofile=coverage-textsafe.out ./internal/textsafe/...
+      - go -C tools run ./checkcoverage -profile ../coverage-textsafe.out -prefix github.com/skaphos/oiax/v2/internal/textsafe -min 95
+
+  textsafe:fuzz:
+    desc: Bounded fuzz campaigns for every internal/textsafe target (spec 002)
+    cmds:
+      - go test ./internal/textsafe -run '^$' -fuzz '^FuzzSubject$' -fuzztime={{.FUZZTIME | default "30s"}} -parallel=2
+      - go test ./internal/textsafe -run '^$' -fuzz '^FuzzLogCommand$' -fuzztime={{.FUZZTIME | default "30s"}} -parallel=2
+      - go test ./internal/textsafe -run '^$' -fuzz '^FuzzPlainLink$' -fuzztime={{.FUZZTIME | default "30s"}} -parallel=2
+      - go test ./internal/textsafe -run '^$' -fuzz '^FuzzMarkdown$' -fuzztime={{.FUZZTIME | default "30s"}} -parallel=2
+
   notifications:fuzz:
     desc: Bounded parser fuzz campaigns (no live resources)
     cmds:

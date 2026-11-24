@@ -148,8 +148,12 @@ func TestExecuteDivergenceMessage(t *testing.T) {
 	if code := Execute(context.Background(), []string{"reconcile"}); code != 3 {
 		t.Fatalf("Execute(reconcile) = %d, want 3\nstdout:\n%s\nstderr:\n%s", code, readOut(), readErr())
 	}
-	if !strings.Contains(readErr(), "converged with reported divergence") {
-		t.Errorf("stderr = %q, want the divergence message", readErr())
+	// The multi-line exit-3 message (spec 002 FR-009): the first line still
+	// begins "converged with reported divergence", then one line per edge.
+	want := "converged with reported divergence on 1 edge:\n" +
+		"  main -> development: backflow conflict; resolution steps: " + fakeIssueURL + "\n"
+	if !strings.Contains(readErr(), want) {
+		t.Errorf("stderr = %q, want the divergence message %q", readErr(), want)
 	}
 }
 

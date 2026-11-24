@@ -158,12 +158,23 @@ func buildCoordinator(cmd *cobra.Command, loaded *loadedConfig, runner *git.Runn
 		NotificationPolicy:  loaded.Notifications,
 		NotificationSources: loaded.NotificationSources,
 		ConfigOID:           loaded.ConfigOID,
+		ArtifactNoun:        artifactNoun(f),
 		// Under a detected CI host a shallow clone is a hard error, not a
 		// warning: the run is unattended and a spurious promotion PR would land
 		// before anyone reads the degraded-mode warning. Locally it stays a
 		// warning. This mirrors the pinned-config-ref CI refusal.
 		RefuseShallow: cienv.Detect() != cienv.None,
 	}, nil
+}
+
+// artifactNoun names the forge's conflict artifact ("issue", "work item")
+// when the provider says; empty otherwise, which the coordinator reads as
+// "issue".
+func artifactNoun(f forge.Forge) string {
+	if n, ok := f.(interface{ ArtifactNoun() string }); ok {
+		return n.ArtifactNoun()
+	}
+	return ""
 }
 
 // buildLogger builds the structured logger from OIAX_LOG_FORMAT. Structured
@@ -201,58 +212,19 @@ func renderPlan(cmd *cobra.Command, opts *options, plan engine.Plan, previews ..
 // (GitHub Actions), or written to a temp file announced with an
 // ##vso[task.uploadsummary] logging command under Azure Pipelines. A
 // summary-write failure is reported but never fails the command.
+//
+// Under Azure the rendering lives in the agent temp directory (cleaned
+// between jobs; the system temp dir when unset), and the upload command
+// goes to stderr with the annotations: the agent scans every captured line
+// for command syntax, and stdout must stay a pure JSON plan.
 func writeStepSummary(cmd *cobra.Command, plan engine.Plan, previews ...*reconcile.NotificationPreview) {
-	if path := os.Getenv("GITHUB_STEP_SUMMARY"); path != "" {
-		writeGitHubSummary(cmd, path, plan, previews...)
+	w, finish, ok := summaryTarget(cmd, "oiax-summary-*.md")
+	if !ok {
 		return
 	}
-	if cienv.Detect() == cienv.AzurePipelines {
-		writeAzureSummary(cmd, plan, previews...)
-	}
-}
-
-func writeGitHubSummary(cmd *cobra.Command, path string, plan engine.Plan, previews ...*reconcile.NotificationPreview) {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", err)
-		return
-	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", cerr)
-		}
-	}()
-	if err := reconcile.RenderMarkdown(f, plan, previews...); err != nil {
+	if err := finish(reconcile.RenderMarkdown(w, plan, previews...)); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", err)
 	}
-}
-
-// writeAzureSummary renders the plan to a Markdown file and emits the
-// ##vso[task.uploadsummary] logging command that attaches it to the run
-// summary page. Azure hands the step no summary file, so the rendering
-// lives in the agent temp directory (cleaned between jobs; the system
-// temp dir when unset). The command goes to stderr with the annotations:
-// the agent scans every captured line for command syntax, and stdout must
-// stay a pure JSON plan for machine consumers.
-func writeAzureSummary(cmd *cobra.Command, plan engine.Plan, previews ...*reconcile.NotificationPreview) {
-	f, err := os.CreateTemp(os.Getenv("AGENT_TEMPDIRECTORY"), "oiax-summary-*.md")
-	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", err)
-		return
-	}
-	renderErr := reconcile.RenderMarkdown(f, plan, previews...)
-	if cerr := f.Close(); renderErr == nil {
-		renderErr = cerr
-	}
-	if renderErr != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "oiax: step summary: %v\n", renderErr)
-		return
-	}
-	// A CreateTemp path never contains a newline that could break the
-	// single-line command, but the directory is caller-controlled via
-	// AGENT_TEMPDIRECTORY, so escape it the way the agent decodes data.
-	path := strings.NewReplacer("%", "%AZP25", "\r", "%0D", "\n", "%0A").Replace(f.Name())
-	fmt.Fprintf(cmd.ErrOrStderr(), "##vso[task.uploadsummary]%s\n", path)
 }
 
 // resolveRepo determines the GitHub owner/repo. GITHUB_REPOSITORY

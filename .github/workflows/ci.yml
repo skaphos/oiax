@@ -103,6 +103,9 @@ jobs:
       - name: Verify notification race/shuffle and package coverage
         if: matrix.os == 'ubuntu-24.04'
         run: go -C tools tool task notifications:verify
+      - name: Verify textsafe race/shuffle and 95% coverage
+        if: matrix.os == 'ubuntu-24.04'
+        run: go -C tools tool task textsafe:coverage
       - name: Verify local CLI portability (build and unit tests)
         if: matrix.os != 'ubuntu-24.04'
         run: go -C tools tool task test-portability

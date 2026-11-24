@@ -73,10 +73,20 @@ type fakeForge struct {
 	conflictUpdated []forge.ConflictArtifactSpec
 	conflictClosed  []forge.ConflictArtifactID
 
-	listConflictsErr  error
-	createConflictErr error
-	updateConflictErr error
-	closeConflictErr  error
+	listConflictsErr error
+	// listConflictsFailures fails that many lists before succeeding.
+	listConflictsFailures int
+	createConflictErr     error
+	updateConflictErr     error
+	closeConflictErr      error
+	// afterCreate runs after a successful create, to model a concurrent run
+	// (spec 002: re-point at the canonical after consolidation).
+	afterCreate func(f *fakeForge)
+}
+
+// fakeConflictURL is the address the fake reports for a conflict artifact.
+func fakeConflictURL(id forge.ConflictArtifactID) string {
+	return "https://forge.test/conflicts/" + string(id)
 }
 
 func (f *fakeForge) RepoMergeMethods(context.Context) (forge.MergeMethods, error) {
@@ -166,6 +176,7 @@ func (f *fakeForge) DeleteBranch(_ context.Context, name string) error {
 func (f *fakeForge) seedConflict(id, source, target, sourceHead string) {
 	f.conflicts = append(f.conflicts, forge.ConflictArtifact{
 		ID: forge.ConflictArtifactID(id), Source: source, Target: target, SourceHead: sourceHead,
+		URL: fakeConflictURL(forge.ConflictArtifactID(id)),
 	})
 	if n, err := strconv.Atoi(id); err == nil && n > f.nextConflictNum {
 		f.nextConflictNum = n
@@ -177,6 +188,10 @@ func (f *fakeForge) seedConflict(id, source, target, sourceHead string) {
 func (f *fakeForge) ListConflictArtifacts(_ context.Context, _ string) ([]forge.ConflictArtifact, error) {
 	if f.listConflictsErr != nil {
 		return nil, f.listConflictsErr
+	}
+	if f.listConflictsFailures > 0 {
+		f.listConflictsFailures--
+		return nil, errors.New("transient list failure")
 	}
 	out := make([]forge.ConflictArtifact, len(f.conflicts))
 	copy(out, f.conflicts)
@@ -194,13 +209,18 @@ func (f *fakeForge) CreateConflictArtifact(_ context.Context, spec forge.Conflic
 		return forge.ConflictArtifact{}, f.createConflictErr
 	}
 	f.nextConflictNum++
+	id := forge.ConflictArtifactID(strconv.Itoa(f.nextConflictNum))
 	art := forge.ConflictArtifact{
-		ID:         forge.ConflictArtifactID(strconv.Itoa(f.nextConflictNum)),
+		ID:         id,
 		Source:     spec.Source,
 		Target:     spec.Target,
 		SourceHead: spec.SourceHead,
+		URL:        fakeConflictURL(id),
 	}
 	f.conflicts = append(f.conflicts, art)
+	if f.afterCreate != nil {
+		f.afterCreate(f)
+	}
 	return art, nil
 }
 

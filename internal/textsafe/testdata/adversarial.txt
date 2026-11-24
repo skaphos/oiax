@@ -1,0 +1,73 @@
+// One adversarial commit subject per line (spec 002 SC-004). Escapes such as
+// \n, \r, \xNN, and \uNNNN are decoded by the test; lines starting with '//' and
+// a space are comments.
+::error::x
+::warning file=app.go,line=1::injected
+::set-output name=x::y
+::add-mask::development
+::stop-commands::token
+%0A::warning::x
+fix: a\n::error::second line
+fix: a\r::error::carriage return
+##[error]x
+##[warning]x
+##[add-mask]development
+##[stop-commands]t
+##[group]collapse the log
+##vso[task.setvariable variable=OIAX_INJECTED]1
+##vso[task.complete result=Succeeded]
+##vso[task.uploadsummary]/etc/passwd
+##VSO[task.setvariable variable=OIAX_INJECTED]1
+##VsO[task.logissue type=error]mixed case
+#\u2060#vso[task.setvariable variable=OIAX_INJECTED]1
+#\u2060#[error]pre-broken
+:\u2060:error::pre-broken
+[Resolution steps](https://attacker.example)
+[steps][1] [1]: https://attacker.example
+![x](https://attacker.example/pixel.png)
+https://attacker.example/steps
+HTTPS://ATTACKER.EXAMPLE
+www.attacker.example
+see WWW.attacker.example now
+<https://attacker.example>
+mailto:victim@attacker.example
+javascript:alert(1)
+htt\u2060ps://split.example
+<img src=x onerror=alert(1)>
+<a href='https://attacker.example'>steps</a>
+<details><summary>x</summary>
+&lt;script&gt;alert(1)&lt;/script&gt;
+<!-- oiax:marker -->
+@org/team please merge
+cc @octocat
+fixes #123
+skaphos/oiax#1
+| a | b |
+# heading
+### What to do
+> quoted
+- list item
++ list item
+1. ordered
+  - indented list
+===
+---
+***
+___
+`code` and ``double``
+```sh
+~~~
+*emphasis* _under_ **bold** ~~strike~~
+\*escaped\* \[not a link\]
+$\href{https://attacker.example}{x}$
+fix: \u202eevil\u202c reversed
+fix: \u2066isolate\u2069
+fix: zero\u200bwidth
+fix: \u00adsoft hyphen
+fix: bell\x07 and escape\x1b[31m
+fix: nul\x00byte
+fix: \ufeffbom
+[##vso[task.complete]](https://attacker.example) @team <b>
+::error::[x](https://attacker.example)
+`##vso[task.setvariable variable=X]1`
+fix: \u202eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x07bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

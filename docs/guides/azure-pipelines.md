@@ -267,10 +267,19 @@ When it runs under Azure Pipelines (`TF_BUILD` is set), Oiax:
 - publishes a Markdown table of the plan to the run's summary page via
   `##vso[task.uploadsummary]`, so the run shows what it did at a glance;
 - surfaces warnings and errors as `##vso[task.logissue type=warning|error]`
-  logging commands, so they appear as issues on the run.
+  logging commands, so they appear as issues on the run;
+- when a backflow replay conflicts, uploads one more summary file with a
+  **Backflow conflict** section per conflicting edge, and emits one warning
+  per edge whose last words point at the steps: the conflict work item (or,
+  for a GitHub-hosted repository, issue) address, or this run's summary when
+  no record could be kept. See
+  [When a replay conflicts](backflow.md#when-a-replay-conflicts).
 
 Machine output (`-o json`) always goes to stdout uncorrupted; logging
-commands and logs go to stderr.
+commands and logs go to stderr. Every log line has CI command sequences
+(`##vso[`, `##[`, `::`) from untrusted text such as commit subjects or
+forge errors broken, so they cannot inject a logging command, and every
+uploaded summary path is escaped as command data.
 
 One CI-safety behavior also follows the host: when the repository default
 branch cannot be resolved (no `origin/HEAD` — typically a checkout shape
