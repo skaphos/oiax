@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.2.0](https://github.com/skaphos/oiax/compare/v2.1.2...v2.2.0) (2026-11-24)
+
+
+### Features
+
+* backflow conflict guidance on the failing run (spec 002) ([#160](https://github.com/skaphos/oiax/issues/160)) ([e90255d](https://github.com/skaphos/oiax/commit/e90255da5c596076d920c2f665507d1a67ab0cda))
+
+
+### Bug Fixes
+
+* **forge:** require author provenance to recognize a managed request ([#159](https://github.com/skaphos/oiax/issues/159)) ([fe3f6fa](https://github.com/skaphos/oiax/commit/fe3f6faa88cf17ac53ef6df5e71fcce7137c5a06))
+* **release:** check every CHANGELOG entry in the published release notes ([#157](https://github.com/skaphos/oiax/issues/157)) ([da3a52b](https://github.com/skaphos/oiax/commit/da3a52b7f829477d6d47b39dff58377f40d03a36))
+* **release:** publish the CHANGELOG notes and verify each published release ([#145](https://github.com/skaphos/oiax/issues/145)) ([d774e90](https://github.com/skaphos/oiax/commit/d774e90613ac4f103ab47a03355fe7a7eb40ea48))
+
 ## [2.1.2](https://github.com/skaphos/oiax/compare/v2.1.1...v2.1.2) (2026-11-22)
 
 
